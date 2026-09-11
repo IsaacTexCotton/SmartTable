@@ -27,6 +27,12 @@ mesmo `window` da página, necessário pra `window.showTab`,
 `window.abrirWhatsAppCliente`, `window.__avisoCobranca` etc. funcionarem —
 mas isso ainda não foi testado no CRM real, só documentado como expectativa.
 
+**Repositório público**: este repo precisou ser tornado público para que
+`raw.githubusercontent.com` sirva os arquivos sem autenticação (Tampermonkey
+não envia credenciais). O código não contém segredos/credenciais, mas expõe
+publicamente seletores, endpoints e regras de negócio do CRM interno — decisão
+já tomada e confirmada.
+
 **Nota sobre a URL de atualização**: `@updateURL`/`@downloadURL`/`@require`
 apontam hoje para a branch `claude/new-session-37eexq` (ainda não há branch
 `main` neste repo). Se/quando este trabalho for mesclado numa branch estável,
