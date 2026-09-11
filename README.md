@@ -8,9 +8,36 @@ uma fila de clientes sozinho, avisa sobre grupo econômico e promessas de
 pagamento quebradas, bloqueia cobrança indevida, e roda quase inteiramente por
 atalhos de teclado.
 
-Este repositório existe para versionar os módulos — o uso real continua sendo
-colar o conteúdo no Local Override do DevTools (ver `contexto-v7.md` para o
-histórico completo de decisões, armadilhas e itens em aberto).
+Este repositório existe para versionar os módulos. Há duas formas de rodar:
+
+## Opção 1: Tampermonkey (recomendado, permite distribuir pro time)
+
+1. Instale a extensão [Tampermonkey](https://www.tampermonkey.net/) no Chrome.
+2. Clique em `smart-table.user.js` neste repo → "Raw" → o Tampermonkey abre a
+   tela de instalação automaticamente. Confirme.
+3. Pronto — o script busca os módulos direto de `modulos/*.js` via `@require`.
+   Quando um módulo for atualizado neste repo, basta subir o `@version` em
+   `smart-table.user.js` (e dar "Check for updates" no Tampermonkey, ou
+   esperar a checagem automática) pra todo mundo receber a versão nova, sem
+   reenviar arquivo.
+
+**Pendente de confirmar em uso real**: o Tampermonkey roda scripts num
+contexto isolado por padrão; `@grant none` (já configurado) deveria expor o
+mesmo `window` da página, necessário pra `window.showTab`,
+`window.abrirWhatsAppCliente`, `window.__avisoCobranca` etc. funcionarem —
+mas isso ainda não foi testado no CRM real, só documentado como expectativa.
+
+**Nota sobre a URL de atualização**: `@updateURL`/`@downloadURL`/`@require`
+apontam hoje para a branch `claude/new-session-37eexq` (ainda não há branch
+`main` neste repo). Se/quando este trabalho for mesclado numa branch estável,
+atualize essas URLs em `smart-table.user.js` para apontar pra ela.
+
+## Opção 2: Local Overrides do Chrome DevTools (forma original)
+
+Colar o conteúdo dos 6 módulos, nessa ordem, no Local Override do arquivo
+`smart-table.js` servido pelo CRM. Só funciona na máquina onde foi colado, e
+exige o DevTools aberto. Ver `contexto-v7.md` para o histórico completo de
+decisões, armadilhas e itens em aberto.
 
 ## Módulos (`modulos/`), colados nessa ordem no mesmo arquivo
 
