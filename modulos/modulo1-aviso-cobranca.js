@@ -1497,16 +1497,16 @@
         // linguagem visual do cabeçalho (fundo escuro, texto branco) pra
         // ler como o total de um extrato, não como um dado jogado a mais.
         return '<div style="display:flex; justify-content:space-between; align-items:center; ' +
-            'margin-top:14px; padding:14px 18px; background:' + TOKENS.cabecalho + '; ' +
+            'margin-top:12px; padding:9px 16px; background:' + TOKENS.cabecalho + '; ' +
             'border-radius:6px; box-sizing:border-box;">' +
-                '<div style="font-size:12px; font-weight:600; letter-spacing:0.03em; ' +
+                '<div style="font-size:11px; font-weight:600; letter-spacing:0.03em; ' +
                 'color:rgba(255,255,255,0.7); text-transform:uppercase;">' +
                     registros.length + ' títulos vencidos</div>' +
                 '<div style="text-align:right;">' +
-                    '<div style="font-size:11px; font-weight:600; letter-spacing:0.03em; ' +
-                    'color:rgba(255,255,255,0.7); text-transform:uppercase; margin-bottom:2px;">' +
+                    '<div style="font-size:10px; font-weight:600; letter-spacing:0.03em; ' +
+                    'color:rgba(255,255,255,0.7); text-transform:uppercase; margin-bottom:1px;">' +
                         'Valor total</div>' +
-                    '<div style="font-size:21px; font-weight:700; color:#FFFFFF; ' +
+                    '<div style="font-size:16px; font-weight:700; color:#FFFFFF; ' +
                     'font-variant-numeric:tabular-nums;">' +
                         esc(formatarMoedaBrasileira(total)) + '</div>' +
                 '</div>' +
