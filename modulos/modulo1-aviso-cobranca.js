@@ -1479,7 +1479,7 @@
         return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     }
 
-    // Linha de total: só faz sentido com 2+ títulos (com 1 só, seria igual
+    // Cartão de total: só faz sentido com 2+ títulos (com 1 só, seria igual
     // ao saldo já mostrado na própria linha) -- CONFIRMADO com o usuário.
     function montarTotalizador(registros) {
         if (registros.length <= 1) return '';
@@ -1492,15 +1492,25 @@
         }
 
         const total = valores.reduce((soma, v) => soma + (v || 0), 0);
-        const bordaTopo = 'border-top:2px solid ' + TOKENS.cabecalho + ';';
-        const celula = 'padding:11px 14px; ' + bordaTopo;
 
-        return '<tfoot><tr style="background:' + TOKENS.superficie + '; font-weight:700;">' +
-            '<td colspan="4" style="' + celula + ' text-align:right;">Valor Total</td>' +
-            '<td style="' + celula + ' text-align:right; font-variant-numeric:tabular-nums;">' +
-                esc(formatarMoedaBrasileira(total)) + '</td>' +
-            '<td colspan="2" style="' + bordaTopo + '"></td>' +
-        '</tr></tfoot>';
+        // Cartão de resumo, não uma linha "grudada" na tabela -- mesma
+        // linguagem visual do cabeçalho (fundo escuro, texto branco) pra
+        // ler como o total de um extrato, não como um dado jogado a mais.
+        return '<div style="display:flex; justify-content:space-between; align-items:center; ' +
+            'margin-top:14px; padding:14px 18px; background:' + TOKENS.cabecalho + '; ' +
+            'border-radius:6px; box-sizing:border-box;">' +
+                '<div style="font-size:12px; font-weight:600; letter-spacing:0.03em; ' +
+                'color:rgba(255,255,255,0.7); text-transform:uppercase;">' +
+                    registros.length + ' títulos vencidos</div>' +
+                '<div style="text-align:right;">' +
+                    '<div style="font-size:11px; font-weight:600; letter-spacing:0.03em; ' +
+                    'color:rgba(255,255,255,0.7); text-transform:uppercase; margin-bottom:2px;">' +
+                        'Valor total</div>' +
+                    '<div style="font-size:21px; font-weight:700; color:#FFFFFF; ' +
+                    'font-variant-numeric:tabular-nums;">' +
+                        esc(formatarMoedaBrasileira(total)) + '</div>' +
+                '</div>' +
+            '</div>';
     }
 
     function montarRelatorio(dados, hoje) {
@@ -1545,8 +1555,9 @@
                     '<th style="' + th + ' text-align:center;">Situação</th>' +
                 '</tr></thead>' +
                 '<tbody>' + montarLinhas(registros) + '</tbody>' +
-                montarTotalizador(registros) +
             '</table>' +
+
+            montarTotalizador(registros) +
 
             // LEGENDA
             '<div style="display:flex; gap:16px; margin-top:14px; padding:10px 12px; ' +
