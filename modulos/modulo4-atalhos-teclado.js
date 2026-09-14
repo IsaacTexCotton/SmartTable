@@ -328,6 +328,22 @@
     return `Retomando o contato de ${referencia}, já que ainda não obtivemos retorno.`;
   }
 
+  // Concorda "do/dos" ou "ao/aos" + "título/títulos" com a quantidade real,
+  // em vez do "(s)" genérico (ex.: "do(s) título(s)") que ficava estranho
+  // tanto no singular quanto no plural.
+  function concordarTitulos(preposicao, quantidade) {
+    const formas = {
+      do: ['do título', 'dos títulos'],
+      ao: ['ao título', 'aos títulos'],
+    };
+    const [singular, plural] = formas[preposicao];
+    return quantidade === 1 ? singular : plural;
+  }
+
+  function pluralizarTitulo(quantidade) {
+    return quantidade === 1 ? 'título' : 'títulos';
+  }
+
   function obterLinhaPromessa() {
     const ctx = window.__contextoAdicional;
     if (!ctx || !ctx.promessa) return '';
@@ -337,10 +353,10 @@
 
     switch (tipo) {
       case 'DIA_DA_PROMESSA':
-        return `Lembramos que hoje é o dia combinado para o pagamento do(s) título(s) ${titulosTexto}.`;
+        return `Lembramos que hoje é o dia combinado para o pagamento ${concordarTitulos('do', promessa.titulos.length)} ${titulosTexto}.`;
       case 'QUEBRADA':
         return (
-          `Notamos que o pagamento combinado para ${encurtarData(promessa.dataPrometidaTexto)}, referente ao(s) título(s) ` +
+          `Notamos que o pagamento combinado para ${encurtarData(promessa.dataPrometidaTexto)}, referente ${concordarTitulos('ao', promessa.titulos.length)} ` +
           `${titulosTexto}, não foi identificado. Já foi realizado? Se sim, pode nos enviar o comprovante para conferência.`
         );
       case 'PARCIAL': {
@@ -351,7 +367,7 @@
         const pendentesTexto = pendentes.length > 0 ? pendentes.join(', ') : 'nenhum -- já regularizado';
         return (
           `Identificamos o pagamento parcial referente ao combinado para ${encurtarData(promessa.dataPrometidaTexto)}, totalizando ` +
-          `${promessa.titulos.length} título(s). Ainda restam em aberto: ${pendentesTexto}.`
+          `${promessa.titulos.length} ${pluralizarTitulo(promessa.titulos.length)}. Ainda restam em aberto: ${pendentesTexto}.`
         );
       }
       default:
