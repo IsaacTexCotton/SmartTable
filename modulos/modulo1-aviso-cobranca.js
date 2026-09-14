@@ -1140,7 +1140,11 @@
     function classificar(titulo, fluxo, hoje) {
         const { posicao, prazos, diasAtrasoReal, portador } = titulo;
 
-        if (posicao.includes('CARTORIO')) return 'EM_CARTORIO';
+        // posicao já vem em caixa alta (ver coletarRegistros), mas pode
+        // chegar acentuada ("CARTÓRIO"); comparamos as duas formas aqui em
+        // vez de chamar normalizarTexto() pra não alterar o formato usado
+        // no resto da função.
+        if (posicao.includes('CARTORIO') || posicao.includes('CARTÓRIO')) return 'EM_CARTORIO';
 
         if (diasAtrasoReal >= DIAS_ATRASO_MIN && diasAtrasoReal <= DIAS_ATRASO_MAX) {
             return 'EM_ATRASO';
