@@ -281,20 +281,39 @@
     return candidatos.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
   }
 
+  // Datas de vencimento (formato curto, sem duplicatas) de TODOS os títulos
+  // em ULTIMO_DIA -- não só do "representativo" escolhido por
+  // escolherTituloRepresentativo(). Um cliente pode ter vários títulos em
+  // ULTIMO_DIA com datas diferentes; mencionar só a data do mais atrasado
+  // (que é só um critério de desempate pra decidir a SITUAÇÃO da mensagem)
+  // omitia as outras datas igualmente no prazo final.
+  function obterDatasVencimentoUltimoDia(dados) {
+    if (!dados || !dados.registros) return [];
+    const datas = dados.registros
+      .filter((r) => r.situacaoKey === 'ULTIMO_DIA')
+      .sort((a, b) => b.diasAtrasoReal - a.diasAtrasoReal) // mais atrasado (vencimento mais antigo) primeiro
+      .map((r) => encurtarData(r.vencimentoTexto));
+    return [...new Set(datas)]; // vários títulos podem vencer no mesmo dia
+  }
+
   // Linha de contexto por situação -- extraída/adaptada das frases padrão
   // reais do usuário (não escrita do zero). Retorna:
   //   - string vazia: sem linha extra, mensagem segue direto pro fechamento
-  //   - string com texto: linha extra (pode conter {{variável}})
+  //   - string com texto: linha extra
   //   - null: situação não deve gerar mensagem automática (ver chamador)
-  function obterLinhaContexto(escolhido, fluxo) {
+  function obterLinhaContexto(escolhido, dados) {
     switch (escolhido.situacaoKey) {
       case 'EM_ATRASO':
       case 'PRAZO_FINAL':
         return '';
-      case 'ULTIMO_DIA':
-        return fluxo === 'SCPC'
-          ? 'Lembramos que o título vencido em {{data_vencimento}} está no prazo final antes de ser encaminhado ao SCPC.'
-          : 'Lembramos que o título vencido em {{data_vencimento}} está no prazo final antes de ser encaminhado para cartório.';
+      case 'ULTIMO_DIA': {
+        const datas = obterDatasVencimentoUltimoDia(dados);
+        const datasTexto = datas.join(', ');
+        const destino = dados.fluxo === 'SCPC' ? 'ao SCPC' : 'para cartório';
+        return datas.length > 1
+          ? `Lembramos que os títulos vencidos em ${datasTexto} estão no prazo final antes de serem encaminhados ${destino}.`
+          : `Lembramos que o título vencido em ${datasTexto} está no prazo final antes de ser encaminhado ${destino}.`;
+      }
       case 'NEGATIVADO_SCPC':
         return 'Lembramos que a regularização dos débitos negativados no SCPC permite a baixa das restrições.';
       case 'EM_CARTORIO':
@@ -397,7 +416,7 @@
       return null;
     }
 
-    const linhaContexto = obterLinhaContexto(escolhido, dados.fluxo);
+    const linhaContexto = obterLinhaContexto(escolhido, dados);
     if (linhaContexto === null) {
       console.warn(
         `[Atalhos] Situação "${escolhido.situacaoKey}" não gera mensagem automática (situação incerta demais) -- escreva manualmente.`
