@@ -413,20 +413,14 @@
     return candidatos.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
   }
 
-  // Datas de vencimento (formato curto, sem duplicatas) de TODOS os títulos
-  // em ULTIMO_DIA -- não só do "representativo" escolhido por
-  // escolherTituloRepresentativo(). Um cliente pode ter vários títulos em
-  // ULTIMO_DIA com datas diferentes; mencionar só a data do mais atrasado
-  // (que é só um critério de desempate pra decidir a SITUAÇÃO da mensagem)
-  // omitia as outras datas igualmente no prazo final.
-  function obterDatasVencimentoUltimoDia(dados) {
-    if (!dados || !dados.registros) return [];
-    const datas = dados.registros
-      .filter((r) => r.situacaoKey === 'ULTIMO_DIA')
-      .sort((a, b) => b.diasAtrasoReal - a.diasAtrasoReal) // mais atrasado (vencimento mais antigo) primeiro
-      .map((r) => encurtarData(r.vencimentoTexto));
-    return [...new Set(datas)]; // vários títulos podem vencer no mesmo dia
-  }
+  // Dias de atraso (do título mais atrasado, ver NOTA_DIAS_SUSPENSAO_SCPC
+  // abaixo) em que o SCPC passa a avisar sobre a suspensão de cadastro --
+  // CONFIRMADO com o usuário: 16 a 18 dias avisa que a suspensão vem a
+  // caminho; exatamente no 19º dia é o último dia antes da suspensão de
+  // verdade (cadastro vai pra um analista).
+  const DIAS_AVISO_SUSPENSAO_SCPC_MIN = 16;
+  const DIAS_AVISO_SUSPENSAO_SCPC_MAX = 18;
+  const DIAS_ULTIMO_DIA_SUSPENSAO_SCPC = 19;
 
   // Linha de contexto por situação -- extraída/adaptada das frases padrão
   // reais do usuário (não escrita do zero). Retorna:
@@ -439,17 +433,35 @@
       case 'PRAZO_FINAL':
         return '';
       case 'ULTIMO_DIA': {
-        const datas = obterDatasVencimentoUltimoDia(dados);
-        const datasTexto = datas.join(', ');
+        // CONFIRMADO com o usuário: não precisa mais citar as datas de
+        // vencimento aqui -- os títulos em último dia já aparecem grifados
+        // em vermelho no relatório logo abaixo, então basta referenciar a cor.
+        const quantidade = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA').length;
         const destino = dados.fluxo === 'SCPC' ? 'ao SCPC' : 'para cartório';
-        return datas.length > 1
-          ? `Lembramos que os títulos vencidos em ${datasTexto} estão no prazo final antes de serem encaminhados ${destino}.`
-          : `Lembramos que o título vencido em ${datasTexto} está no prazo final antes de ser encaminhado ${destino}.`;
+        return quantidade > 1
+          ? `Lembramos que os títulos grifados em vermelho no relatório abaixo estão no prazo final antes de serem encaminhados ${destino}.`
+          : `Lembramos que o título grifado em vermelho no relatório abaixo está no prazo final antes de ser encaminhado ${destino}.`;
       }
-      case 'NEGATIVADO_SCPC':
+      case 'NEGATIVADO_SCPC': {
+        const dias = escolhido.diasAtrasoReal;
+        // CONFIRMADO com o usuário: aviso específico nos últimos dias antes
+        // da suspensão de cadastro por SCPC -- fora dessa janela, segue a
+        // frase genérica de sempre.
+        if (dias >= DIAS_AVISO_SUSPENSAO_SCPC_MIN && dias <= DIAS_AVISO_SUSPENSAO_SCPC_MAX) {
+          return `Lembramos que, a partir do ${DIAS_ULTIMO_DIA_SUSPENSAO_SCPC}º dia de atraso, o cadastro é suspenso e os pedidos deixam de ser faturados.`;
+        }
+        if (dias === DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) {
+          return 'Hoje é o último dia para pagamento antes que o cadastro seja suspenso e o caso seja encaminhado a um de nossos analistas.';
+        }
         return 'Lembramos que a regularização dos débitos negativados no SCPC permite a baixa das restrições.';
+      }
       case 'EM_CARTORIO':
-        return 'Os títulos já em cartório aparecem destacados no relatório abaixo -- o restante ainda está dentro do prazo para pagamento via boleto.';
+        // CONFIRMADO com o usuário: referenciar a cor (amarelo) em vez de só
+        // "aparecem destacados" -- e essa linha continua junto de qualquer
+        // outra (ex.: "retomando o contato de ontem"), nunca é removida por
+        // causa delas -- ver montarMensagemPersonalizada, que empilha cada
+        // linha de forma independente.
+        return 'Os títulos grifados em amarelo no relatório abaixo já estão em cartório -- o pagamento do restante ainda é possível via boleto.';
       default:
         // VERIFICAR_POSICAO (ou qualquer situação nova/desconhecida): situação
         // incerta demais pra afirmar algo pro cliente -- decisão do usuário foi
