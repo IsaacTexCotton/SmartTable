@@ -27,6 +27,12 @@
  *      várias vezes.
  *   6. Quando a fila acabar, aparece um aviso e o painel some sozinho.
  *
+ * Matriz e filial da mesma empresa (mesma raiz de CNPJ, os 8 primeiros
+ * dígitos) contam como UM cliente só na fila -- CONFIRMADO com o usuário
+ * depois de reproduzir na prática (duas empresas apareceram duplicadas,
+ * cada uma com CNPJs de matriz/filial diferentes). Mantém a entrada mais
+ * urgente (mais dias de atraso) entre as duplicatas.
+ *
  * IMPORTANTE — calibração inicial:
  *   A fila NÃO depende de <a href> (a lista real não usa links — a linha
  *   navega via JavaScript). Em vez disso, ela lê o texto
@@ -324,12 +330,27 @@
   /* ---------------------------------------------------------------------
    * 5. CONSTRUÇÃO DA FILA (rodado na página de LISTA de clientes)
    * --------------------------------------------------------------------- */
+  // Raiz do CNPJ (8 primeiros dígitos) -- comum entre matriz e TODAS as
+  // filiais da mesma empresa (só o número de ordem e o dígito verificador
+  // depois da barra mudam). Ignora pontuação, pra não depender de como o
+  // CRM formata em cada linha.
+  function extrairRaizCnpj(cnpj) {
+    return (cnpj || '').replace(/\D/g, '').slice(0, 8);
+  }
+
   function construirFilaAPartirDaPagina() {
     const linhas = document.querySelectorAll(CONFIG.SELETOR_LINHA);
-    const clientes = [];
-    const vistos = new Set();
+    // Chave = raiz do CNPJ, valor = melhor candidato encontrado até agora
+    // pra essa empresa. CONFIRMADO com o usuário (reproduzido na fila real:
+    // "CORREA CALÇADOS INFANTIS LTDA" e "ZIGGI COMERCIO DE ITENS INFANTIS
+    // LTDA" apareceram duas vezes cada, matriz e filial com CNPJs
+    // diferentes mas mesma raiz) -- matriz/filial contam como UM cliente só
+    // na fila, mantendo a entrada com mais dias de atraso entre elas.
+    const porRaizCnpj = new Map();
+    const vistos = new Set(); // defesa extra contra a MESMA linha aparecer 2x no DOM
     const atendidosHoje = obterAtendidosHoje();
     let pulosPorJaAtendido = 0;
+    let unificadosPorMatrizFilial = 0;
 
     linhas.forEach((linha) => {
       const texto = linha.textContent || '';
@@ -339,7 +360,7 @@
       const grupoId = match[1];
       const cnpj = match[2];
 
-      if (vistos.has(cnpj)) return; // evita duplicar o mesmo cliente
+      if (vistos.has(cnpj)) return;
       vistos.add(cnpj);
 
       if (atendidosHoje.has(cnpj)) {
@@ -350,9 +371,21 @@
       const url = CONFIG.montarUrlCliente(grupoId, cnpj);
       const nome = texto.split('Controle:')[0].trim().slice(0, 60) || 'Cliente';
       const diasAtraso = extrairDiasAtraso(texto);
+      const candidato = { url, cnpj, label: nome, diasAtraso };
 
-      clientes.push({ url, cnpj, label: nome, diasAtraso });
+      const raiz = extrairRaizCnpj(cnpj);
+      const existente = porRaizCnpj.get(raiz);
+      if (!existente) {
+        porRaizCnpj.set(raiz, candidato);
+      } else {
+        unificadosPorMatrizFilial += 1;
+        if (candidato.diasAtraso > existente.diasAtraso) {
+          porRaizCnpj.set(raiz, candidato); // essa filial está mais atrasada -- vira a representante
+        }
+      }
     });
+
+    const clientes = Array.from(porRaizCnpj.values());
 
     // Prioriza por urgência: mais dias de atraso primeiro. Quem não tem
     // "X dias" reconhecível fica com diasAtraso=0, então vai pro final.
@@ -360,6 +393,9 @@
 
     if (pulosPorJaAtendido > 0) {
       console.log(`[Fila] ${pulosPorJaAtendido} cliente(s) já atendido(s) hoje foram pulados na montagem da fila.`);
+    }
+    if (unificadosPorMatrizFilial > 0) {
+      console.log(`[Fila] ${unificadosPorMatrizFilial} entrada(s) de matriz/filial da mesma empresa foram unificadas na montagem da fila.`);
     }
 
     return clientes;
