@@ -35,6 +35,50 @@
   if (window.__contextoAdicionalCarregado) return;
   window.__contextoAdicionalCarregado = true;
 
+  // Confirmação visual de que a versão certa carregou -- resposta direta pro
+  // problema de "o Tampermonkey atualizou mesmo?" que já causou confusão
+  // (o wrapper pode estar em @version novo enquanto os @require ainda estão
+  // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
+  // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
+  // de propósito, pra não repetir o toast em cada um dos 6 módulos.
+  const VERSAO_SMARTTABLE = '1.0.9';
+
+  function avisarVersaoCarregada() {
+    console.log(
+      `%c[SmartTable] v${VERSAO_SMARTTABLE} carregado (6 módulos)`,
+      'color:#16232F;font-weight:bold;font-size:12px;'
+    );
+
+    if (!document.body) return; // segurança extra, não deveria acontecer em document-idle
+
+    const el = document.createElement('div');
+    el.textContent = `SmartTable v${VERSAO_SMARTTABLE} ✓`;
+    Object.assign(el.style, {
+      position: 'fixed',
+      top: '16px',
+      left: '16px',
+      background: '#16232F',
+      color: '#fff',
+      padding: '6px 12px',
+      borderRadius: '8px',
+      boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+      fontSize: '12px',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      zIndex: 999999,
+      opacity: '0',
+      transition: 'opacity .25s ease',
+      pointerEvents: 'none',
+    });
+    document.body.appendChild(el);
+    requestAnimationFrame(() => { el.style.opacity = '1'; });
+    setTimeout(() => {
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 300);
+    }, 4000);
+  }
+
+  avisarVersaoCarregada();
+
   const CONFIG_CONTEXTO = {
     SELETOR_ITEM_PROMESSA: '#content-promessas .promessa-item',
     SELETOR_ITEM_CONTATO: '#content-contatos .contato-item',
