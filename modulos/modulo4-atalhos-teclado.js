@@ -749,6 +749,18 @@
     const mensagem = caixa ? caixa.value.trim() : '';
     if (!mensagem) return; // nada pra corrigir -- deixa o fluxo normal (e o aviso de erro dele) seguir
 
+    // REDE DE SEGURANÇA (usuário não conseguiu tirar o Windows/Chrome de
+    // abrir o app desktop do WhatsApp, mesmo forçando web.whatsapp.com --
+    // configuração fora do nosso controle): copia a mensagem pra área de
+    // transferência de qualquer forma. Se o WhatsApp abrir em branco de
+    // novo, basta Ctrl+V -- sem precisar achar e cortar o texto da caixa
+    // de observações à mão.
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(mensagem).catch((erro) => {
+        console.warn('[Atalhos] Não consegui copiar a mensagem pra área de transferência automaticamente:', erro);
+      });
+    }
+
     const openOriginal = window.open;
     let restaurado = false;
     const restaurar = () => {
