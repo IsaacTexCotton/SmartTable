@@ -5,9 +5,17 @@
  * "Contatos" (que já vêm pré-carregadas no HTML, confirmado -- não precisa
  * abrir aba igual ao Módulo 5) e calcula:
  *
- *   1. Se hoje é o dia combinado de alguma promessa de pagamento, ou o
- *      primeiro dia útil depois dela com status "Quebrada"/"Parcial".
- *   2. Se o contato mais recente do cliente foi no último dia útil (e foi
+ *   1. Se hoje é o dia combinado de alguma promessa de pagamento (status
+ *      ainda "Pendente").
+ *   2. Se alguma promessa já venceu (status "Pendente" vencida, "Quebrada"
+ *      ou "Parcial" -- pro cliente dá na mesma: o pagamento combinado não
+ *      foi identificado) E ainda não houve NENHUM contato registrado desde
+ *      o vencimento. CONFIRMADO com o usuário: a mensagem é só no primeiro
+ *      contato depois que a promessa vence -- não um dia específico (nem
+ *      precisa ser dia útil), e sem limite de quantos dias já se passaram.
+ *      Não repete em toda visita seguinte, só até o primeiro contato
+ *      registrado depois do vencimento.
+ *   3. Se o contato mais recente do cliente foi no último dia útil (e foi
  *      efetivo), pra permitir uma linha de "retomando o contato de ontem".
  *
  * O resultado fica em window.__contextoAdicional, pronto pra ser consultado
@@ -20,9 +28,11 @@
  *
  * PREMISSAS AINDA NÃO CONFIRMADAS COM O USUÁRIO (documentadas de propósito,
  * revisar se o comportamento real divergir):
- *   - Promessa "Pendente" no dia útil seguinte (prazo passou mas o CRM
- *     ainda não marcou Quebrada/Parcial) não tem frase aprovada -- é
- *     ignorada de propósito, não por esquecimento.
+ *   - "Já houve contato desde o vencimento" conta QUALQUER contato
+ *     registrado (efetivo ou não) com data posterior à data prometida --
+ *     não só contato efetivo. Decisão: uma tentativa de contato já
+ *     registrada é suficiente pra não repetir o lembrete, mesmo sem
+ *     resposta do cliente. Revisar se o usuário preferir outro critério.
  *   - "Título pendente" no caso Parcial é calculado por cruzamento: título
  *     da promessa que já não aparece mais na lista de abertos do Módulo 1
  *     é considerado pago. Isso também classificaria como "pago" um título
@@ -41,7 +51,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.9';
+  const VERSAO_SMARTTABLE = '1.0.10';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -83,7 +93,12 @@
     SELETOR_ITEM_PROMESSA: '#content-promessas .promessa-item',
     SELETOR_ITEM_CONTATO: '#content-contatos .contato-item',
     STATUS_DIA_DA_PROMESSA: 'PENDENTE',
-    STATUS_COM_FRASE_NO_DIA_SEGUINTE: ['QUEBRADA', 'PARCIAL'],
+    // Qualquer um destes remete a "não pagamento" pro cliente -- CONFIRMADO
+    // com o usuário que "Pendente" vencida entra junto de "Quebrada" e
+    // "Parcial" (o CRM às vezes não atualiza o status a tempo, mas o
+    // pagamento combinado segue sem ser identificado do mesmo jeito).
+    // "Cumprida"/"Cumprida Parcial" ficam de fora de propósito (resolvidas).
+    STATUS_NAO_PAGAMENTO: ['PENDENTE', 'QUEBRADA', 'PARCIAL'],
   };
 
   /* ---------------------------------------------------------------------
@@ -129,18 +144,6 @@
     const diaSemana = data.getDay();
     if (diaSemana === 0 || diaSemana === 6) return false;
     return obterFeriadosDoAno(data.getFullYear()).indexOf(chaveData(data)) === -1;
-  }
-
-  // Sempre estritamente DEPOIS da data informada -- espelha proximoDiaUtil()
-  // do Módulo 1 (não exposto em window.__avisoCobranca).
-  function proximoDiaUtil(data) {
-    let d = adicionarDias(data, 1);
-    let guarda = 0;
-    while (!ehDiaUtil(d)) {
-      d = adicionarDias(d, 1);
-      if (++guarda > 30) throw new Error('Não encontrei o próximo dia útil a partir de ' + chaveData(data));
-    }
-    return d;
   }
 
   // Sempre estritamente ANTES da data informada -- direção nova que o
@@ -241,6 +244,20 @@
     return maisRecente;
   }
 
+  // Histórico completo (não só o mais recente) -- necessário pra saber se
+  // JÁ houve algum contato depois do vencimento de uma promessa, não só
+  // qual foi o último. Inclui contatos não efetivos de propósito (ver nota
+  // "PREMISSA AINDA NÃO CONFIRMADA" no cabeçalho do arquivo).
+  function lerTodosContatos() {
+    const itens = document.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_CONTATO);
+    return Array.from(itens)
+      .map((item) => ({
+        data: converterDataBr(item.dataset.data),
+        efetivo: item.dataset.efetivo === 'true',
+      }))
+      .filter((c) => c.data);
+  }
+
   /* ---------------------------------------------------------------------
    * 4. CÁLCULO DO CONTEXTO DE HOJE
    * --------------------------------------------------------------------- */
@@ -254,18 +271,35 @@
     );
     if (paraHoje) return { tipo: 'DIA_DA_PROMESSA', promessa: paraHoje };
 
-    // Prioridade 2: hoje é o 1º dia útil depois de alguma promessa que ficou
-    // Quebrada ou Parcial. "Pendente" nesse mesmo dia (CRM ainda não
-    // atualizou) fica de fora de propósito -- sem frase aprovada pra isso.
-    for (const p of promessas) {
-      let diaSeguinte;
-      try {
-        diaSeguinte = proximoDiaUtil(p.dataPrometida);
-      } catch (erro) {
-        continue;
-      }
-      if (mesmaData(hoje, diaSeguinte) && CONFIG_CONTEXTO.STATUS_COM_FRASE_NO_DIA_SEGUINTE.indexOf(p.status) !== -1) {
-        return { tipo: p.status, promessa: p }; // 'QUEBRADA' ou 'PARCIAL'
+    // Prioridade 2: alguma promessa já venceu (data prometida no passado) e
+    // continua sem pagamento identificado (Pendente vencida, Quebrada ou
+    // Parcial). CONFIRMADO com o usuário: não é "só no dia útil seguinte" --
+    // é "só no primeiro contato depois do vencimento", não importa quantos
+    // dias (úteis ou não) já se passaram. Por isso cobra se NENHUM contato
+    // foi registrado com data posterior ao vencimento; assim que o primeiro
+    // contato pós-vencimento é registrado, a mensagem para de aparecer nas
+    // visitas seguintes (mesmo que a promessa continue sem resolução no CRM).
+    const contatos = lerTodosContatos();
+    const vencidasSemPagamento = promessas
+      .filter(
+        (p) =>
+          CONFIG_CONTEXTO.STATUS_NAO_PAGAMENTO.indexOf(p.status) !== -1 &&
+          p.dataPrometida.getTime() < hoje.getTime()
+      )
+      // Promessa mais antiga primeiro -- a que está esperando resposta há
+      // mais tempo é a mais relevante quando há mais de uma vencida.
+      .sort((a, b) => a.dataPrometida.getTime() - b.dataPrometida.getTime());
+
+    for (const p of vencidasSemPagamento) {
+      const jaContatadoDepoisDoVencimento = contatos.some(
+        (c) => c.data.getTime() > p.dataPrometida.getTime()
+      );
+      if (!jaContatadoDepoisDoVencimento) {
+        // "Pendente" vencida usa a mesma frase de "Quebrada" -- pro cliente
+        // é a mesma situação (pagamento combinado não identificado), o CRM
+        // só não atualizou o status ainda.
+        const tipo = p.status === 'PARCIAL' ? 'PARCIAL' : 'QUEBRADA';
+        return { tipo, promessa: p };
       }
     }
 
@@ -389,6 +423,7 @@
   window.__contextoAdicionalDebug = {
     lerPromessas,
     lerContatoMaisRecente,
+    lerTodosContatos,
     calcularContextoPromessa,
   };
 })();
