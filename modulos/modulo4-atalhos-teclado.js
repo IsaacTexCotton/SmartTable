@@ -39,6 +39,12 @@
 (function () {
   'use strict';
 
+  // Atalhos são só pro CRM -- com web.whatsapp.com agora no @match (ver
+  // Módulo 7), evita instalar o listener de teclado lá, onde nenhuma das
+  // ações faz sentido e só arriscaria colidir com atalhos do próprio
+  // WhatsApp Web.
+  if (location.hostname !== 'texhub.texcotton.com.br') return;
+
   if (window.__atalhosTecladoCarregados) return;
   window.__atalhosTecladoCarregados = true;
 
@@ -690,27 +696,43 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 3.0d GARANTIR TEXTO CORRETO NO WHATSAPP (Alt+S)
+   * 3.0d WHATSAPP: TEXTO CERTO E UMA MENSAGEM POR PARÁGRAFO (Alt+S)
    * -----------------------------------------------------------------
    * DIAGNÓSTICO REAL (código de abrirWhatsAppCliente() confirmado pelo
    * usuário via console): a função do CRM já monta a URL certa, com a
    * mensagem certa -- 'https://wa.me/' + telefone + '?text=' +
    * encodeURIComponent(mensagem) -- e chama window.open(url, '_blank',
-   * 'noopener,noreferrer'). O problema não é o texto estar errado na URL;
-   * é que wa.me, quando o APLICATIVO DESKTOP do WhatsApp está instalado,
-   * aciona a abertura do app em vez do navegador -- e o texto se perde
-   * nesse "handoff" entre navegador e app (limitação do próprio WhatsApp,
-   * fora do nosso controle). CONFIRMADO pelo usuário: é exatamente esse
-   * o caso (abre o app desktop).
+   * 'noopener,noreferrer'). O texto nunca esteve errado na URL; o
+   * problema é wa.me acionando o APLICATIVO DESKTOP do WhatsApp quando
+   * instalado, que perde o texto nesse handoff (confirmado pelo usuário).
+   * Forçar web.whatsapp.com (em vez de wa.me/api.whatsapp.com) resolve
+   * isso -- mas o usuário também precisa que cada PARÁGRAFO da mensagem
+   * vire uma mensagem separada no WhatsApp (por isso as mensagens têm
+   * parágrafos -- ele cortava um de cada vez à mão). Confirmado: o
+   * script prepara cada parágrafo na caixa de digitação, mas quem aperta
+   * Enter pra enviar é o operador -- sem envio automático.
    *
-   * Correção: interceptamos window.open (mesma técnica já usada no Módulo
-   * 2 e no Módulo 3) e, ao detectar um link wa.me/api.whatsapp.com,
-   * reescrevemos pra web.whatsapp.com -- que abre direto numa aba do
-   * navegador, sem handoff nenhum pro app, então o texto sempre chega.
-   * CONFIRMADO com o usuário: preferir sempre o navegador em vez do app
-   * nessas aberturas, pra eliminar o Ctrl+X/Ctrl+V.
+   * Isso exige rodar código DENTRO da aba do WhatsApp Web (Módulo 7,
+   * @match separado), que não compartilha "window" com esta aba (origem
+   * diferente) -- a ponte é window.postMessage, sem precisar de nenhuma
+   * permissão especial do Tampermonkey.
+   *
+   * CONFLITO CONTORNADO: o Módulo 2 fecha a aba do WhatsApp sozinho 1,5s
+   * depois de abrir (ATRASO_FECHAR_ABA_WHATSAPP_MS) -- incompatível com
+   * o operador precisando ficar nela apertando Enter várias vezes. Não dá
+   * pra editar o Módulo 2 (protegido), então a aba real (onde a
+   * mensagem-por-mensagem acontece) é aberta por nós separadamente, e
+   * devolvemos pro Módulo 2/3 um objeto "de mentira" (truthy, com um
+   * close() que não faz nada) -- suficiente pro Módulo 3 marcar sucesso
+   * na fila de atendimento, e o "fechamento" do Módulo 2 não afeta a aba
+   * real, que continua aberta pro operador.
    * --------------------------------------------------------------------- */
-  function corrigirUrlWhatsAppComTexto(url, mensagem) {
+  const ORIGEM_WHATSAPP_WEB = 'https://web.whatsapp.com';
+
+  // Extrai o telefone de qualquer um dos dois formatos que o CRM usa:
+  // wa.me/<numero> (telefone no path) ou *.whatsapp.com/send?phone=<numero>
+  // (telefone na query).
+  function extrairTelefoneWhatsApp(url) {
     if (!url) return null;
     let alvo;
     try {
@@ -718,30 +740,69 @@
     } catch (erro) {
       return null;
     }
-
-    // Extrai o telefone de qualquer um dos dois formatos que o CRM usa:
-    // wa.me/<numero> (telefone no path) ou *.whatsapp.com/send?phone=<numero>
-    // (telefone na query).
-    let telefone = null;
     if (/(^|\.)wa\.me$/.test(alvo.hostname)) {
-      telefone = alvo.pathname.replace(/^\/+/, '').split('/')[0] || null;
-    } else if (/(^|\.)whatsapp\.com$/.test(alvo.hostname)) {
-      telefone = alvo.searchParams.get('phone');
-    } else {
-      return null; // não é um link do WhatsApp -- não mexe
+      return alvo.pathname.replace(/^\/+/, '').split('/')[0] || null;
     }
-    if (!telefone) return null;
+    if (/(^|\.)whatsapp\.com$/.test(alvo.hostname)) {
+      return alvo.searchParams.get('phone');
+    }
+    return null; // não é um link do WhatsApp
+  }
 
-    // SEMPRE web.whatsapp.com, nunca wa.me/api.whatsapp.com -- CONFIRMADO
-    // pelo usuário: esses dois acionam a abertura do APLICATIVO DESKTOP
-    // quando instalado, e o texto do parâmetro se perde nessa transição
-    // (limitação do handoff do próprio WhatsApp, fora do nosso controle).
-    // web.whatsapp.com abre direto numa aba do navegador, sem esse
-    // handoff, e o texto sempre chega certo.
+  // SEMPRE web.whatsapp.com, nunca wa.me/api.whatsapp.com -- CONFIRMADO
+  // pelo usuário: esses dois acionam a abertura do aplicativo desktop
+  // quando instalado, perdendo o texto nesse handoff. web.whatsapp.com
+  // abre direto numa aba do navegador, sem esse handoff.
+  function corrigirUrlWhatsAppComTexto(url, mensagem) {
+    const telefone = extrairTelefoneWhatsApp(url);
+    if (!telefone) return null;
     const alvoWeb = new URL('https://web.whatsapp.com/send');
     alvoWeb.searchParams.set('phone', telefone);
     alvoWeb.searchParams.set('text', mensagem);
     return alvoWeb.toString();
+  }
+
+  // Reenvia a fila de parágrafos pra aba do WhatsApp em intervalos, até
+  // receber a confirmação (ACK) do Módulo 7 -- necessário porque a aba
+  // recém-aberta ainda não tem nosso listener de "message" registrado no
+  // instante em que ela é criada (postMessage não fica esperando, se
+  // perde se ninguém estiver ouvindo ainda).
+  function enviarFilaParaAbaWhatsApp(aba, paragrafos) {
+    const payload = { tipo: 'smarttable-fila-whatsapp', paragrafos };
+    const MAX_TENTATIVAS = 25; // ~10s com intervalo de 400ms -- cobre o carregamento do WhatsApp Web
+    let tentativas = 0;
+    let recebeuAck = false;
+
+    function pararTudo() {
+      clearInterval(intervalo);
+      window.removeEventListener('message', ouvirAck);
+    }
+
+    function ouvirAck(event) {
+      if (event.origin !== ORIGEM_WHATSAPP_WEB) return;
+      if (!event.data || event.data.tipo !== 'smarttable-fila-whatsapp-ack') return;
+      recebeuAck = true;
+      pararTudo();
+    }
+    window.addEventListener('message', ouvirAck);
+
+    const intervalo = setInterval(() => {
+      tentativas++;
+      if (recebeuAck || aba.closed) {
+        pararTudo();
+        return;
+      }
+      if (tentativas > MAX_TENTATIVAS) {
+        pararTudo();
+        console.warn('[Atalhos] A aba do WhatsApp não confirmou recebimento da fila de mensagens a tempo.');
+        return;
+      }
+      try {
+        aba.postMessage(payload, ORIGEM_WHATSAPP_WEB);
+      } catch (erro) {
+        // aba pode ainda estar em about:blank/redirecionando -- tenta de novo no próximo tick
+      }
+    }, 400);
   }
 
   function instalarCorrecaoTextoWhatsApp() {
@@ -749,17 +810,21 @@
     const mensagem = caixa ? caixa.value.trim() : '';
     if (!mensagem) return; // nada pra corrigir -- deixa o fluxo normal (e o aviso de erro dele) seguir
 
-    // REDE DE SEGURANÇA (usuário não conseguiu tirar o Windows/Chrome de
-    // abrir o app desktop do WhatsApp, mesmo forçando web.whatsapp.com --
-    // configuração fora do nosso controle): copia a mensagem pra área de
-    // transferência de qualquer forma. Se o WhatsApp abrir em branco de
-    // novo, basta Ctrl+V -- sem precisar achar e cortar o texto da caixa
-    // de observações à mão.
+    // REDE DE SEGURANÇA (fallback se, por qualquer motivo, nada abaixo
+    // funcionar): copia a mensagem inteira pra área de transferência.
     if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
       navigator.clipboard.writeText(mensagem).catch((erro) => {
         console.warn('[Atalhos] Não consegui copiar a mensagem pra área de transferência automaticamente:', erro);
       });
     }
+
+    // Só vale a pena o fluxo de "uma mensagem por parágrafo" com 2+
+    // parágrafos -- com 1 só, seria idêntico ao link de sempre.
+    const paragrafos = mensagem
+      .split(/\n\s*\n/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    const usarFilaDeParagrafos = paragrafos.length > 1;
 
     const openOriginal = window.open;
     let restaurado = false;
@@ -770,10 +835,25 @@
     };
 
     const novoOpen = function (url, nome, features) {
-      const urlCorrigida = corrigirUrlWhatsAppComTexto(url, mensagem);
-      if (urlCorrigida) {
-        console.log('[Atalhos] Corrigido o texto pré-preenchido do link do WhatsApp.');
+      if (usarFilaDeParagrafos) {
+        const telefone = extrairTelefoneWhatsApp(url);
+        if (telefone) {
+          // Aba própria, separada da que abrirWhatsAppCliente() pediu --
+          // pra não ser fechada pelo Módulo 2 (ver comentário acima).
+          // Já leva o 1º parágrafo como "text=" de fallback, caso o
+          // Módulo 7 não consiga assumir por algum motivo.
+          const urlPropria = 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(telefone) +
+            '&text=' + encodeURIComponent(paragrafos[0]);
+          const abaReal = openOriginal.call(window, urlPropria, nome, features);
+          if (abaReal) {
+            console.log('[Atalhos] WhatsApp em modo de múltiplas mensagens (' + paragrafos.length + ' parágrafo(s)).');
+            enviarFilaParaAbaWhatsApp(abaReal, paragrafos);
+            return { close() {}, closed: false };
+          }
+          // Popup bloqueado -- cai pro comportamento de sempre abaixo.
+        }
       }
+      const urlCorrigida = corrigirUrlWhatsAppComTexto(url, mensagem);
       return openOriginal.call(window, urlCorrigida || url, nome, features);
     };
     window.open = novoOpen;
