@@ -1464,4 +1464,37 @@
     '%c[Atalhos] ' + LISTA_ATALHOS.map((a) => `${a.tecla}: ${a.descricao}`).join(' | '),
     'color:#16232F;font-weight:bold;'
   );
+
+  // Teste manual do fluxo de múltiplas mensagens do WhatsApp SEM passar
+  // pelo Alt+S -- não registra contato nenhum no CRM (não chama o POST de
+  // "Registrar e Enviar"), só abre uma aba de teste e manda a fila de
+  // parágrafos, exatamente como o Alt+S faria. Rodar no console:
+  //   window.atalhosDebug.testarWhatsAppMultiplasMensagens('55DDDNUMERO')
+  // (telefone só com dígitos, com DDI 55 -- ex.: seu próprio número, pra
+  // ver as mensagens chegando de verdade). Opcionalmente, um 2º argumento
+  // com a lista de parágrafos, senão usa uma de exemplo.
+  window.atalhosDebug = {
+    testarWhatsAppMultiplasMensagens(telefone, paragrafos) {
+      if (!telefone) {
+        console.warn('[Atalhos] Uso: window.atalhosDebug.testarWhatsAppMultiplasMensagens(\'55DDDNUMERO\')');
+        return;
+      }
+      const lista = Array.isArray(paragrafos) && paragrafos.length > 0
+        ? paragrafos
+        : [
+          'Parágrafo de teste 1 -- SmartTable.',
+          'Parágrafo de teste 2 -- se isto chegou como mensagem separada, o modo de múltiplas mensagens está funcionando.',
+          'Parágrafo de teste 3 -- aperte Enter em cada um pra confirmar.',
+        ];
+      const urlPropria = 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(telefone) +
+        '&text=' + encodeURIComponent(lista[0]);
+      const aba = window.open(urlPropria, '_blank');
+      if (!aba) {
+        console.warn('[Atalhos] Não consegui abrir a aba de teste -- popup bloqueado?');
+        return;
+      }
+      console.log('[Atalhos] [TESTE] Aba aberta, enviando fila de ' + lista.length + ' parágrafo(s)...');
+      enviarFilaParaAbaWhatsApp(aba, lista);
+    },
+  };
 })();
