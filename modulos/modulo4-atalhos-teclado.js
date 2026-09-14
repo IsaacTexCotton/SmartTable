@@ -11,6 +11,7 @@
  *   Alt + S  -> Registrar e Enviar            (dentro da tela de contato)
  *   Alt + P  -> Ir para o próximo da fila     (conta como "atendido" se você já
  *                                              registrou este cliente, senão como "pulado")
+ *   Alt + V  -> Voltar um cliente na fila     (desfaz a contagem do passo revertido)
  *   Alt + H  -> Abrir/fechar painel de ajuda  (mostra esta lista na tela)
  *
  * Fluxo típico com teclado: Alt+C (abre contato) -> Alt+F (escolhe frase)
@@ -20,7 +21,7 @@
  *
  * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos 1, 2
  * e 3 (Fila de Atendimento). Depende do Módulo 3 estar carregado antes
- * (usa window.filaDebug.iniciarFila / irParaProximo).
+ * (usa window.filaDebug.iniciarFila / irParaProximo / irParaAnterior).
  * * IMPORTANTE — dois atalhos ainda precisam de confirmação sua:
  *   "Gerar Relatório" e "Entrar na tela de contato" não têm uma função
  *   global exposta que eu conheça, então este módulo procura o botão certo
@@ -45,6 +46,7 @@
     TECLA_GERAR_RELATORIO: 'KeyR',
     TECLA_ABRIR_CONTATO: 'KeyC',
     TECLA_PROXIMO_DA_FILA: 'KeyP',
+    TECLA_VOLTAR_FILA: 'KeyV',
     TECLA_SELECIONAR_FRASE: 'KeyF',
     TECLA_REGISTRAR_ENVIAR: 'KeyS',
     TECLA_AJUDA: 'KeyH',
@@ -77,6 +79,7 @@
     { tecla: 'Alt+A', descricao: 'Atendimento rápido (relatório + contato + mensagem personalizada)' },
     { tecla: 'Alt+S', descricao: 'Registrar e Enviar' },
     { tecla: 'Alt+P', descricao: 'Ir para o próximo da fila' },
+    { tecla: 'Alt+V', descricao: 'Voltar um cliente na fila' },
     { tecla: 'Alt+B', descricao: 'Busca rápida de cliente' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
   ];
@@ -228,6 +231,14 @@
       window.filaDebug.irParaProximo('pulado');
     } else {
       console.warn('[Atalhos] Módulo de Fila (Módulo 3) não encontrado. Confirme se ele foi colado ANTES deste arquivo.');
+    }
+  }
+
+  function acionarVoltarFila() {
+    if (window.filaDebug && typeof window.filaDebug.irParaAnterior === 'function') {
+      window.filaDebug.irParaAnterior();
+    } else {
+      console.warn('[Atalhos] Módulo de Fila (Módulo 3) não encontrado, ou está desatualizado (sem irParaAnterior). Confirme se ele foi colado ANTES deste arquivo.');
     }
   }
 
@@ -996,6 +1007,10 @@
         case CONFIG_ATALHOS.TECLA_PROXIMO_DA_FILA:
           e.preventDefault();
           acionarProximoDaFila();
+          break;
+        case CONFIG_ATALHOS.TECLA_VOLTAR_FILA:
+          e.preventDefault();
+          acionarVoltarFila();
           break;
         case CONFIG_ATALHOS.TECLA_SELECIONAR_FRASE:
           e.preventDefault();

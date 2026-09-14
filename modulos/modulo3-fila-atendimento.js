@@ -21,7 +21,11 @@
  *   4. Quando quiser seguir, aperte Alt+P (ou clique "Próximo →" no painel).
  *      Se o cliente atual já foi registrado, ele conta como "atendido" no
  *      resumo final; senão conta como "pulado".
- *   5. Quando a fila acabar, aparece um aviso e o painel some sozinho.
+ *   5. Avançou rápido demais ou quer revisitar o anterior? Alt+V (ou
+ *      "← Voltar" no painel) volta um cliente, desfazendo a contagem
+ *      daquele passo pra não inflar o resumo final se você for e voltar
+ *      várias vezes.
+ *   6. Quando a fila acabar, aparece um aviso e o painel some sozinho.
  *
  * IMPORTANTE — calibração inicial:
  *   A fila NÃO depende de <a href> (a lista real não usa links — a linha
@@ -278,6 +282,19 @@
     label.style.fontWeight = '600';
     label.style.whiteSpace = 'nowrap';
 
+    const btnVoltar = document.createElement('button');
+    btnVoltar.textContent = '← Voltar';
+    Object.assign(btnVoltar.style, {
+      cursor: 'pointer', border: 'none', background: '#eef2f6',
+      color: '#16232F', padding: '6px 10px', borderRadius: '6px', fontSize: '12px',
+    });
+    if (fila.indiceAtual === 0) {
+      btnVoltar.disabled = true;
+      btnVoltar.style.opacity = '0.4';
+      btnVoltar.style.cursor = 'default';
+    }
+    btnVoltar.onclick = () => irParaAnterior();
+
     const btnPular = document.createElement('button');
     btnPular.textContent = 'Próximo →';
     Object.assign(btnPular.style, {
@@ -299,6 +316,7 @@
     };
 
     painelEl.appendChild(label);
+    painelEl.appendChild(btnVoltar);
     painelEl.appendChild(btnPular);
     painelEl.appendChild(btnEncerrar);
   }
@@ -456,6 +474,10 @@
       fila.totalPulados = (fila.totalPulados || 0) + 1;
     }
 
+    // Guarda o que este passo contou, pra irParaAnterior() poder desfazer
+    // exatamente essa contagem se você voltar depois -- sem isso, ir e
+    // voltar repetidas vezes infla o resumo final.
+    fila.ultimoMotivo = motivoEfetivo;
     fila.indiceAtual += 1;
     delete fila.indiceRegistrado;
 
@@ -477,6 +499,42 @@
     // Módulo 2) -- navegar direto é seguro.
     setTimeout(() => {
       window.location.href = proximo.url;
+    }, 350);
+  }
+
+  // Contraparte de irParaProximo(): volta um cliente na fila, desfazendo a
+  // contagem do passo que está sendo revertido (ver fila.ultimoMotivo). Se
+  // o cliente que você está deixando tinha sido registrado nesta visita,
+  // isso também é desfeito -- ao chegar de volta no cliente anterior,
+  // sincronizarPosicao() restaura indiceRegistrado sozinho se ele já
+  // estiver em "atendidos hoje" (registro real já foi enviado ao CRM).
+  function irParaAnterior() {
+    const fila = obterFila();
+    if (!fila || fila.indiceAtual === -1 || fila.indiceAtual === null) return;
+
+    if (fila.indiceAtual === 0) {
+      toast('Já está no primeiro cliente da fila.');
+      return;
+    }
+
+    if (fila.ultimoMotivo === 'atendido') {
+      fila.totalAtendidos = Math.max(0, (fila.totalAtendidos || 0) - 1);
+    } else if (fila.ultimoMotivo === 'pulado') {
+      fila.totalPulados = Math.max(0, (fila.totalPulados || 0) - 1);
+    }
+    delete fila.ultimoMotivo;
+    delete fila.indiceRegistrado;
+
+    fila.indiceAtual -= 1;
+    salvarFila(fila);
+
+    const anterior = fila.clientes[fila.indiceAtual];
+    toast(`← ${anterior.label}`);
+
+    // Mesma lógica do avanço manual: nenhum reload de terceiros competindo
+    // aqui, navegar direto é seguro.
+    setTimeout(() => {
+      window.location.href = anterior.url;
     }, 350);
   }
 
@@ -560,6 +618,14 @@
 
     if (idx !== -1) {
       fila.indiceAtual = idx;
+      // Se este cliente já consta em "atendidos hoje" (registro real já foi
+      // enviado ao CRM, por Alt+S ou clique manual), o próximo avanço deve
+      // contar como "atendido" mesmo que tenhamos chegado aqui via Alt+V
+      // (voltar) ou qualquer outra navegação, não só pela mesma sequência
+      // de cliques que fez o registro original.
+      if (obterAtendidosHoje().has(cnpjAtual)) {
+        fila.indiceRegistrado = idx;
+      }
       salvarFila(fila);
       paginaNaFila = true;
       removerBotaoRetomar(); // já estamos na fila -- não faz sentido "retomar"
@@ -619,6 +685,7 @@
     construirFilaAPartirDaPagina,
     iniciarFila,
     irParaProximo,
+    irParaAnterior,
     // Expõe o "armar" da interceptação do window.open pro Módulo 4 chamar
     // explicitamente ANTES do clique simulado do Alt+S -- garante que a
     // detecção de sucesso funciona não importa qual estratégia de clique
