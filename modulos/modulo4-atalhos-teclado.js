@@ -331,9 +331,22 @@
    * -----------------------------------------------------------------
    * Lê window.__contextoAdicional (calculado pelo Módulo 6 já no carregamento
    * da página, sem custo extra aqui). Se o Módulo 6 não estiver carregado ou
-   * não achar nada relevante, as duas funções devolvem string vazia -- a
+   * não achar nada relevante, essas funções devolvem string vazia -- a
    * mensagem segue normal, só sem essas linhas extras.
    * --------------------------------------------------------------------- */
+  // CONFIRMADO com o usuário: diferente do caso de zero contatos (que vira
+  // uma mensagem só de identificação, sem relatório -- ver semContatoAnterior
+  // em montarMensagemPersonalizada), aqui o cliente TEM contato registrado,
+  // só que o mais recente é anterior à data de corte (Módulo 6). Mensagem
+  // continua normal (relatório, situação, promessa), só ganha essa linha a
+  // mais logo após a saudação -- sem a pergunta de confirmação de
+  // responsável, já que já houve contato antes.
+  function obterLinhaApresentacaoContatoAntigo() {
+    const ctx = window.__contextoAdicional;
+    if (!ctx || !ctx.contatoAntigo) return '';
+    return 'Sou o Isaac do financeiro da Tex Cotton referente as marcas Animê, Bimbi, Youccie, Authoria e Momi';
+  }
+
   function obterLinhaContatoRecente() {
     const ctx = window.__contextoAdicional;
     if (!ctx || !ctx.contatoRecente) return '';
@@ -429,11 +442,13 @@
       '',
     ];
 
+    const linhaApresentacao = obterLinhaApresentacaoContatoAntigo();
     const linhaContatoRecente = obterLinhaContatoRecente();
     const linhaPromessa = obterLinhaPromessa();
+    if (linhaApresentacao) partes.push(linhaApresentacao);
     if (linhaContatoRecente) partes.push(linhaContatoRecente);
     if (linhaPromessa) partes.push(linhaPromessa);
-    if (linhaContatoRecente || linhaPromessa) partes.push('');
+    if (linhaApresentacao || linhaContatoRecente || linhaPromessa) partes.push('');
 
     partes.push('Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:');
     if (linhaContexto) {

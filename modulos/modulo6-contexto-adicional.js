@@ -51,7 +51,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.11';
+  const VERSAO_SMARTTABLE = '1.0.12';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -99,6 +99,11 @@
     // pagamento combinado segue sem ser identificado do mesmo jeito).
     // "Cumprida"/"Cumprida Parcial" ficam de fora de propósito (resolvidas).
     STATUS_NAO_PAGAMENTO: ['PENDENTE', 'QUEBRADA', 'PARCIAL'],
+    // CONFIRMADO com o usuário: cliente com pelo menos um contato registrado,
+    // mas cujo contato mais recente é ANTERIOR a essa data (ou seja, todos
+    // os contatos são anteriores -- checar só o mais recente já cobre isso),
+    // recebe uma linha de apresentação extra na mensagem (ver contatoAntigo).
+    DATA_CORTE_CONTATO_ANTIGO: { ano: 2026, mes: 8, dia: 10 }, // 10/08/2026
   };
 
   /* ---------------------------------------------------------------------
@@ -349,6 +354,19 @@
     }
   }
 
+  // true quando há pelo menos um contato registrado, mas o mais recente
+  // deles é anterior à data de corte -- checar só o mais recente já cobre
+  // "todos são anteriores", já que por definição nenhum outro pode ser
+  // mais novo que ele.
+  function calcularContatoAntigo(totalContatos) {
+    if (totalContatos === 0) return false;
+    const maisRecente = lerContatoMaisRecente();
+    if (!maisRecente) return false;
+    const { ano, mes, dia } = CONFIG_CONTEXTO.DATA_CORTE_CONTATO_ANTIGO;
+    const dataCorte = normalizarData(new Date(ano, mes - 1, dia));
+    return maisRecente.data.getTime() < dataCorte.getTime();
+  }
+
   function calcularContexto() {
     const hoje = normalizarData(new Date());
     const totalContatos = document.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_CONTATO).length;
@@ -356,6 +374,7 @@
       promessa: calcularContextoPromessa(hoje),
       contatoRecente: calcularContextoContato(hoje),
       semContatoAnterior: totalContatos === 0,
+      contatoAntigo: calcularContatoAntigo(totalContatos),
       calcularTitulosPendentes,
     };
   }
@@ -369,7 +388,7 @@
       console.log('[Contexto Adicional] Calculado:', window.__contextoAdicional);
     } catch (erro) {
       console.warn('[Contexto Adicional] Falha ao calcular -- Alt+A segue funcionando sem essas linhas extras:', erro.message);
-      window.__contextoAdicional = { promessa: null, contatoRecente: null, semContatoAnterior: false, calcularTitulosPendentes };
+      window.__contextoAdicional = { promessa: null, contatoRecente: null, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
     }
   }
 
@@ -397,7 +416,7 @@
         console.warn(
           '[Contexto Adicional] Containers de Promessas/Contatos não encontrados nesta página -- normal fora da tela de cliente.'
         );
-        window.__contextoAdicional = { promessa: null, contatoRecente: null, semContatoAnterior: false, calcularTitulosPendentes };
+        window.__contextoAdicional = { promessa: null, contatoRecente: null, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
       }
     }, 5000);
   }
@@ -425,5 +444,6 @@
     lerContatoMaisRecente,
     lerTodosContatos,
     calcularContextoPromessa,
+    calcularContatoAntigo,
   };
 })();
