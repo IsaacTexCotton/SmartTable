@@ -20,8 +20,6 @@
  *
  * PREMISSAS AINDA NÃO CONFIRMADAS COM O USUÁRIO (documentadas de propósito,
  * revisar se o comportamento real divergir):
- *   - O primeiro ".contato-item" da lista é sempre o mais recente (não
- *     confirmado com uma lista real de múltiplos contatos, só com 1 item).
  *   - Promessa "Pendente" no dia útil seguinte (prazo passou mas o CRM
  *     ainda não marcou Quebrada/Parcial) não tem frase aprovada -- é
  *     ignorada de propósito, não por esquecimento.
@@ -163,15 +161,25 @@
   /* ---------------------------------------------------------------------
    * 3. LEITURA: CONTATO MAIS RECENTE
    * --------------------------------------------------------------------- */
+  // Varre TODOS os ".contato-item" e escolhe o de data mais recente, em vez
+  // de confiar que o primeiro do DOM já é o mais novo -- essa suposição não
+  // era confirmada (ver nota no cabeçalho do arquivo) e causava inconsistência
+  // real: clientes contatados em dias diferentes (ex.: quinta e sexta)
+  // acabavam recebendo a mesma linha "contato de ontem", porque o item
+  // pego não era de fato o contato mais recente de cada um.
   function lerContatoMaisRecente() {
-    const item = document.querySelector(CONFIG_CONTEXTO.SELETOR_ITEM_CONTATO);
-    if (!item) return null;
+    const itens = document.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_CONTATO);
+    let maisRecente = null;
 
-    const dataTexto = item.dataset.data; // ex.: "10/09/2026 16:08"
-    return {
-      data: converterDataBr(dataTexto),
-      efetivo: item.dataset.efetivo === 'true',
-    };
+    itens.forEach((item) => {
+      const data = converterDataBr(item.dataset.data); // ex.: "10/09/2026 16:08"
+      if (!data) return;
+      if (!maisRecente || data.getTime() > maisRecente.data.getTime()) {
+        maisRecente = { data, efetivo: item.dataset.efetivo === 'true' };
+      }
+    });
+
+    return maisRecente;
   }
 
   /* ---------------------------------------------------------------------
