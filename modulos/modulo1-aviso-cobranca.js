@@ -1393,6 +1393,7 @@
                 // legivel mesmo em preto e branco ou sob compressao.
                 '<td style="' + celula + ' font-weight:600; border-left:3px solid ' + s.rail + ';">' +
                     esc(r.titulo) + '</td>' +
+                '<td style="' + numerica + ' text-align:center;">' + esc(r.parcela) + '</td>' +
                 '<td style="' + celula + '">' + esc(r.razaoSocial) + '</td>' +
                 '<td style="' + numerica + ' text-align:center;">' + esc(r.vencimentoTexto) + '</td>' +
                 '<td style="' + numerica + ' text-align:right;">' + esc(r.saldoTexto) + '</td>' +
@@ -1462,6 +1463,46 @@
             '</div>';
     }
 
+    // Converte texto de moeda em formato brasileiro ("R$ 1.234,56") pra
+    // número -- remove separador de milhar (.) e troca a vírgula decimal
+    // por ponto. Retorna null se não conseguir reconhecer um número.
+    function converterMoedaBrasileira(texto) {
+        if (!texto) return null;
+        const limpo = String(texto).replace(/[^\d,.-]/g, '').trim();
+        if (!limpo) return null;
+        const numerico = limpo.replace(/\./g, '').replace(',', '.');
+        const valor = parseFloat(numerico);
+        return Number.isFinite(valor) ? valor : null;
+    }
+
+    function formatarMoedaBrasileira(valor) {
+        return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    // Linha de total: só faz sentido com 2+ títulos (com 1 só, seria igual
+    // ao saldo já mostrado na própria linha) -- CONFIRMADO com o usuário.
+    function montarTotalizador(registros) {
+        if (registros.length <= 1) return '';
+
+        const valores = registros.map(r => converterMoedaBrasileira(r.saldoTexto));
+        const semValorReconhecido = valores.filter(v => v === null).length;
+        if (semValorReconhecido > 0) {
+            console.warn('[aviso-cobranca] ' + semValorReconhecido + ' saldo(s) não reconhecido(s) como valor ' +
+                'monetário -- ficaram de fora do Valor Total do relatório.');
+        }
+
+        const total = valores.reduce((soma, v) => soma + (v || 0), 0);
+        const bordaTopo = 'border-top:2px solid ' + TOKENS.cabecalho + ';';
+        const celula = 'padding:11px 14px; ' + bordaTopo;
+
+        return '<tfoot><tr style="background:' + TOKENS.superficie + '; font-weight:700;">' +
+            '<td colspan="4" style="' + celula + ' text-align:right;">Valor Total</td>' +
+            '<td style="' + celula + ' text-align:right; font-variant-numeric:tabular-nums;">' +
+                esc(formatarMoedaBrasileira(total)) + '</td>' +
+            '<td colspan="2" style="' + bordaTopo + '"></td>' +
+        '</tr></tfoot>';
+    }
+
     function montarRelatorio(dados, hoje) {
         const { registros, fluxo, divergentes } = dados;
 
@@ -1496,6 +1537,7 @@
             '<table style="width:100%; border-collapse:collapse; font-size:13px;">' +
                 '<thead><tr style="background:' + TOKENS.cabecalho + ';">' +
                     '<th style="' + th + ' text-align:left;">Título</th>' +
+                    '<th style="' + th + ' text-align:center;">Parcela</th>' +
                     '<th style="' + th + ' text-align:left;">Cliente</th>' +
                     '<th style="' + th + ' text-align:center;">Vencimento</th>' +
                     '<th style="' + th + ' text-align:right;">Saldo</th>' +
@@ -1503,6 +1545,7 @@
                     '<th style="' + th + ' text-align:center;">Situação</th>' +
                 '</tr></thead>' +
                 '<tbody>' + montarLinhas(registros) + '</tbody>' +
+                montarTotalizador(registros) +
             '</table>' +
 
             // LEGENDA
