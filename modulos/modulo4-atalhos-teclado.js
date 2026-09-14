@@ -378,18 +378,15 @@
     return 'Sou o Isaac do financeiro da Tex Cotton referente as marcas Animê, Bimbi, Youccie, Authoria e Momi';
   }
 
-  // CONFIRMADO com o usuário: mesma linha nos dois casos, só muda o plural
-  // quando é mais de uma outra razão do grupo com saldo vencido. Lê
+  // CONFIRMADO com o usuário (substituiu a linha "Notamos que a empresa
+  // X..." de uma versão anterior, que ficava ruim na mensagem): quando há
+  // outra razão do grupo com saldo vencido, a frase do relatório fala "de
+  // cada razão social" em vez de citar nome/valor específico. Lê
   // window.__alertaGrupo (Módulo 5) -- precisa dele carregado ANTES deste
   // arquivo.
-  function obterLinhaGrupoComVencido() {
+  function temOutraRazaoComVencido() {
     const grupo = window.__alertaGrupo;
-    if (!grupo || !grupo.empresasComVencido || grupo.empresasComVencido.length === 0) return '';
-    const empresas = grupo.empresasComVencido;
-    const nomesTexto = empresas.map((e) => `${e.razaoSocial} (${e.vencido})`).join(', ');
-    return empresas.length === 1
-      ? `Notamos que a empresa ${nomesTexto}, do mesmo grupo econômico, também possui título vencido.`
-      : `Notamos que as empresas ${nomesTexto}, do mesmo grupo econômico, também possuem títulos vencidos.`;
+    return !!(grupo && grupo.empresasComVencido && grupo.empresasComVencido.length > 0);
   }
 
   function obterLinhaContatoRecente() {
@@ -490,14 +487,20 @@
     const linhaApresentacao = obterLinhaApresentacaoContatoAntigo();
     const linhaContatoRecente = obterLinhaContatoRecente();
     const linhaPromessa = obterLinhaPromessa();
-    const linhaGrupo = obterLinhaGrupoComVencido();
     if (linhaApresentacao) partes.push(linhaApresentacao);
     if (linhaContatoRecente) partes.push(linhaContatoRecente);
     if (linhaPromessa) partes.push(linhaPromessa);
-    if (linhaGrupo) partes.push(linhaGrupo);
-    if (linhaApresentacao || linhaContatoRecente || linhaPromessa || linhaGrupo) partes.push('');
+    if (linhaApresentacao || linhaContatoRecente || linhaPromessa) partes.push('');
 
-    partes.push('Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:');
+    // CONFIRMADO com o usuário: com 2+ razões com saldo vencido, a frase do
+    // relatório fala de "cada razão social" em vez de citar a razão social
+    // específica -- não é mais um lead-in com ":" pra uma linha só, é frase
+    // fechada por conta própria (segue igual pra situação do título/{{}}
+    // logo abaixo, se houver).
+    const linhaRelatorio = temOutraRazaoComVencido()
+      ? 'Segue o relatório atualizado com os débitos em aberto de cada razão social.'
+      : 'Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:';
+    partes.push(linhaRelatorio);
     if (linhaContexto) {
       partes.push('', linhaContexto);
     }
