@@ -323,4 +323,22 @@
   } else {
     aguardarConteudoEExecutar();
   }
+
+  // Hooks de depuração (mesmo padrão do window.filaDebug no Módulo 3 e do
+  // window.__avisoCobranca no Módulo 1). Rodar no console, na página do
+  // cliente, pra diagnosticar sem precisar copiar HTML manualmente:
+  //   window.__contextoAdicionalDebug.lerPromessas()
+  //     -> mostra o que foi de fato extraído de cada .promessa-item (status,
+  //        data lida, títulos). Array vazio ou dataPrometida:null aqui
+  //        indica que os seletores (baseados em classes Tailwind nunca
+  //        confirmadas com HTML real) não bateram com a estrutura da
+  //        página -- não é problema de data/status, é de leitura do DOM.
+  //   window.__contextoAdicionalDebug.calcularContextoPromessa(new Date())
+  //     -> roda a decisão final (DIA_DA_PROMESSA / QUEBRADA / PARCIAL / null)
+  //        com a data de agora, sem esperar o carregamento da página.
+  window.__contextoAdicionalDebug = {
+    lerPromessas,
+    lerContatoMaisRecente,
+    calcularContextoPromessa,
+  };
 })();
