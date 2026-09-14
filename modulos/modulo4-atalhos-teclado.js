@@ -61,6 +61,14 @@
     // Tempo (ms) entre abrir a tela de contato e selecionar a frase --
     // dá tempo do modal terminar de aparecer antes de mexer nele.
     ATRASO_ATENDIMENTO_RAPIDO_MS: 150,
+    // Alt+A com outra(s) razão(ões) do grupo com saldo vencido: tempo
+    // máximo (ms) esperando o botão de relatório aparecer em cada aba de
+    // fundo depois de aberta, intervalo (ms) entre tentativas, e tempo (ms)
+    // de espera depois de clicar nele antes de fechar a aba (dá tempo da
+    // geração do relatório -- imagem/clipboard/download -- terminar).
+    TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS: 8000,
+    INTERVALO_POLL_OUTRA_RAZAO_MS: 200,
+    ATRASO_FECHAR_ABA_OUTRA_RAZAO_MS: 2000,
     // Trechos de texto (minúsculo) usados pra achar os botões que ainda
     // não têm uma função global conhecida. AJUSTAR SE NÃO FUNCIONAR.
     TEXTO_BOTAO_RELATORIO: 'relatório',
@@ -82,7 +90,7 @@
     { tecla: 'Alt+R', descricao: 'Gerar Relatório' },
     { tecla: 'Alt+C', descricao: 'Entrar na tela de contato' },
     { tecla: 'Alt+F', descricao: 'Selecionar a 1ª frase padrão' },
-    { tecla: 'Alt+A', descricao: 'Atendimento rápido (relatório + contato + mensagem personalizada)' },
+    { tecla: 'Alt+A', descricao: 'Atendimento rápido (relatório(s) de outra(s) razão(ões) do grupo, se houver, + relatório + contato + mensagem personalizada)' },
     { tecla: 'Alt+S', descricao: 'Registrar e Enviar' },
     { tecla: 'Alt+P', descricao: 'Ir para o próximo da fila' },
     { tecla: 'Alt+V', descricao: 'Voltar um cliente na fila' },
@@ -115,24 +123,55 @@
     return rect.width > 0 && rect.height > 0;
   }
 
-  function encontrarElementoVisivelPorTexto(seletorBase, trecho) {
+  // doc opcional -- default é o document desta aba, mas pode receber o
+  // document de outra janela same-origin (ver gerarRelatoriosDasOutrasRazoes).
+  function encontrarElementoVisivelPorTexto(seletorBase, trecho, doc) {
+    const documento = doc || document;
     const alvo = trecho.trim().toLowerCase();
     if (!alvo) return null;
 
-    const candidatos = Array.from(document.querySelectorAll(seletorBase));
+    const candidatos = Array.from(documento.querySelectorAll(seletorBase));
     return (
       candidatos.find((el) => elementoVisivel(el) && (el.textContent || '').trim().toLowerCase().includes(alvo)) ||
       null
     );
   }
 
-  function clicarBotaoPorTexto(trecho) {
-    const encontrado = encontrarElementoVisivelPorTexto('button, a[role="button"], [role="button"]', trecho);
+  function clicarBotaoPorTexto(trecho, doc) {
+    const encontrado = encontrarElementoVisivelPorTexto('button, a[role="button"], [role="button"]', trecho, doc);
     if (encontrado) {
       simularCliqueCompleto(encontrado);
       return true;
     }
     return false;
+  }
+
+  function esperar(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Espera (com polling) o botão aparecer em OUTRA janela same-origin já
+  // aberta -- lê janela.document a cada tentativa (não guarda uma
+  // referência fixa), porque o document de uma aba recém-aberta com
+  // window.open(url) começa como about:blank e é substituído por um objeto
+  // novo quando a navegação real termina. Resolve com o elemento encontrado,
+  // ou com null se a aba fechar sozinha ou o tempo esgotar.
+  function esperarElementoVisivelPorTextoNaJanela(seletorBase, trecho, janela, timeoutMs, intervaloMs) {
+    return new Promise((resolve) => {
+      const prazoFinal = Date.now() + timeoutMs;
+      (function tentar() {
+        if (janela.closed) return resolve(null);
+        let el = null;
+        try {
+          el = encontrarElementoVisivelPorTexto(seletorBase, trecho, janela.document);
+        } catch (erro) {
+          return resolve(null);
+        }
+        if (el) return resolve(el);
+        if (Date.now() >= prazoFinal) return resolve(null);
+        setTimeout(tentar, intervaloMs);
+      })();
+    });
   }
 
   function dispararEventoDeMouse(elemento, tipo) {
@@ -271,6 +310,68 @@
       // passar, mas se faltar alguma aba, pode ser o bloqueador de popup.
       window.open(empresa.url, '_blank', 'noopener,noreferrer');
     });
+  }
+
+  // Automação pedida pelo usuário: quando o cliente tem outra(s) razão(ões)
+  // do grupo com saldo vencido, o Alt+A visita cada uma em aba de fundo,
+  // gera o relatório lá e fecha a aba sozinho, antes de continuar com o
+  // resto do Alt+A na razão original -- que nunca perde o foco/sai do
+  // lugar (por isso "voltar" não precisa de navegação nenhuma aqui).
+  //
+  // IMPORTANTE sobre bloqueio de popup: todas as abas são abertas de uma
+  // vez, de forma síncrona, ainda dentro do gesto do usuário (Alt+A) --
+  // mesma tática do Alt+G. Se abríssemos cada aba só depois de esperar a
+  // anterior carregar (com await no meio), o navegador não reconheceria
+  // mais isso como gesto do usuário e bloquearia como popup. Só a ESPERA
+  // pelo botão em cada aba já aberta acontece em sequência.
+  async function gerarRelatoriosDasOutrasRazoes() {
+    const grupo = window.__alertaGrupo;
+    if (!grupo || !grupo.empresasComVencido || grupo.empresasComVencido.length === 0) {
+      return;
+    }
+
+    const tentativas = grupo.empresasComVencido
+      .filter((empresa) => {
+        if (!empresa.url) {
+          console.warn(`[Atalhos] Não consegui montar a URL de "${empresa.razaoSocial}" -- pulando.`);
+          return false;
+        }
+        return true;
+      })
+      .map((empresa) => ({ empresa, aba: window.open(empresa.url, '_blank') }));
+
+    for (const { empresa, aba } of tentativas) {
+      if (!aba) {
+        console.warn(`[Atalhos] Não consegui abrir aba para "${empresa.razaoSocial}" -- popup bloqueado?`);
+        continue;
+      }
+      try {
+        const botao = await esperarElementoVisivelPorTextoNaJanela(
+          'button, a[role="button"], [role="button"]',
+          CONFIG_ATALHOS.TEXTO_BOTAO_RELATORIO,
+          aba,
+          CONFIG_ATALHOS.TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS,
+          CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS
+        );
+        if (botao) {
+          simularCliqueCompleto(botao);
+          console.log(`[Atalhos] Relatório gerado em aba de fundo para "${empresa.razaoSocial}".`);
+          await esperar(CONFIG_ATALHOS.ATRASO_FECHAR_ABA_OUTRA_RAZAO_MS);
+        } else {
+          console.warn(
+            `[Atalhos] Não encontrei o botão de relatório em "${empresa.razaoSocial}" a tempo (aba fechada ou demorou demais) -- fechando mesmo assim.`
+          );
+        }
+      } catch (erro) {
+        console.warn(`[Atalhos] Erro gerando relatório em aba de fundo para "${empresa.razaoSocial}":`, erro);
+      } finally {
+        try {
+          if (!aba.closed) aba.close();
+        } catch (erro) {
+          // aba pode já ter sido fechada manualmente -- ignora.
+        }
+      }
+    }
   }
 
   function acionarGerarRelatorio() {
@@ -532,7 +633,13 @@
     console.log('[Atalhos] Mensagem personalizada escrita na caixa de observações.');
   }
 
-  function acionarAtendimentoRapido() {
+  async function acionarAtendimentoRapido() {
+    // Passo 0 (se houver outra razão do grupo com saldo vencido): gera o
+    // relatório de cada uma em aba de fundo antes de seguir com o resto --
+    // ver gerarRelatoriosDasOutrasRazoes acima. Sem outra razão, resolve
+    // na hora e o fluxo segue exatamente como antes.
+    await gerarRelatoriosDasOutrasRazoes();
+
     const ctx = window.__contextoAdicional;
     const semRelatorio = !!(ctx && ctx.semContatoAnterior);
 
