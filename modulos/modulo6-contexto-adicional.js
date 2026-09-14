@@ -154,7 +154,13 @@
     const itens = document.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_PROMESSA);
     return Array.from(itens)
       .map((item) => {
-        const status = (item.dataset.status || '').toUpperCase();
+        // CONFIRMADO com outerHTML real: "data-status" não está no próprio
+        // ".promessa-item", está num filho (<div class="flex-1 cursor-pointer"
+        // data-status="PENDENTE" ...>). Ler item.dataset.status direto sempre
+        // dava vazio -- por isso a linha de promessa nunca aparecia, mesmo com
+        // data e títulos lidos certinho.
+        const elementoComStatus = item.querySelector('[data-status]');
+        const status = ((elementoComStatus && elementoComStatus.dataset.status) || '').toUpperCase();
         const spanData = item.querySelector('p.text-xs.text-gray-500 span');
         const dataPrometidaTexto = spanData ? spanData.textContent.trim() : null;
         return {
