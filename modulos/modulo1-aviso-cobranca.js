@@ -1271,6 +1271,19 @@
             console.warn('[aviso-cobranca] ' + ignorados.length + ' linha(s) ignorada(s):', ignorados);
         }
 
+        // SEGURANÇA (regra de negócio confirmada pelo usuário): se TODOS os
+        // títulos vencidos do cliente já estão em cartório (nenhum em outra
+        // situação), não cobramos -- o processo já saiu da cobrança
+        // amigável. Mesmo tratamento que NAO COBRAR/CARTEIRA acima: os
+        // títulos saem de "registros" e entram em "naoCobrar", disparando o
+        // banner fixo (avisarSeNaoCobrar) e tirando o cliente da mensagem
+        // automática do Alt+A. Só com 1+ título -- cliente sem nenhum
+        // título vencido não teria "registros" mesmo antes desta regra.
+        if (registros.length > 0 && registros.every(r => r.situacaoKey === 'EM_CARTORIO')) {
+            naoCobrar.push(...registros);
+            registros.length = 0;
+        }
+
         const divergentes = registros.filter(r => r.divergenciaDias);
         if (divergentes.length > 0) {
             console.warn('[aviso-cobranca] Divergência entre dias do CRM e dias calculados:',
