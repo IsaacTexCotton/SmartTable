@@ -1,9 +1,11 @@
 /* =========================================================================
  * MÓDULO 3: FILA DE ATENDIMENTO — CRM TexCotton
  * -------------------------------------------------------------------------
- * O que faz: depois que o negociador clica em "Registrar e Enviar" (Módulo 2)
- * e o WhatsApp abre com sucesso, este módulo navega automaticamente para o
- * próximo cliente da fila — sem precisar voltar pra lista e clicar de novo.
+ * O que faz: mantém a lista de clientes a atender e sua posição nela. Ao
+ * detectar que "Registrar e Enviar" (Módulo 2) teve sucesso (WhatsApp
+ * abriu), marca o cliente atual como atendido -- mas NÃO navega sozinho
+ * pro próximo. O avanço de fato é sempre uma decisão sua: Alt+P ou o botão
+ * "Próximo →" no painel, quando você estiver pronto.
  *
  * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos
  * "Aviso de Cobrança" (v4) e "Registrar e Enviar". Não substitui nada.
@@ -13,11 +15,13 @@
  *   2. Clique no botão flutuante "▶ Iniciar Fila de Atendimento" (canto
  *      inferior esquerdo). Isso te leva direto pro primeiro cliente.
  *   3. Em cada cliente, use o fluxo normal (ver títulos, gerar relatório,
- *      "Registrar e Enviar"). Ao detectar que o WhatsApp abriu, o script
- *      leva você automaticamente pro próximo cliente da fila.
- *   4. Quando a fila acabar, aparece um aviso e o painel some sozinho.
- *   5. Pra pular um cliente sem registrar, use o botão "Pular →" no painel
- *      que aparece no canto superior direito enquanto a fila está ativa.
+ *      "Registrar e Enviar"). Ao detectar que o WhatsApp abriu, o cliente
+ *      fica marcado como atendido -- a página continua a mesma até você
+ *      decidir ir pro próximo.
+ *   4. Quando quiser seguir, aperte Alt+P (ou clique "Próximo →" no painel).
+ *      Se o cliente atual já foi registrado, ele conta como "atendido" no
+ *      resumo final; senão conta como "pulado".
+ *   5. Quando a fila acabar, aparece um aviso e o painel some sozinho.
  *
  * IMPORTANTE — calibração inicial:
  *   A fila NÃO depende de <a href> (a lista real não usa links — a linha
@@ -66,15 +70,6 @@
     // Chave separada pra lembrar quem já foi atendido HOJE (evita cobrar o
     // mesmo cliente duas vezes no mesmo dia, mesmo em filas diferentes).
     CHAVE_ATENDIDOS_HOJE: 'filaAtendidosHoje_v1',
-    // CONFIRMADO NO CÓDIGO REAL DO MÓDULO 2: depois de "Registrar e Enviar"
-    // ter sucesso, a própria página chama location.reload() quase
-    // instantaneamente -- rápido demais pra qualquer setTimeout nosso
-    // vencer essa corrida, e location.reload não pode ser interceptado
-    // (é uma propriedade protegida do navegador). Por isso o avanço da
-    // fila usa este marcador no localStorage como "ponte" que sobrevive ao
-    // reload -- ver processarAvancoAposSucesso() e consumirAvancoPendente().
-    CHAVE_AVANCO_PENDENTE: 'filaAvancoPendente_v1',
-    AVANCO_PENDENTE_EXPIRA_MS: 8000,
     // Versão do formato salvo no localStorage. Se um dia o formato mudar,
     // incremente isso -- qualquer fila salva com versão diferente é
     // descartada automaticamente em vez de causar erro (ver validarFila).
@@ -199,51 +194,6 @@
     }
   }
 
-  // "Avanço pendente": ponte que sobrevive ao reload que o Módulo 2 faz
-  // logo após um registro bem-sucedido. Ver nota em CONFIG.CHAVE_AVANCO_PENDENTE.
-  function salvarAvancoPendente(proximaUrl) {
-    try {
-      localStorage.setItem(
-        CONFIG.CHAVE_AVANCO_PENDENTE,
-        JSON.stringify({ proximaUrl, criadoEm: Date.now() })
-      );
-    } catch (e) {
-      console.warn('[Fila] Não consegui salvar o avanço pendente.', e);
-    }
-  }
-
-  function lerAvancoPendente() {
-    try {
-      const raw = localStorage.getItem(CONFIG.CHAVE_AVANCO_PENDENTE);
-      if (!raw) return null;
-      const dados = JSON.parse(raw);
-      if (Date.now() - dados.criadoEm > CONFIG.AVANCO_PENDENTE_EXPIRA_MS) return null; // expirado
-      return dados;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function limparAvancoPendente() {
-    try {
-      localStorage.removeItem(CONFIG.CHAVE_AVANCO_PENDENTE);
-    } catch (e) {
-      // silencioso
-    }
-  }
-
-  // Chamado bem no início de toda página: se existir um avanço pendente
-  // (ou seja, a página anterior confirmou sucesso e estava prestes a
-  // navegar quando o reload do Módulo 2 interrompeu isso), completa a
-  // navegação imediatamente, antes de qualquer outra coisa.
-  function consumirAvancoPendenteSeExistir() {
-    const pendente = lerAvancoPendente();
-    if (!pendente) return false;
-    limparAvancoPendente();
-    window.location.href = pendente.proximaUrl;
-    return true;
-  }
-
   function extrairDiasAtraso(texto) {
     const match = (texto || '').match(CONFIG.REGEX_DIAS_ATRASO);
     return match ? parseInt(match[1], 10) : 0;
@@ -329,7 +279,7 @@
     label.style.whiteSpace = 'nowrap';
 
     const btnPular = document.createElement('button');
-    btnPular.textContent = 'Pular →';
+    btnPular.textContent = 'Próximo →';
     Object.assign(btnPular.style, {
       cursor: 'pointer', border: 'none', background: '#eef2f6',
       color: '#16232F', padding: '6px 10px', borderRadius: '6px', fontSize: '12px',
@@ -492,15 +442,22 @@
     if (!fila || fila.indiceAtual === -1 || fila.indiceAtual === null) return;
 
     const clienteAtual = fila.clientes[fila.indiceAtual];
+    // Se o cliente atual já foi registrado com sucesso (Alt+S ou clique
+    // manual em "Registrar e Enviar"), conta como "atendido" mesmo que
+    // você tenha avançado pelo botão "Próximo →" (que também serve pra
+    // pular sem registrar) -- ver registrarSucessoSemAvancar().
+    const jaRegistrado = fila.indiceRegistrado === fila.indiceAtual;
+    const motivoEfetivo = jaRegistrado ? 'atendido' : motivo;
 
-    if (motivo === 'atendido') {
+    if (motivoEfetivo === 'atendido') {
       fila.totalAtendidos = (fila.totalAtendidos || 0) + 1;
-      if (clienteAtual) marcarComoAtendidoHoje(clienteAtual.cnpj);
+      if (clienteAtual && !jaRegistrado) marcarComoAtendidoHoje(clienteAtual.cnpj);
     } else {
       fila.totalPulados = (fila.totalPulados || 0) + 1;
     }
 
     fila.indiceAtual += 1;
+    delete fila.indiceRegistrado;
 
     if (fila.indiceAtual >= fila.clientes.length) {
       const msg = `🎉 Fila concluída! ${fila.totalAtendidos || 0} atendido(s), ${fila.totalPulados || 0} pulado(s).`;
@@ -515,19 +472,26 @@
     const proximo = fila.clientes[fila.indiceAtual];
     toast(`→ ${proximo.label}`);
 
-    // Usado pelo "Pular" manual (Alt+P / botão do painel) -- aqui não há
-    // nenhum reload de terceiros competindo, então navegar direto é seguro.
+    // Aqui não há nenhum reload de terceiros competindo (diferente do
+    // registro bem-sucedido, que é seguido de location.reload() pelo
+    // Módulo 2) -- navegar direto é seguro.
     setTimeout(() => {
       window.location.href = proximo.url;
     }, 350);
   }
 
-  // Usado especificamente após um "Registrar e Enviar" bem-sucedido. NÃO
-  // navega diretamente por padrão -- ver CONFIG.CHAVE_AVANCO_PENDENTE. A
-  // navegação de fato acontece via consumirAvancoPendenteSeExistir(), na
-  // página que carregar em seguida (recarregada pelo Módulo 2, ou a mesma
-  // se por algum motivo o reload não acontecer).
-  function processarAvancoAposSucesso() {
+  // Chamado quando "Registrar e Enviar" tem sucesso (WhatsApp abriu). NÃO
+  // navega e NÃO avança fila.indiceAtual -- só marca que este cliente já
+  // foi registrado, pra "atendidos hoje" e pro resumo final da fila. Você
+  // decide quando seguir pro próximo (Alt+P / botão "Próximo →").
+  //
+  // Roda de forma síncrona, dentro da interceptação de window.open (ver
+  // aguardarEAvancar), porque o Módulo 2 chama location.reload() quase
+  // instantaneamente depois do window.open() -- rápido demais pra qualquer
+  // setTimeout nosso vencer essa corrida. marcarComoAtendidoHoje() e
+  // salvarFila() gravam em localStorage, que sobrevive ao reload sem
+  // precisar de nenhuma "ponte".
+  function registrarSucessoSemAvancar() {
     if (!paginaNaFila) return;
 
     const fila = obterFila();
@@ -535,31 +499,10 @@
 
     const clienteAtual = fila.clientes[fila.indiceAtual];
     if (clienteAtual) marcarComoAtendidoHoje(clienteAtual.cnpj);
-    fila.totalAtendidos = (fila.totalAtendidos || 0) + 1;
-    fila.indiceAtual += 1;
 
-    if (fila.indiceAtual >= fila.clientes.length) {
-      salvarFila(fila);
-      toast(`🎉 Fila concluída! ${fila.totalAtendidos} atendido(s).`, 4500);
-      limparFila();
-      return;
-    }
-
+    fila.indiceRegistrado = fila.indiceAtual;
     salvarFila(fila);
-    const proximo = fila.clientes[fila.indiceAtual];
-    salvarAvancoPendente(proximo.url);
-
-    // Fallback: só executa se NADA tiver consumido o marcador até aqui --
-    // ou seja, a página não foi recarregada nesse meio tempo (então o
-    // reload do Módulo 2 não aconteceu, ou este código já teria sido
-    // destruído antes de chegar até aqui).
-    setTimeout(() => {
-      const pendente = lerAvancoPendente();
-      if (pendente && pendente.proximaUrl === proximo.url) {
-        limparAvancoPendente();
-        window.location.href = proximo.url;
-      }
-    }, 350);
+    toast('✓ Registrado. Use Alt+P (ou "Próximo →") quando quiser seguir.');
   }
 
   function aguardarEAvancar() {
@@ -573,22 +516,19 @@
     // "Registrar e Enviar" existente, só observa se ele chamou window.open
     // com sucesso (retorno diferente de null = não foi bloqueado por pop-up blocker).
     //
-    // CORREÇÃO CRÍTICA (revisão pós-código real do Módulo 2): o processamento
-    // do avanço acontece AQUI DENTRO, de forma síncrona, no exato instante em
+    // Marca o registro AQUI DENTRO, de forma síncrona, no exato instante em
     // que sabemos que deu certo -- não num setTimeout separado. Isso importa
     // porque o Módulo 2 chama location.reload() quase instantaneamente depois
     // do window.open() (confirmado no código real), rápido demais pra um
     // setTimeout nosso ter qualquer chance de rodar antes da página ser
-    // destruída. E location.reload não pode ser interceptado (é uma
-    // propriedade protegida do navegador -- testado e confirmado). Por isso o
-    // "avanço pendente" é gravado no localStorage antes de devolver o
-    // controle pro Módulo 2: mesmo que o reload aconteça no microssegundo
-    // seguinte, o marcador já está salvo.
+    // destruída. registrarSucessoSemAvancar() só grava em localStorage
+    // (marcarComoAtendidoHoje + salvarFila), que sobrevive ao reload sem
+    // precisar de navegação nem de nenhuma ponte entre páginas.
     window.open = function (...args) {
       const janela = openOriginal.apply(window, args);
       if (janela && !sucesso) {
         sucesso = true;
-        processarAvancoAposSucesso();
+        registrarSucessoSemAvancar();
       }
       return janela;
     };
@@ -638,16 +578,6 @@
    * 8. INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
   function iniciar() {
-    // Primeiro de tudo: se existe um avanço pendente (a página anterior
-    // confirmou sucesso e foi recarregada pelo Módulo 2 antes de terminar
-    // de navegar sozinha), completa essa navegação AGORA, antes de
-    // qualquer outra coisa nesta página.
-    try {
-      if (consumirAvancoPendenteSeExistir()) return; // já estamos navegando embora
-    } catch (e) {
-      console.error('[Fila] Erro ao checar avanço pendente -- continuando normalmente.', e);
-    }
-
     criarBotaoIniciarFila();
 
     // sincronizarPosicao() lê e valida dado do localStorage -- protegido
@@ -689,16 +619,13 @@
     construirFilaAPartirDaPagina,
     iniciarFila,
     irParaProximo,
-    // CORREÇÃO (revisão de arquitetura): antes, o Módulo 4 só disparava o
-    // avanço da fila INDIRETAMENTE, torcendo pro clique simulado borbulhar
-    // como evento real de DOM até o listener acima. Isso falha
-    // silenciosamente se a estratégia de clique usada não disparar um
-    // evento de verdade (ex.: chamar onClick do React direto). Expor esta
-    // função permite o Módulo 4 chamar explicitamente, garantindo que a
-    // interceptação do window.open seja armada ANTES do clique, não
-    // importa qual estratégia de clique seja usada. Chamar isto duas vezes
-    // seguidas é seguro (aguardarEAvancar já tem proteção contra chamada
-    // dupla via a variável "avancando").
+    // Expõe o "armar" da interceptação do window.open pro Módulo 4 chamar
+    // explicitamente ANTES do clique simulado do Alt+S -- garante que a
+    // detecção de sucesso funciona não importa qual estratégia de clique
+    // seja usada (mesmo uma que não borbulhe evento real de DOM até o
+    // listener acima). Chamar isto duas vezes seguidas é seguro
+    // (aguardarEAvancar já tem proteção contra chamada dupla via a
+    // variável "avancando").
     prepararEAguardarEnvio: aguardarEAvancar,
   };
 })();

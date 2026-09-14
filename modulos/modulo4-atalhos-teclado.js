@@ -9,11 +9,14 @@
  *   Alt + F  -> Selecionar a 1ª frase padrão  (dentro da tela de contato)
  *   Alt + A  -> Atendimento rápido            (gera relatório + abre contato + escreve mensagem personalizada pra situação do cliente)
  *   Alt + S  -> Registrar e Enviar            (dentro da tela de contato)
- *   Alt + P  -> Ir para o próximo da fila     (pula sem registrar)
+ *   Alt + P  -> Ir para o próximo da fila     (conta como "atendido" se você já
+ *                                              registrou este cliente, senão como "pulado")
  *   Alt + H  -> Abrir/fechar painel de ajuda  (mostra esta lista na tela)
  *
  * Fluxo típico com teclado: Alt+C (abre contato) -> Alt+F (escolhe frase)
- * -> Alt+S (registra e envia) -> a fila avança sozinha (Módulo 3).
+ * -> Alt+S (registra e envia, cliente fica marcado como atendido) -> Alt+P
+ * quando você quiser seguir pro próximo da fila (Módulo 3 não navega
+ * sozinho mais -- isso é sempre uma decisão sua).
  *
  * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos 1, 2
  * e 3 (Fila de Atendimento). Depende do Módulo 3 estar carregado antes
