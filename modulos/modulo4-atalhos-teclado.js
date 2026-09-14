@@ -304,10 +304,14 @@
   function obterLinhaContatoRecente() {
     const ctx = window.__contextoAdicional;
     if (!ctx || !ctx.contatoRecente) return '';
-    // Fixo "ontem" em vez da data -- essa linha só existe quando o contato
-    // foi exatamente no dia útil anterior, então "ontem" sempre está certo
-    // (mesmo quando o "dia útil anterior" foi sexta e hoje é segunda).
-    return 'Retomando o contato de ontem, já que ainda não obtivemos retorno.';
+    // "Ontem" só é usado quando é literalmente verdade (dia útil anterior =
+    // dia de calendário anterior). Quando o dia útil anterior pula um fim de
+    // semana (ex.: hoje é segunda e o contato foi sexta) ou feriado, usamos
+    // o nome do dia da semana em vez de "ontem" -- ver ehOntemLiteral no
+    // Módulo 6.
+    const { ehOntemLiteral, diaSemanaTexto } = ctx.contatoRecente;
+    const referencia = ehOntemLiteral ? 'ontem' : diaSemanaTexto;
+    return `Retomando o contato de ${referencia}, já que ainda não obtivemos retorno.`;
   }
 
   function obterLinhaPromessa() {

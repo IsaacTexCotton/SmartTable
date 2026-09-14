@@ -117,6 +117,15 @@
     return dia + '/' + mes + '/' + data.getFullYear();
   }
 
+  const NOMES_DIA_SEMANA = [
+    'domingo', 'segunda-feira', 'terça-feira', 'quarta-feira',
+    'quinta-feira', 'sexta-feira', 'sábado',
+  ];
+
+  function nomeDiaSemana(data) {
+    return NOMES_DIA_SEMANA[data.getDay()];
+  }
+
   function converterDataBr(texto) {
     // Aceita "26/08/2026" (promessa) ou "10/09/2026 16:08" (contato) --
     // usa só a parte da data, ignora hora se vier.
@@ -225,7 +234,18 @@
     }
 
     if (!mesmaData(contato.data, diaAnterior)) return null;
-    return { dataTexto: formatarDataBr(contato.data) };
+
+    // "Ontem" só é literalmente verdade quando o dia útil anterior cai no
+    // dia de calendário anterior (terça a sexta, sem feriado no meio). Numa
+    // segunda-feira -- ou terça após feriado na segunda -- o dia útil
+    // anterior pula um fim de semana e "ontem" fica incorreto; nesses casos
+    // o Módulo 4 usa diaSemanaTexto (ex.: "sexta-feira") em vez de "ontem".
+    const ontemCalendario = adicionarDias(hoje, -1);
+    return {
+      dataTexto: formatarDataBr(contato.data),
+      ehOntemLiteral: mesmaData(contato.data, ontemCalendario),
+      diaSemanaTexto: nomeDiaSemana(contato.data),
+    };
   }
 
   // Cruza os títulos de uma promessa com os títulos que AINDA aparecem em
