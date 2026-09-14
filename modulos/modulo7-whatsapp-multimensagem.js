@@ -96,10 +96,13 @@
         if (event.origin !== ORIGEM_CRM) return;
         if (!event.data || event.data.tipo !== 'smarttable-fila-whatsapp') return;
 
+        console.log('[WhatsApp Multi] Fila recebida do CRM:', event.data.paragrafos.length, 'parágrafo(s).');
         if (event.source && typeof event.source.postMessage === 'function') {
             event.source.postMessage({ tipo: 'smarttable-fila-whatsapp-ack' }, event.origin);
         }
         processarFila(event.data.paragrafos);
     });
+
+    console.log('[WhatsApp Multi] Carregado e esperando mensagens do CRM.');
 })();
 // ===== FIM - WhatsApp: uma mensagem por parágrafo =====

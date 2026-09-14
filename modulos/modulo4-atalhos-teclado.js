@@ -782,6 +782,7 @@
       if (event.origin !== ORIGEM_WHATSAPP_WEB) return;
       if (!event.data || event.data.tipo !== 'smarttable-fila-whatsapp-ack') return;
       recebeuAck = true;
+      console.log('[Atalhos] Aba do WhatsApp confirmou recebimento da fila de mensagens.');
       pararTudo();
     }
     window.addEventListener('message', ouvirAck);
@@ -825,6 +826,7 @@
       .map((p) => p.trim())
       .filter((p) => p.length > 0);
     const usarFilaDeParagrafos = paragrafos.length > 1;
+    console.log('[Atalhos] Mensagem dividida em ' + paragrafos.length + ' parágrafo(s) -- modo múltiplas mensagens: ' + usarFilaDeParagrafos + '.');
 
     const openOriginal = window.open;
     let restaurado = false;
@@ -835,8 +837,10 @@
     };
 
     const novoOpen = function (url, nome, features) {
+      console.log('[Atalhos] window.open interceptado, url =', url);
       if (usarFilaDeParagrafos) {
         const telefone = extrairTelefoneWhatsApp(url);
+        console.log('[Atalhos] Telefone extraído da URL:', telefone);
         if (telefone) {
           // Aba própria, separada da que abrirWhatsAppCliente() pediu --
           // pra não ser fechada pelo Módulo 2 (ver comentário acima).
@@ -845,6 +849,7 @@
           const urlPropria = 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(telefone) +
             '&text=' + encodeURIComponent(paragrafos[0]);
           const abaReal = openOriginal.call(window, urlPropria, nome, features);
+          console.log('[Atalhos] Tentativa de abrir aba própria retornou:', abaReal ? 'aba aberta' : 'BLOQUEADA (popup blocker?)');
           if (abaReal) {
             console.log('[Atalhos] WhatsApp em modo de múltiplas mensagens (' + paragrafos.length + ' parágrafo(s)).');
             enviarFilaParaAbaWhatsApp(abaReal, paragrafos);
@@ -853,6 +858,7 @@
           // Popup bloqueado -- cai pro comportamento de sempre abaixo.
         }
       }
+      console.log('[Atalhos] Caindo no link único de sempre (sem múltiplas mensagens).');
       const urlCorrigida = corrigirUrlWhatsAppComTexto(url, mensagem);
       return openOriginal.call(window, urlCorrigida || url, nome, features);
     };
