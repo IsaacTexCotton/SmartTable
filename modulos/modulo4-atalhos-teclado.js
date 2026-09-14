@@ -69,6 +69,9 @@
     TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS: 8000,
     INTERVALO_POLL_OUTRA_RAZAO_MS: 200,
     ATRASO_FECHAR_ABA_OUTRA_RAZAO_MS: 2000,
+    // Alt+S: por quanto tempo fica de prontidão esperando o WhatsApp abrir,
+    // pra garantir o texto certo no link (ver instalarCorrecaoTextoWhatsApp).
+    TIMEOUT_CORRECAO_WHATSAPP_MS: 3000,
     // Trechos de texto (minúsculo) usados pra achar os botões que ainda
     // não têm uma função global conhecida. AJUSTAR SE NÃO FUNCIONAR.
     TEXTO_BOTAO_RELATORIO: 'relatório',
@@ -686,7 +689,68 @@
     setTimeout(abrirContatoEEscrever, CONFIG_ATALHOS.ATRASO_ATENDIMENTO_RAPIDO_MS);
   }
 
+  /* ---------------------------------------------------------------------
+   * 3.0d GARANTIR TEXTO CORRETO NO WHATSAPP (Alt+S)
+   * -----------------------------------------------------------------
+   * abrirWhatsAppCliente() (função própria da página, ver Módulo 2) deveria
+   * abrir o WhatsApp já com a mensagem da caixa de observações preenchida.
+   * Na prática, às vezes abre em branco e o operador precisa recortar da
+   * caixa (Ctrl+X) e colar no WhatsApp (Ctrl+V) na mão -- reportado pelo
+   * usuário. Em vez de depender de descobrir POR QUE isso falha às vezes
+   * (função opaca, fora dos nossos módulos), corrigimos o resultado: ao
+   * detectar que uma aba do WhatsApp está sendo aberta (mesma técnica de
+   * interceptação de window.open já usada no Módulo 2 e no Módulo 3),
+   * reescrevemos a URL garantindo o parâmetro "text" com a mensagem que
+   * SABEMOS estar certa (lida direto da caixa, no instante do clique).
+   * --------------------------------------------------------------------- */
+  function corrigirUrlWhatsAppComTexto(url, mensagem) {
+    if (!url) return null;
+    let alvo;
+    try {
+      alvo = new URL(url, window.location.href);
+    } catch (erro) {
+      return null;
+    }
+    // wa.me e api.whatsapp.com (com ou sem "www.") são os domínios usados
+    // pelos links de abertura direta do WhatsApp.
+    const ehWhatsApp = /(^|\.)(wa\.me|whatsapp\.com)$/.test(alvo.hostname);
+    if (!ehWhatsApp) return null;
+
+    alvo.searchParams.set('text', mensagem);
+    return alvo.toString();
+  }
+
+  function instalarCorrecaoTextoWhatsApp() {
+    const caixa = encontrarCaixaDeObservacoes();
+    const mensagem = caixa ? caixa.value.trim() : '';
+    if (!mensagem) return; // nada pra corrigir -- deixa o fluxo normal (e o aviso de erro dele) seguir
+
+    const openOriginal = window.open;
+    let restaurado = false;
+    const restaurar = () => {
+      if (restaurado) return;
+      restaurado = true;
+      if (window.open === novoOpen) window.open = openOriginal;
+    };
+
+    const novoOpen = function (url, nome, features) {
+      const urlCorrigida = corrigirUrlWhatsAppComTexto(url, mensagem);
+      if (urlCorrigida) {
+        console.log('[Atalhos] Corrigido o texto pré-preenchido do link do WhatsApp.');
+      }
+      return openOriginal.call(window, urlCorrigida || url, nome, features);
+    };
+    window.open = novoOpen;
+
+    // Cobre o tempo do POST de registrar o contato (Módulo 2) antes dele
+    // chamar abrirWhatsAppCliente() -- mesma ideia do TIMEOUT_SUCESSO_MS
+    // do Módulo 3, com folga extra por segurança.
+    setTimeout(restaurar, CONFIG_ATALHOS.TIMEOUT_CORRECAO_WHATSAPP_MS);
+  }
+
   function acionarRegistrarEEnviar() {
+    instalarCorrecaoTextoWhatsApp();
+
     // CORREÇÃO (revisão de arquitetura, item C1): antes, o avanço da fila
     // só acontecia se o clique simulado abaixo disparasse um evento real de
     // DOM que borbulhasse até o listener do Módulo 3. Isso falha em
