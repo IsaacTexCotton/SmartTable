@@ -7,8 +7,15 @@
  * Não depende de clicar na aba "Grupo" — lê a tabela direto do HTML da
  * página, mesmo que ela esteja escondida (display:none) até a aba abrir.
  *
+ * Também expõe o resultado em window.__alertaGrupo = { empresasComVencido:
+ * [{cnpj, razaoSocial, vencido, url}, ...] } (sempre presente, mesmo vazio)
+ * -- usado pelo Módulo 4 pra uma linha extra na mensagem do Alt+A e pro
+ * atalho que abre as outras razões em nova aba (Alt+G), sem duplicar a
+ * leitura da tabela.
+ *
  * Onde colar: anexado ao FINAL do smart-table.js, junto com os outros
- * módulos. Não depende de nenhum deles — funciona sozinho.
+ * módulos. Não depende de nenhum deles pra funcionar (roda sozinho), mas o
+ * Módulo 4 depende DELE pra essas duas funcionalidades -- colar antes.
  *
  * IMPORTANTE — baseado em UM exemplo real de HTML da tabela "Clientes do
  * grupo". Se a estrutura variar (ex.: cliente sem grupo, mais colunas em
@@ -63,10 +70,23 @@
     return limpo;
   }
 
+  // Mesmo padrão de URL confirmado e já usado no Módulo 3 (fila): múltiplos
+  // CNPJs podem compartilhar o mesmo grupoId, e como a outra razão está no
+  // MESMO grupo da página atual, o grupoId já está na própria URL corrente.
+  function extrairGrupoIdDaUrl() {
+    const m = location.pathname.match(/\/crm\/clientes\/grupo\/(\d+)/);
+    return m ? m[1] : null;
+  }
+
+  function montarUrlCliente(grupoId, cnpj) {
+    return `${location.origin}/crm/clientes/grupo/${grupoId}?cnpj=${encodeURIComponent(cnpj)}`;
+  }
+
   function verificarOutrasEmpresasComVencido() {
     const tabela = encontrarTabelaDoGrupo();
     if (!tabela) return []; // sem tabela de grupo nesta página -- nada a avisar
 
+    const grupoId = extrairGrupoIdDaUrl();
     const linhas = Array.from(tabela.querySelectorAll('tbody tr'));
     const comVencido = [];
 
@@ -86,7 +106,12 @@
       const vencido = limparValorMonetario(celulas[CONFIG_GRUPO.INDICE_COLUNA_VENCIDO].textContent);
 
       if (vencido) {
-        comVencido.push({ cnpj, razaoSocial, vencido });
+        comVencido.push({
+          cnpj,
+          razaoSocial,
+          vencido,
+          url: grupoId && cnpj ? montarUrlCliente(grupoId, cnpj) : null,
+        });
       }
     });
 
@@ -173,8 +198,19 @@
   /* ---------------------------------------------------------------------
    * 4. INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
+  // Exposto pra outros módulos (Módulo 4: linha extra na mensagem do Alt+A
+  // e o atalho de abrir as outras razões em nova aba) sem precisar reler a
+  // tabela por conta própria. CONFIRMADO com o usuário: mensagem diferente
+  // quando outra razão do grupo também tem saldo vencido, e um jeito
+  // conveniente de gerar o relatório de cada uma (duas empresas = dois
+  // relatórios separados, um por página, sem combinar numa imagem só).
+  function expor(empresas) {
+    window.__alertaGrupo = { empresasComVencido: empresas };
+  }
+
   function checar() {
     const empresas = verificarOutrasEmpresasComVencido();
+    expor(empresas);
     if (empresas.length > 0) {
       criarBanner(empresas);
     }
@@ -213,7 +249,10 @@
     // OTIMIZAÇÃO: se o badge do botão "Grupo" mostra 1 empresa (ou não tem
     // badge, ou nem tem a aba), não existe "outra" empresa pra alertar --
     // pula a etapa inteira, sem abrir aba nem esperar nada.
-    if (obterQuantidadeEmpresasNoGrupo() <= 1) return;
+    if (obterQuantidadeEmpresasNoGrupo() <= 1) {
+      expor([]); // mantém window.__alertaGrupo sempre presente pros outros módulos
+      return;
+    }
 
     // CONFIRMADO: a tabela "Clientes do grupo" só é carregada quando a aba
     // "Grupo" é aberta (não vem pronta no HTML inicial). Por isso, abrimos

@@ -12,6 +12,9 @@
  *   Alt + P  -> Ir para o próximo da fila     (conta como "atendido" se você já
  *                                              registrou este cliente, senão como "pulado")
  *   Alt + V  -> Voltar um cliente na fila     (desfaz a contagem do passo revertido)
+ *   Alt + G  -> Abrir em nova aba as outras razões do grupo com saldo
+ *               vencido (uma aba por razão -- gerar o relatório de cada
+ *               uma continua sendo Alt+R manual, dentro de cada aba)
  *   Alt + H  -> Abrir/fechar painel de ajuda  (mostra esta lista na tela)
  *
  * Fluxo típico com teclado: Alt+C (abre contato) -> Alt+F (escolhe frase)
@@ -19,9 +22,11 @@
  * quando você quiser seguir pro próximo da fila (Módulo 3 não navega
  * sozinho mais -- isso é sempre uma decisão sua).
  *
- * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos 1, 2
- * e 3 (Fila de Atendimento). Depende do Módulo 3 estar carregado antes
- * (usa window.filaDebug.iniciarFila / irParaProximo / irParaAnterior).
+ * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos 1, 2,
+ * 3 (Fila de Atendimento) e 5 (Alerta de Grupo). Depende do Módulo 3 estar
+ * carregado antes (usa window.filaDebug.iniciarFila / irParaProximo /
+ * irParaAnterior) e do Módulo 5 (usa window.__alertaGrupo pra linha de
+ * grupo com vencido na mensagem e pro Alt+G).
  * * IMPORTANTE — dois atalhos ainda precisam de confirmação sua:
  *   "Gerar Relatório" e "Entrar na tela de contato" não têm uma função
  *   global exposta que eu conheça, então este módulo procura o botão certo
@@ -52,6 +57,7 @@
     TECLA_AJUDA: 'KeyH',
     TECLA_BUSCA_RAPIDA: 'KeyB',
     TECLA_ATENDIMENTO_RAPIDO: 'KeyA',
+    TECLA_ABRIR_GRUPO_VENCIDO: 'KeyG',
     // Tempo (ms) entre abrir a tela de contato e selecionar a frase --
     // dá tempo do modal terminar de aparecer antes de mexer nele.
     ATRASO_ATENDIMENTO_RAPIDO_MS: 150,
@@ -80,6 +86,7 @@
     { tecla: 'Alt+S', descricao: 'Registrar e Enviar' },
     { tecla: 'Alt+P', descricao: 'Ir para o próximo da fila' },
     { tecla: 'Alt+V', descricao: 'Voltar um cliente na fila' },
+    { tecla: 'Alt+G', descricao: 'Abrir em nova aba as outras razões do grupo com saldo vencido' },
     { tecla: 'Alt+B', descricao: 'Busca rápida de cliente' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
   ];
@@ -242,6 +249,30 @@
     }
   }
 
+  // Abre cada outra razão do grupo com saldo vencido em nova aba -- não
+  // gera o relatório sozinho (isso continua sendo Alt+R, manual, em cada
+  // aba que abrir), só poupa a busca manual pelo cliente. CONFIRMADO com o
+  // usuário: dois relatórios separados, um por página -- sem combinar numa
+  // imagem só (isso exigiria mexer no Módulo 1, que não pode ser editado
+  // sem confirmação explícita).
+  function acionarAbrirGrupoComVencido() {
+    const grupo = window.__alertaGrupo;
+    if (!grupo || !grupo.empresasComVencido || grupo.empresasComVencido.length === 0) {
+      console.warn('[Atalhos] Nenhuma outra razão do grupo com saldo vencido nesta página (ou o Módulo 5 ainda não carregou -- confirme se ele foi colado ANTES deste arquivo).');
+      return;
+    }
+    grupo.empresasComVencido.forEach((empresa) => {
+      if (!empresa.url) {
+        console.warn(`[Atalhos] Não consegui montar a URL de "${empresa.razaoSocial}" -- pulando.`);
+        return;
+      }
+      // Navegador pode bloquear popups além do primeiro fora de um clique
+      // direto -- Alt+G é um gesto real do usuário, então isso costuma
+      // passar, mas se faltar alguma aba, pode ser o bloqueador de popup.
+      window.open(empresa.url, '_blank', 'noopener,noreferrer');
+    });
+  }
+
   function acionarGerarRelatorio() {
     if (!clicarBotaoPorTexto(CONFIG_ATALHOS.TEXTO_BOTAO_RELATORIO)) {
       console.warn(
@@ -347,6 +378,20 @@
     return 'Sou o Isaac do financeiro da Tex Cotton referente as marcas Animê, Bimbi, Youccie, Authoria e Momi';
   }
 
+  // CONFIRMADO com o usuário: mesma linha nos dois casos, só muda o plural
+  // quando é mais de uma outra razão do grupo com saldo vencido. Lê
+  // window.__alertaGrupo (Módulo 5) -- precisa dele carregado ANTES deste
+  // arquivo.
+  function obterLinhaGrupoComVencido() {
+    const grupo = window.__alertaGrupo;
+    if (!grupo || !grupo.empresasComVencido || grupo.empresasComVencido.length === 0) return '';
+    const empresas = grupo.empresasComVencido;
+    const nomesTexto = empresas.map((e) => `${e.razaoSocial} (${e.vencido})`).join(', ');
+    return empresas.length === 1
+      ? `Notamos que a empresa ${nomesTexto}, do mesmo grupo econômico, também possui título vencido.`
+      : `Notamos que as empresas ${nomesTexto}, do mesmo grupo econômico, também possuem títulos vencidos.`;
+  }
+
   function obterLinhaContatoRecente() {
     const ctx = window.__contextoAdicional;
     if (!ctx || !ctx.contatoRecente) return '';
@@ -445,10 +490,12 @@
     const linhaApresentacao = obterLinhaApresentacaoContatoAntigo();
     const linhaContatoRecente = obterLinhaContatoRecente();
     const linhaPromessa = obterLinhaPromessa();
+    const linhaGrupo = obterLinhaGrupoComVencido();
     if (linhaApresentacao) partes.push(linhaApresentacao);
     if (linhaContatoRecente) partes.push(linhaContatoRecente);
     if (linhaPromessa) partes.push(linhaPromessa);
-    if (linhaApresentacao || linhaContatoRecente || linhaPromessa) partes.push('');
+    if (linhaGrupo) partes.push(linhaGrupo);
+    if (linhaApresentacao || linhaContatoRecente || linhaPromessa || linhaGrupo) partes.push('');
 
     partes.push('Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:');
     if (linhaContexto) {
@@ -1061,6 +1108,10 @@
         case CONFIG_ATALHOS.TECLA_VOLTAR_FILA:
           e.preventDefault();
           acionarVoltarFila();
+          break;
+        case CONFIG_ATALHOS.TECLA_ABRIR_GRUPO_VENCIDO:
+          e.preventDefault();
+          acionarAbrirGrupoComVencido();
           break;
         case CONFIG_ATALHOS.TECLA_SELECIONAR_FRASE:
           e.preventDefault();
