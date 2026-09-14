@@ -692,16 +692,23 @@
   /* ---------------------------------------------------------------------
    * 3.0d GARANTIR TEXTO CORRETO NO WHATSAPP (Alt+S)
    * -----------------------------------------------------------------
-   * abrirWhatsAppCliente() (função própria da página, ver Módulo 2) deveria
-   * abrir o WhatsApp já com a mensagem da caixa de observações preenchida.
-   * Na prática, às vezes abre em branco e o operador precisa recortar da
-   * caixa (Ctrl+X) e colar no WhatsApp (Ctrl+V) na mão -- reportado pelo
-   * usuário. Em vez de depender de descobrir POR QUE isso falha às vezes
-   * (função opaca, fora dos nossos módulos), corrigimos o resultado: ao
-   * detectar que uma aba do WhatsApp está sendo aberta (mesma técnica de
-   * interceptação de window.open já usada no Módulo 2 e no Módulo 3),
-   * reescrevemos a URL garantindo o parâmetro "text" com a mensagem que
-   * SABEMOS estar certa (lida direto da caixa, no instante do clique).
+   * DIAGNÓSTICO REAL (código de abrirWhatsAppCliente() confirmado pelo
+   * usuário via console): a função do CRM já monta a URL certa, com a
+   * mensagem certa -- 'https://wa.me/' + telefone + '?text=' +
+   * encodeURIComponent(mensagem) -- e chama window.open(url, '_blank',
+   * 'noopener,noreferrer'). O problema não é o texto estar errado na URL;
+   * é que wa.me, quando o APLICATIVO DESKTOP do WhatsApp está instalado,
+   * aciona a abertura do app em vez do navegador -- e o texto se perde
+   * nesse "handoff" entre navegador e app (limitação do próprio WhatsApp,
+   * fora do nosso controle). CONFIRMADO pelo usuário: é exatamente esse
+   * o caso (abre o app desktop).
+   *
+   * Correção: interceptamos window.open (mesma técnica já usada no Módulo
+   * 2 e no Módulo 3) e, ao detectar um link wa.me/api.whatsapp.com,
+   * reescrevemos pra web.whatsapp.com -- que abre direto numa aba do
+   * navegador, sem handoff nenhum pro app, então o texto sempre chega.
+   * CONFIRMADO com o usuário: preferir sempre o navegador em vez do app
+   * nessas aberturas, pra eliminar o Ctrl+X/Ctrl+V.
    * --------------------------------------------------------------------- */
   function corrigirUrlWhatsAppComTexto(url, mensagem) {
     if (!url) return null;
@@ -711,13 +718,30 @@
     } catch (erro) {
       return null;
     }
-    // wa.me e api.whatsapp.com (com ou sem "www.") são os domínios usados
-    // pelos links de abertura direta do WhatsApp.
-    const ehWhatsApp = /(^|\.)(wa\.me|whatsapp\.com)$/.test(alvo.hostname);
-    if (!ehWhatsApp) return null;
 
-    alvo.searchParams.set('text', mensagem);
-    return alvo.toString();
+    // Extrai o telefone de qualquer um dos dois formatos que o CRM usa:
+    // wa.me/<numero> (telefone no path) ou *.whatsapp.com/send?phone=<numero>
+    // (telefone na query).
+    let telefone = null;
+    if (/(^|\.)wa\.me$/.test(alvo.hostname)) {
+      telefone = alvo.pathname.replace(/^\/+/, '').split('/')[0] || null;
+    } else if (/(^|\.)whatsapp\.com$/.test(alvo.hostname)) {
+      telefone = alvo.searchParams.get('phone');
+    } else {
+      return null; // não é um link do WhatsApp -- não mexe
+    }
+    if (!telefone) return null;
+
+    // SEMPRE web.whatsapp.com, nunca wa.me/api.whatsapp.com -- CONFIRMADO
+    // pelo usuário: esses dois acionam a abertura do APLICATIVO DESKTOP
+    // quando instalado, e o texto do parâmetro se perde nessa transição
+    // (limitação do handoff do próprio WhatsApp, fora do nosso controle).
+    // web.whatsapp.com abre direto numa aba do navegador, sem esse
+    // handoff, e o texto sempre chega certo.
+    const alvoWeb = new URL('https://web.whatsapp.com/send');
+    alvoWeb.searchParams.set('phone', telefone);
+    alvoWeb.searchParams.set('text', mensagem);
+    return alvoWeb.toString();
   }
 
   function instalarCorrecaoTextoWhatsApp() {
