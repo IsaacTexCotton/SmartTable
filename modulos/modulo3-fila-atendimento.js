@@ -479,7 +479,17 @@
   function criarBotaoRetomar(fila) {
     if (document.getElementById('fila-btn-retomar')) return;
 
-    const restantes = fila.clientes.length - fila.indiceAtual - 1;
+    // BUG REAL (relatado pelo usuário): o clique mandava pra
+    // clientes[indiceAtual + 1] -- ou seja, sempre PULAVA o cliente onde a
+    // pessoa realmente tinha parado (ex.: fechou o navegador ou navegou pra
+    // fora da fila no meio do atendimento) e ia direto pro próximo. indiceAtual
+    // é sincronizado (sincronizarPosicao) toda vez que a página bate com um
+    // cliente da fila -- ele já É "onde eu parei", não precisa de +1.
+    // indiceAtual só fica -1 se a fila foi criada mas a pessoa nunca chegou
+    // a visitar o primeiro cliente (caso raríssimo) -- Math.max cobre isso
+    // voltando pro início em vez de tentar acessar um índice negativo.
+    const indiceRetomada = Math.max(0, fila.indiceAtual);
+    const restantes = fila.clientes.length - indiceRetomada;
     if (restantes <= 0) return; // não sobrou nada pra retomar
 
     const btn = document.createElement('button');
@@ -501,8 +511,8 @@
       fontFamily: 'system-ui, -apple-system, sans-serif',
     });
     btn.onclick = () => {
-      const proximo = fila.clientes[fila.indiceAtual + 1];
-      if (proximo) window.location.href = proximo.url;
+      const clienteParaRetomar = fila.clientes[indiceRetomada];
+      if (clienteParaRetomar) window.location.href = clienteParaRetomar.url;
     };
     document.body.appendChild(btn);
   }
