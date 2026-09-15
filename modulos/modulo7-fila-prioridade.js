@@ -410,14 +410,18 @@
     // dá pra saber SE é esperado -- ex.: maioria já mexida hoje de verdade
     // -- ou SE é algum filtro errado excluindo demais, sem precisar pedir
     // mais um diagnóstico manual toda vez).
+    // JSON.stringify de propósito, não o objeto cru -- achado real: o
+    // Chrome mostra objeto cru como só "Object" quando o console é copiado
+    // como texto (precisa expandir clicando ali mesmo, o que não sobrevive
+    // a um copiar/colar). Como string, o conteúdo aparece direto.
     console.log('[Fila Prioridade] Candidatos após construirFilaAPartirDaPagina:', candidatos.length);
-    console.log('[Fila Prioridade] Detalhamento dos filtros da lista:', {
+    console.log('[Fila Prioridade] Detalhamento dos filtros da lista:', JSON.stringify({
       sobreviventes: sobreviventes.length,
       excluidos_mais_de_19_dias: excluidos.dias,
       excluidos_dia_1: excluidos.diaUm,
       excluidos_movimentacao_hoje: excluidos.movimentacaoHoje,
       excluidos_sem_dias_reconhecidos: excluidos.semDias,
-    });
+    }));
     if (sobreviventes.length === 0) {
       toast('Nenhum cliente elegível depois dos filtros (dias de atraso, dia 1, movimentação de hoje).');
       return;
@@ -479,12 +483,12 @@
     removerIndicadorProgresso();
     classificandoEmAndamento = false;
 
-    console.log('[Fila Prioridade] Detalhamento da classificação (abas de fundo):', {
+    console.log('[Fila Prioridade] Detalhamento da classificação (abas de fundo):', JSON.stringify({
       classificados_com_sucesso: resultados.length,
       excluidos_por_promessa_futura: excluidosPorPromessa,
       pulados_por_popup_bloqueado: comPopupBloqueado,
       com_outro_erro_timeout: comOutroErro,
-    });
+    }));
 
     if (resultados.length === 0) {
       toast('Classificação terminou, mas nenhum cliente ficou elegível pra fila.', 5000);
@@ -527,7 +531,10 @@
     const duracaoResumoMs = 6000;
     toast(resumoPartes.join(' -- '), duracaoResumoMs);
 
-    console.log('[Fila Prioridade] Fila montada:', clientesDaFila);
+    console.log(
+      '[Fila Prioridade] Fila montada:',
+      JSON.stringify(clientesDaFila.map((c) => ({ label: c.label, diasAtraso: c.diasAtraso, prioridadeTier: c.prioridadeTier, prioridadeNome: c.prioridadeNome })))
+    );
 
     // CORRIGIDO (bug real: o resumo acima mal dava tempo de aparecer antes
     // da navegação apagar a página) -- espera o toast terminar de verdade
