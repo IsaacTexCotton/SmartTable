@@ -695,11 +695,10 @@
     }
 
     // CONFIRMADO com o usuário: recontato em dias seguidos sem nenhum
-    // título novo vencido desde o último contato não reenvia o relatório
-    // nem repete o pedido de agendamento -- vira só um lembrete direto,
-    // apoiado no bloco de contexto/promessa (se houver) e na linha de
-    // situação. Precisa ser calculado ANTES de obterLinhaContexto -- a
-    // linha de situação muda de texto quando não há relatório (ver
+    // título novo vencido desde o último contato não reenvia o relatório --
+    // o cliente já viu a mesma informação. Precisa ser calculado ANTES de
+    // obterLinhaContexto -- a linha de situação muda de texto quando não há
+    // relatório (ver
     // comentário lá dentro).
     const omitirRelatorio = deveOmitirRelatorio(dados);
 
@@ -727,14 +726,21 @@
       ? 'Segue o relatório atualizado com os débitos em aberto de cada razão social.'
       : 'Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:';
 
-    // CONFIRMADO com o usuário (bug real): pra EM_ATRASO/PRAZO_FINAL,
-    // linhaContexto é sempre '' -- se o relatório também for omitido e não
-    // houver promessa, a mensagem ficava só com a saudação e o "retomando
-    // contato", sem pergunta nenhuma (nada acionável). Nesses casos,
-    // mantém a pergunta final mesmo sem relatório -- é o único conteúdo
-    // que sobra.
-    const temConteudoAcionavel = !!(linhaContexto || linhaPromessa);
-    const incluirPerguntaFinal = !omitirRelatorio || !temConteudoAcionavel;
+    // BUG REAL encontrado via teste combinatório (achados 1-43 da bateria de
+    // regressão): a versão anterior só incluía a pergunta final quando
+    // `!omitirRelatorio || !temConteudoAcionavel` -- ou seja, sempre que o
+    // relatório era omitido E havia linha de contexto/promessa, a pergunta
+    // final sumia. Isso quebrava justamente as situações mais graves
+    // (ULTIMO_DIA, EM_CARTORIO, NEGATIVADO_SCPC), cuja linhaContexto NUNCA é
+    // vazia -- a mensagem virava só um aviso solto, sem nenhum pedido de
+    // ação (ex.: "Os títulos vencidos em 01/09 já estão em cartório..."
+    // sem nenhuma pergunta). O critério certo não é "já existe algum
+    // conteúdo", e sim "esse conteúdo já pergunta/pede alguma coisa" --
+    // só QUEBRADA embute isso (linhaPromessa termina em "Já foi
+    // realizado?..."). Em qualquer outro caso, sempre inclui a pergunta
+    // final -- inclusive quando o relatório é omitido.
+    const jaTemPerguntaOuPedido = /\?/.test(linhaContexto) || /\?/.test(linhaPromessa);
+    const incluirPerguntaFinal = !jaTemPerguntaOuPedido;
 
     // Cada item aqui vira um parágrafo da mensagem (separado por linha em
     // branco).
