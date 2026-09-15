@@ -338,6 +338,25 @@
     return (cnpj || '').replace(/\D/g, '').slice(0, 8);
   }
 
+  // BUG REAL (relatado pelo usuário): o botão "▶ Iniciar Fila de Atendimento"
+  // era criado incondicionalmente em toda página do CRM (iniciar() chamava
+  // criarBotaoIniciarFila() sem checar nada antes) -- aparecia até em telas
+  // onde não faz sentido nenhum e clicar nele só mostrava "nenhum cliente
+  // encontrado". Confirmado com o usuário que a navegação aqui é
+  // multi-página (recarrega de verdade a cada tela), então um único check
+  // síncrono na carga da página já resolve -- sem precisar de
+  // MutationObserver nem detectar troca de rota. Usa exatamente o mesmo
+  // critério que construirFilaAPartirDaPagina() usa de verdade (linha com
+  // "Controle: X|Y" reconhecível), pra nunca divergir do que a fila
+  // realmente consegue montar.
+  function paginaTemClientesParaFila() {
+    const linhas = document.querySelectorAll(CONFIG.SELETOR_LINHA);
+    for (const linha of linhas) {
+      if (CONFIG.REGEX_CONTROLE.test(linha.textContent || '')) return true;
+    }
+    return false;
+  }
+
   function construirFilaAPartirDaPagina() {
     const linhas = document.querySelectorAll(CONFIG.SELETOR_LINHA);
     // Chave = raiz do CNPJ, valor = melhor candidato encontrado até agora
@@ -680,7 +699,9 @@
    * 8. INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
   function iniciar() {
-    criarBotaoIniciarFila();
+    if (paginaTemClientesParaFila()) {
+      criarBotaoIniciarFila();
+    }
 
     // sincronizarPosicao() lê e valida dado do localStorage -- protegido
     // por try/catch aqui porque, mesmo com a validação de schema acima,
