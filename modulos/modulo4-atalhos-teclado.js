@@ -68,7 +68,14 @@
     // geração do relatório -- imagem/clipboard/download -- terminar).
     TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS: 8000,
     INTERVALO_POLL_OUTRA_RAZAO_MS: 200,
-    ATRASO_FECHAR_ABA_OUTRA_RAZAO_MS: 2000,
+    // CONFIRMADO com o usuário (bug real): 2000ms não era suficiente --
+    // a captura da tela (html2canvas em escala 2x) + conversão pra
+    // blob + download é assíncrona e pode ainda estar rodando quando a
+    // aba fechava, interrompendo o download antes de terminar (o
+    // console já tinha dito "gerado" porque isso só confirma que o
+    // clique aconteceu, não que o download terminou). Aumentado com
+    // folga.
+    ATRASO_FECHAR_ABA_OUTRA_RAZAO_MS: 4500,
     // Trechos de texto (minúsculo) usados pra achar os botões que ainda
     // não têm uma função global conhecida. AJUSTAR SE NÃO FUNCIONAR.
     TEXTO_BOTAO_RELATORIO: 'relatório',
