@@ -25,6 +25,10 @@
  *     lista) é HOJE
  *   - Existe alguma promessa (qualquer status) com data prometida DEPOIS
  *     de hoje
+ *   - Qualquer título do cliente dispara alerta de "não cobrar" no Módulo 1
+ *     (posição NAO COBRAR/CARTEIRA, ou todos os títulos já em cartório --
+ *     mesmo critério do banner avisarSeNaoCobrar) -- exclui o CLIENTE
+ *     inteiro, não só o título específico.
  *
  * POR QUE PRECISA VISITAR CADA CLIENTE: a lista de clientes (página de
  * lista) só mostra dias de atraso, cluster e a data da última movimentação
@@ -385,6 +389,17 @@
         return { cliente, erro: 'falha-titulos' };
       }
 
+      // CONFIRMADO com o usuário: cliente com QUALQUER título em "não
+      // cobrar" (NAO COBRAR/CARTEIRA no CRM, ou todos os títulos já em
+      // cartório -- ver POSICOES_EXCLUIDAS_DE_COBRANCA e o banner
+      // avisarSeNaoCobrar no Módulo 1) fica de fora da fila inteira, não só
+      // o título específico -- precisa de atenção manual, não de uma
+      // automação de urgência. dadosTitulos.naoCobrar já vem pronto do
+      // Módulo 1 na mesma simulação, sem custo extra de visita.
+      if (dadosTitulos.naoCobrar && dadosTitulos.naoCobrar.length > 0) {
+        return { cliente, excluidoPorNaoCobrar: true };
+      }
+
       const escolhido = escolherTituloRepresentativo(dadosTitulos);
       if (!escolhido) {
         return { cliente, erro: 'sem-titulo-representativo' };
@@ -461,6 +476,7 @@
 
     const resultados = [];
     let excluidosPorPromessa = 0;
+    let excluidosPorNaoCobrar = 0;
     let comPopupBloqueado = 0;
     let comOutroErro = 0;
     let popupsBloqueadosSeguidos = 0;
@@ -482,6 +498,9 @@
       const resultado = await classificarCliente(cliente);
       if (resultado.excluidoPorPromessaFutura) {
         excluidosPorPromessa++;
+        popupsBloqueadosSeguidos = 0;
+      } else if (resultado.excluidoPorNaoCobrar) {
+        excluidosPorNaoCobrar++;
         popupsBloqueadosSeguidos = 0;
       } else if (resultado.erro === 'popup-bloqueado') {
         comPopupBloqueado++;
@@ -515,6 +534,7 @@
     console.log('[Fila Prioridade] Detalhamento da classificação (abas de fundo):', JSON.stringify({
       classificados_com_sucesso: resultados.length,
       excluidos_por_promessa_futura: excluidosPorPromessa,
+      excluidos_por_nao_cobrar: excluidosPorNaoCobrar,
       pulados_por_popup_bloqueado: comPopupBloqueado,
       com_outro_erro_timeout: comOutroErro,
     }));
@@ -555,6 +575,7 @@
       );
     }
     if (excluidosPorPromessa) resumoPartes.push(`${excluidosPorPromessa} excluído(s) por promessa futura`);
+    if (excluidosPorNaoCobrar) resumoPartes.push(`${excluidosPorNaoCobrar} excluído(s) por alerta de não cobrar`);
     if (comPopupBloqueado) resumoPartes.push(`${comPopupBloqueado} pulado(s) por pop-up bloqueado`);
     if (comOutroErro) resumoPartes.push(`${comOutroErro} com erro/timeout`);
     const duracaoResumoMs = 6000;
