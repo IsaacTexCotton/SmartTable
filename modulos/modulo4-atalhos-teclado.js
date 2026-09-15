@@ -429,22 +429,41 @@
   const DIAS_AVISO_SUSPENSAO_SCPC_MAX = 18;
   const DIAS_ULTIMO_DIA_SUSPENSAO_SCPC = 19;
 
+  // Datas de vencimento (formato curto, sem duplicatas) dos títulos numa
+  // dada situação -- usado só quando o relatório está sendo OMITIDO (ver
+  // deveOmitirRelatorio): nesse caso a linha de situação não pode mais
+  // dizer "grifado no relatório abaixo", porque nenhum relatório está
+  // sendo enviado -- CONFIRMADO com o usuário, volta a citar a data.
+  function obterDatasVencimentoPorSituacao(dados, situacaoKey) {
+    const datas = dados.registros
+      .filter((r) => r.situacaoKey === situacaoKey)
+      .sort((a, b) => b.diasAtrasoReal - a.diasAtrasoReal)
+      .map((r) => encurtarData(r.vencimentoTexto));
+    return [...new Set(datas)];
+  }
+
   // Linha de contexto por situação -- extraída/adaptada das frases padrão
   // reais do usuário (não escrita do zero). Retorna:
   //   - string vazia: sem linha extra, mensagem segue direto pro fechamento
   //   - string com texto: linha extra
   //   - null: situação não deve gerar mensagem automática (ver chamador)
-  function obterLinhaContexto(escolhido, dados) {
+  function obterLinhaContexto(escolhido, dados, omitirRelatorio) {
     switch (escolhido.situacaoKey) {
       case 'EM_ATRASO':
       case 'PRAZO_FINAL':
         return '';
       case 'ULTIMO_DIA': {
-        // CONFIRMADO com o usuário: não precisa mais citar as datas de
-        // vencimento aqui -- os títulos em último dia já aparecem grifados
-        // em vermelho no relatório logo abaixo, então basta referenciar a cor.
-        const quantidade = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA').length;
         const destino = dados.fluxo === 'SCPC' ? 'ao SCPC' : 'para cartório';
+        if (omitirRelatorio) {
+          const datas = obterDatasVencimentoPorSituacao(dados, 'ULTIMO_DIA');
+          const datasTexto = datas.join(', ');
+          return datas.length > 1
+            ? `Lembramos que os títulos vencidos em ${datasTexto} estão no prazo final antes de serem encaminhados ${destino}.`
+            : `Lembramos que o título vencido em ${datasTexto} está no prazo final antes de ser encaminhado ${destino}.`;
+        }
+        // Com relatório sendo enviado, basta referenciar a cor -- os
+        // títulos em último dia já aparecem grifados em vermelho nele.
+        const quantidade = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA').length;
         return quantidade > 1
           ? `Lembramos que os títulos grifados em vermelho no relatório abaixo estão no prazo final antes de serem encaminhados ${destino}.`
           : `Lembramos que o título grifado em vermelho no relatório abaixo está no prazo final antes de ser encaminhado ${destino}.`;
@@ -462,13 +481,18 @@
         }
         return 'Lembramos que a regularização dos débitos negativados no SCPC permite a baixa das restrições.';
       }
-      case 'EM_CARTORIO':
+      case 'EM_CARTORIO': {
         // CONFIRMADO com o usuário: referenciar a cor (amarelo) em vez de só
         // "aparecem destacados" -- e essa linha continua junto de qualquer
         // outra (ex.: "retomando o contato de ontem"), nunca é removida por
         // causa delas -- ver montarMensagemPersonalizada, que empilha cada
         // linha de forma independente.
+        if (omitirRelatorio) {
+          const datas = obterDatasVencimentoPorSituacao(dados, 'EM_CARTORIO');
+          return `Os títulos vencidos em ${datas.join(', ')} já estão em cartório -- o pagamento do restante ainda é possível via boleto.`;
+        }
         return 'Os títulos grifados em amarelo no relatório abaixo já estão em cartório -- o pagamento do restante ainda é possível via boleto.';
+      }
       default:
         // VERIFICAR_POSICAO (ou qualquer situação nova/desconhecida): situação
         // incerta demais pra afirmar algo pro cliente -- decisão do usuário foi
@@ -622,7 +646,16 @@
       return null;
     }
 
-    const linhaContexto = obterLinhaContexto(escolhido, dados);
+    // CONFIRMADO com o usuário: recontato em dias seguidos sem nenhum
+    // título novo vencido desde o último contato não reenvia o relatório
+    // nem repete o pedido de agendamento -- vira só um lembrete direto,
+    // apoiado no bloco de contexto/promessa (se houver) e na linha de
+    // situação. Precisa ser calculado ANTES de obterLinhaContexto -- a
+    // linha de situação muda de texto quando não há relatório (ver
+    // comentário lá dentro).
+    const omitirRelatorio = deveOmitirRelatorio(dados);
+
+    const linhaContexto = obterLinhaContexto(escolhido, dados, omitirRelatorio);
     if (linhaContexto === null) {
       console.warn(
         `[Atalhos] Situação "${escolhido.situacaoKey}" não gera mensagem automática (situação incerta demais) -- escreva manualmente.`
@@ -636,13 +669,6 @@
     const blocoContexto = [linhaApresentacao, linhaContatoRecente, linhaPromessa]
       .filter((l) => l)
       .join('\n');
-
-    // CONFIRMADO com o usuário: recontato em dias seguidos sem nenhum
-    // título novo vencido desde o último contato não reenvia o relatório
-    // nem repete o pedido de agendamento -- vira só um lembrete direto,
-    // apoiado no bloco de contexto/promessa (se houver) e na linha de
-    // situação.
-    const omitirRelatorio = deveOmitirRelatorio(dados);
 
     // CONFIRMADO com o usuário: com 2+ razões com saldo vencido, a frase do
     // relatório fala de "cada razão social" em vez de citar a razão social
