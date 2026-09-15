@@ -728,6 +728,10 @@
    * real, que continua aberta pro operador.
    * --------------------------------------------------------------------- */
   const ORIGEM_WHATSAPP_WEB = 'https://web.whatsapp.com';
+  // Nome fixo de janela -- reaproveita a MESMA aba entre chamadas (ver
+  // comentário em novoOpen), em vez de abrir uma nova a cada Alt+S, o que
+  // o próprio WhatsApp Web rejeita (só permite uma sessão ativa por vez).
+  const NOME_ABA_WHATSAPP = 'smarttable-whatsapp';
 
   // Extrai o telefone de qualquer um dos dois formatos que o CRM usa:
   // wa.me/<numero> (telefone no path) ou *.whatsapp.com/send?phone=<numero>
@@ -851,10 +855,21 @@
           // pra não ser fechada pelo Módulo 2 (ver comentário acima).
           // Já leva o 1º parágrafo como "text=" de fallback, caso o
           // Módulo 7 não consiga assumir por algum motivo.
+          //
+          // DIAGNOSTICADO com o usuário (aba.closed = true logo na 1ª
+          // tentativa): o WhatsApp Web só permite UMA aba ativa por vez --
+          // ao abrir uma aba NOVA com o usuário já tendo outra aberta, o
+          // próprio WhatsApp fecha a nova quase instantaneamente. Usar
+          // sempre o MESMO nome de janela (NOME_ABA_WHATSAPP) faz o
+          // navegador reaproveitar essa mesma aba -- que passa a ser "a"
+          // aba do WhatsApp do SmartTable -- em vez de abrir uma segunda a
+          // cada Alt+S. Se o usuário mantiver OUTRA aba do WhatsApp aberta
+          // por fora (não aberta por nós), o conflito volta -- vale avisar
+          // pra ele usar só a aba que o próprio script abre/reaproveita.
           const urlPropria = 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(telefone) +
             '&text=' + encodeURIComponent(paragrafos[0]);
-          const abaReal = openOriginal.call(window, urlPropria, nome, features);
-          console.log('[Atalhos] Tentativa de abrir aba própria retornou:', abaReal ? 'aba aberta' : 'BLOQUEADA (popup blocker?)');
+          const abaReal = openOriginal.call(window, urlPropria, NOME_ABA_WHATSAPP, features);
+          console.log('[Atalhos] Tentativa de abrir/reaproveitar aba própria retornou:', abaReal ? 'aba disponível' : 'BLOQUEADA (popup blocker?)');
           if (abaReal) {
             console.log('[Atalhos] WhatsApp em modo de múltiplas mensagens (' + paragrafos.length + ' parágrafo(s)).');
             enviarFilaParaAbaWhatsApp(abaReal, paragrafos);
@@ -1493,7 +1508,7 @@
         ];
       const urlPropria = 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(telefone) +
         '&text=' + encodeURIComponent(lista[0]);
-      const aba = window.open(urlPropria, '_blank');
+      const aba = window.open(urlPropria, NOME_ABA_WHATSAPP);
       if (!aba) {
         console.warn('[Atalhos] Não consegui abrir a aba de teste -- popup bloqueado?');
         return;
