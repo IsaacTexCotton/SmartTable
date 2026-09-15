@@ -505,6 +505,14 @@
   function obterLinhaContatoRecente() {
     const ctx = window.__contextoAdicional;
     if (!ctx || !ctx.contatoRecente) return '';
+
+    // CONFIRMADO com o usuário (bug real): se há uma promessa ativa, o
+    // contato mais recente NÃO ficou sem retorno -- pelo contrário, foi
+    // dele que a promessa saiu. "Ainda não obtivemos retorno" contradiz
+    // isso; a linha de promessa (obterLinhaPromessa) já cobre o contexto
+    // certo pra esse caso, então essa aqui não deve aparecer junto.
+    if (ctx.promessa) return '';
+
     // "Ontem" só é usado quando é literalmente verdade (dia útil anterior =
     // dia de calendário anterior). Quando o dia útil anterior pula um fim de
     // semana (ex.: hoje é segunda e o contato foi sexta) ou feriado, usamos
@@ -513,6 +521,29 @@
     const { ehOntemLiteral, diaSemanaTexto } = ctx.contatoRecente;
     const referencia = ehOntemLiteral ? 'ontem' : diaSemanaTexto;
     return `Retomando o contato de ${referencia}, já que ainda não obtivemos retorno.`;
+  }
+
+  function converterDataBrParaDate(texto) {
+    const m = (texto || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return null;
+    return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  }
+
+  // CONFIRMADO com o usuário (bug real): recontato em dias seguidos sem
+  // nenhum título NOVO ter vencido desde o último contato não deve
+  // reenviar o relatório -- o cliente já viu a mesma informação. Compara
+  // a data de vencimento de cada título com a data do contato mais
+  // recente (só disponível quando o contato foi no dia útil anterior --
+  // ver calcularContextoContato no Módulo 6).
+  function deveOmitirRelatorio(dados) {
+    const ctx = window.__contextoAdicional;
+    if (!ctx || !ctx.contatoRecente || !ctx.contatoRecente.data) return false;
+    const dataUltimoContato = ctx.contatoRecente.data;
+    const temTituloNovo = dados.registros.some((r) => {
+      const vencimento = converterDataBrParaDate(r.vencimentoTexto);
+      return vencimento && vencimento.getTime() > dataUltimoContato.getTime();
+    });
+    return !temTituloNovo;
   }
 
   // Concorda "do/dos" ou "ao/aos" + "título/títulos" com a quantidade real,
@@ -592,18 +623,19 @@
       return null;
     }
 
-    const partes = [
-      '{{saudacao}}',
-      '',
-    ];
-
     const linhaApresentacao = obterLinhaApresentacaoContatoAntigo();
     const linhaContatoRecente = obterLinhaContatoRecente();
     const linhaPromessa = obterLinhaPromessa();
-    if (linhaApresentacao) partes.push(linhaApresentacao);
-    if (linhaContatoRecente) partes.push(linhaContatoRecente);
-    if (linhaPromessa) partes.push(linhaPromessa);
-    if (linhaApresentacao || linhaContatoRecente || linhaPromessa) partes.push('');
+    const blocoContexto = [linhaApresentacao, linhaContatoRecente, linhaPromessa]
+      .filter((l) => l)
+      .join('\n');
+
+    // CONFIRMADO com o usuário: recontato em dias seguidos sem nenhum
+    // título novo vencido desde o último contato não reenvia o relatório
+    // nem repete o pedido de agendamento -- vira só um lembrete direto,
+    // apoiado no bloco de contexto/promessa (se houver) e na linha de
+    // situação.
+    const omitirRelatorio = deveOmitirRelatorio(dados);
 
     // CONFIRMADO com o usuário: com 2+ razões com saldo vencido, a frase do
     // relatório fala de "cada razão social" em vez de citar a razão social
@@ -613,13 +645,16 @@
     const linhaRelatorio = temOutraRazaoComVencido()
       ? 'Segue o relatório atualizado com os débitos em aberto de cada razão social.'
       : 'Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:';
-    partes.push(linhaRelatorio);
-    if (linhaContexto) {
-      partes.push('', linhaContexto);
-    }
-    partes.push('', 'Podemos agendar para hoje o pagamento do débito em aberto?');
 
-    return substituirVariaveisDaFrase(partes.join('\n'), dados);
+    // Cada item aqui vira um parágrafo da mensagem (separado por linha em
+    // branco).
+    const blocos = ['{{saudacao}}'];
+    if (blocoContexto) blocos.push(blocoContexto);
+    if (!omitirRelatorio) blocos.push(linhaRelatorio);
+    if (linhaContexto) blocos.push(linhaContexto);
+    if (!omitirRelatorio) blocos.push('Podemos agendar para hoje o pagamento do débito em aberto?');
+
+    return substituirVariaveisDaFrase(blocos.join('\n\n'), dados);
   }
 
   function escreverMensagemPersonalizada() {

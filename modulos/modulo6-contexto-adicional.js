@@ -51,7 +51,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.34';
+  const VERSAO_SMARTTABLE = '1.0.35';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -331,6 +331,7 @@
     // o Módulo 4 usa diaSemanaTexto (ex.: "sexta-feira") em vez de "ontem".
     const ontemCalendario = adicionarDias(hoje, -1);
     return {
+      data: contato.data,
       dataTexto: formatarDataBr(contato.data),
       ehOntemLiteral: mesmaData(contato.data, ontemCalendario),
       diaSemanaTexto: nomeDiaSemana(contato.data),
