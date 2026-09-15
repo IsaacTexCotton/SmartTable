@@ -51,7 +51,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.40';
+  const VERSAO_SMARTTABLE = '1.0.41';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -311,42 +311,35 @@
     return null;
   }
 
-  // Além desse tanto de dias corridos desde o último contato, não faz mais
-  // sentido mencionar "retomando o contato de [data]" -- CONFIRMADO com o
-  // usuário: antes só reconhecia contato de ONTEM (dia útil anterior);
-  // recontatos com intervalo maior (2+ dias) não geravam nenhuma linha,
-  // como se fosse a primeira vez.
-  const LIMITE_DIAS_CONTATO_RECENTE = 10;
-
+  // REVERTIDO (confirmado com o usuário): a tentativa de reconhecer
+  // recontato com intervalo maior que "ontem" (dia útil anterior) estava
+  // puxando datas velhas demais, sem relação com a cobrança atual --
+  // "retomando nosso contato de [data antiga]" ficava estranho e
+  // desconectado do que estava sendo cobrado agora. Volta a valer só
+  // quando o contato mais recente foi EXATAMENTE o dia útil anterior.
   function calcularContextoContato(hoje) {
     const contato = lerContatoMaisRecente();
     if (!contato || !contato.data || !contato.efetivo) return null;
-    if (mesmaData(contato.data, hoje)) return null; // contato é hoje mesmo -- não é "retomando"
 
-    const diasCorridos = Math.round((hoje.getTime() - contato.data.getTime()) / 86400000);
-    if (diasCorridos < 0 || diasCorridos > LIMITE_DIAS_CONTATO_RECENTE) return null;
+    let diaAnterior;
+    try {
+      diaAnterior = diaUtilAnterior(hoje);
+    } catch (erro) {
+      return null;
+    }
+
+    if (!mesmaData(contato.data, diaAnterior)) return null;
 
     // "Ontem" só é literalmente verdade quando o dia útil anterior cai no
     // dia de calendário anterior (terça a sexta, sem feriado no meio). Numa
     // segunda-feira -- ou terça após feriado na segunda -- o dia útil
-    // anterior pula um fim de semana e "ontem" fica incorreto. ehDiaUtilAnterior
-    // cobre esse caso (usa o dia da semana); fora dessas duas situações
-    // (contato mais antigo que o dia útil anterior), o Módulo 4 usa a data
-    // por extenso.
-    let diaAnterior = null;
-    try {
-      diaAnterior = diaUtilAnterior(hoje);
-    } catch (erro) {
-      // Feriados indisponíveis -- segue sem essa checagem específica, não
-      // perde o resto do contexto por causa disso.
-    }
-
+    // anterior pula um fim de semana e "ontem" fica incorreto; nesses casos
+    // o Módulo 4 usa diaSemanaTexto (ex.: "sexta-feira") em vez de "ontem".
     const ontemCalendario = adicionarDias(hoje, -1);
     return {
       data: contato.data,
       dataTexto: formatarDataBr(contato.data),
       ehOntemLiteral: mesmaData(contato.data, ontemCalendario),
-      ehDiaUtilAnterior: !!diaAnterior && mesmaData(contato.data, diaAnterior),
       diaSemanaTexto: nomeDiaSemana(contato.data),
     };
   }

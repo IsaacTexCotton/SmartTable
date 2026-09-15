@@ -573,26 +573,16 @@
     // datada pro mesmo dia do último contato, sem olhar status.
     if (ctx.promessa || ctx.houvePromessaNoUltimoContato) return '';
 
-    // CONFIRMADO com o usuário: antes só existia esta linha quando o
-    // contato anterior foi EXATAMENTE o dia útil anterior -- um recontato
-    // com intervalo maior (2+ dias) não gerava nenhum reconhecimento,
-    // como se fosse a primeira vez. Agora varia em 3 níveis (ver
-    // calcularContextoContato no Módulo 6, que já limita a janela a até
-    // LIMITE_DIAS_CONTATO_RECENTE dias -- além disso, contatoRecente nem
-    // chega a vir preenchido):
-    //   1. Ontem de verdade (dia de calendário anterior) -- "ontem".
-    //   2. Dia útil anterior, mas não ontem de calendário (ex.: hoje é
-    //      segunda e o contato foi sexta) -- nome do dia da semana.
-    //   3. Mais antigo que isso (2+ dias úteis) -- data por extenso, já
-    //      que "sexta-feira" fica ambíguo pra algo de mais de uma semana atrás.
-    const { ehOntemLiteral, ehDiaUtilAnterior, diaSemanaTexto, dataTexto } = ctx.contatoRecente;
-    if (ehOntemLiteral) {
-      return 'Retomando o contato de ontem, já que ainda não obtivemos retorno.';
-    }
-    if (ehDiaUtilAnterior) {
-      return `Retomando o contato de ${diaSemanaTexto}, já que ainda não obtivemos retorno.`;
-    }
-    return `Retomando nosso contato de ${encurtarData(dataTexto)}, já que ainda não obtivemos retorno.`;
+    // REVERTIDO (confirmado com o usuário): a variação de 3 níveis puxava
+    // datas velhas demais, sem relação com a cobrança atual -- volta a
+    // valer só quando o contato mais recente foi EXATAMENTE o dia útil
+    // anterior (garantido pelo Módulo 6 agora -- se não for, contatoRecente
+    // nem vem preenchido). "Ontem" só quando é literalmente verdade (dia
+    // útil anterior = dia de calendário anterior); senão, nome do dia da
+    // semana (ex.: hoje é segunda, contato foi sexta).
+    const { ehOntemLiteral, diaSemanaTexto } = ctx.contatoRecente;
+    const referencia = ehOntemLiteral ? 'ontem' : diaSemanaTexto;
+    return `Retomando o contato de ${referencia}, já que ainda não obtivemos retorno.`;
   }
 
   function converterDataBrParaDate(texto) {
