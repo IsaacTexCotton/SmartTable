@@ -1493,28 +1493,62 @@
   // (telefone só com dígitos, com DDI 55 -- ex.: seu próprio número, pra
   // ver as mensagens chegando de verdade). Opcionalmente, um 2º argumento
   // com a lista de parágrafos, senão usa uma de exemplo.
+  function executarTesteWhatsApp(telefone, paragrafos) {
+    if (!telefone) {
+      console.warn('[Atalhos] Uso: window.atalhosDebug.testarWhatsAppMultiplasMensagens(\'55DDDNUMERO\')');
+      return;
+    }
+    const lista = Array.isArray(paragrafos) && paragrafos.length > 0
+      ? paragrafos
+      : [
+        'Parágrafo de teste 1 -- SmartTable.',
+        'Parágrafo de teste 2 -- se isto chegou como mensagem separada, o modo de múltiplas mensagens está funcionando.',
+        'Parágrafo de teste 3 -- aperte Enter em cada um pra confirmar.',
+      ];
+    const urlPropria = 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(telefone) +
+      '&text=' + encodeURIComponent(lista[0]);
+    const aba = window.open(urlPropria, NOME_ABA_WHATSAPP);
+    console.log('[Atalhos] [TESTE] window.open retornou:', aba, '| aba.closed logo de cara =', aba && aba.closed);
+    if (!aba) {
+      console.warn('[Atalhos] Não consegui abrir a aba de teste -- popup bloqueado?');
+      return;
+    }
+    console.log('[Atalhos] [TESTE] Aba aberta, enviando fila de ' + lista.length + ' parágrafo(s)...');
+    enviarFilaParaAbaWhatsApp(aba, lista);
+  }
+
   window.atalhosDebug = {
-    testarWhatsAppMultiplasMensagens(telefone, paragrafos) {
-      if (!telefone) {
-        console.warn('[Atalhos] Uso: window.atalhosDebug.testarWhatsAppMultiplasMensagens(\'55DDDNUMERO\')');
-        return;
-      }
-      const lista = Array.isArray(paragrafos) && paragrafos.length > 0
-        ? paragrafos
-        : [
-          'Parágrafo de teste 1 -- SmartTable.',
-          'Parágrafo de teste 2 -- se isto chegou como mensagem separada, o modo de múltiplas mensagens está funcionando.',
-          'Parágrafo de teste 3 -- aperte Enter em cada um pra confirmar.',
-        ];
-      const urlPropria = 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(telefone) +
-        '&text=' + encodeURIComponent(lista[0]);
-      const aba = window.open(urlPropria, NOME_ABA_WHATSAPP);
-      if (!aba) {
-        console.warn('[Atalhos] Não consegui abrir a aba de teste -- popup bloqueado?');
-        return;
-      }
-      console.log('[Atalhos] [TESTE] Aba aberta, enviando fila de ' + lista.length + ' parágrafo(s)...');
-      enviarFilaParaAbaWhatsApp(aba, lista);
+    testarWhatsAppMultiplasMensagens: executarTesteWhatsApp,
+
+    // DIAGNÓSTICO: testar via console NÃO conta como gesto real do
+    // usuário pro navegador (execução no DevTools fica de fora da
+    // "ativação do usuário" que autoriza popups) -- diferente de um
+    // clique de verdade, que é o que o Alt+S usa. Esta versão cria um
+    // botão flutuante; CLICAR nele (gesto real) roda o mesmo teste,
+    // isolando se o problema é o WhatsApp fechando a aba ou o navegador
+    // bloqueando por falta de gesto real. Uso:
+    //   window.atalhosDebug.mostrarBotaoTesteWhatsApp('55DDDNUMERO')
+    mostrarBotaoTesteWhatsApp(telefone, paragrafos) {
+      const existente = document.getElementById('smarttable-botao-teste-whatsapp');
+      if (existente) existente.remove();
+
+      const botao = document.createElement('button');
+      botao.id = 'smarttable-botao-teste-whatsapp';
+      botao.textContent = '🧪 Testar WhatsApp múltiplas mensagens';
+      Object.assign(botao.style, {
+        position: 'fixed', bottom: '70px', right: '20px', zIndex: '999999',
+        padding: '12px 18px', background: '#0B8043', color: '#FFFFFF',
+        border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
+        cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+        fontFamily: '-apple-system, Segoe UI, Arial, sans-serif',
+      });
+      botao.addEventListener('click', () => {
+        console.log('[Atalhos] [TESTE] Botão clicado (gesto real) -- abrindo WhatsApp...');
+        executarTesteWhatsApp(telefone, paragrafos);
+        botao.remove();
+      });
+      document.body.appendChild(botao);
+      console.log('[Atalhos] [TESTE] Botão adicionado no canto inferior direito da tela -- clique nele.');
     },
   };
 })();
