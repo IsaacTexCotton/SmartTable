@@ -501,6 +501,32 @@
     }
   }
 
+  // CONFIRMADO com o usuário: a pergunta final não deve ser sempre a
+  // mesma ("podemos agendar...") -- perto do encaminhamento (último dia)
+  // ou já negativado/em cartório, o CTA pode ser mais específico e
+  // urgente, sem virar ameaça: só nomeia a consequência real (evitar o
+  // encaminhamento, confirmar a baixa da restrição, evitar a suspensão).
+  function obterPerguntaFinal(escolhido) {
+    switch (escolhido.situacaoKey) {
+      case 'ULTIMO_DIA':
+        return 'Consegue regularizar hoje para evitarmos o encaminhamento?';
+      case 'EM_CARTORIO':
+        return 'Consegue regularizar hoje para eu confirmar a baixa da restrição?';
+      case 'NEGATIVADO_SCPC': {
+        const dias = escolhido.diasAtrasoReal;
+        if (dias >= DIAS_AVISO_SUSPENSAO_SCPC_MIN && dias <= DIAS_AVISO_SUSPENSAO_SCPC_MAX) {
+          return 'Consegue regularizar hoje para evitarmos a suspensão do cadastro?';
+        }
+        if (dias === DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) {
+          return 'Consegue regularizar hoje, o último dia antes da suspensão?';
+        }
+        return 'Consegue regularizar hoje para eu confirmar a baixa da restrição?';
+      }
+      default: // EM_ATRASO, PRAZO_FINAL -- estágio inicial, sem pressão
+        return 'Podemos agendar para hoje o pagamento do débito em aberto?';
+    }
+  }
+
   /* ---------------------------------------------------------------------
    * 3.0c LINHAS DE CONTEXTO ADICIONAL (Módulo 6) -- promessa e contato
    * -----------------------------------------------------------------
@@ -544,14 +570,26 @@
     // certo pra esse caso, então essa aqui não deve aparecer junto.
     if (ctx.promessa) return '';
 
-    // "Ontem" só é usado quando é literalmente verdade (dia útil anterior =
-    // dia de calendário anterior). Quando o dia útil anterior pula um fim de
-    // semana (ex.: hoje é segunda e o contato foi sexta) ou feriado, usamos
-    // o nome do dia da semana em vez de "ontem" -- ver ehOntemLiteral no
-    // Módulo 6.
-    const { ehOntemLiteral, diaSemanaTexto } = ctx.contatoRecente;
-    const referencia = ehOntemLiteral ? 'ontem' : diaSemanaTexto;
-    return `Retomando o contato de ${referencia}, já que ainda não obtivemos retorno.`;
+    // CONFIRMADO com o usuário: antes só existia esta linha quando o
+    // contato anterior foi EXATAMENTE o dia útil anterior -- um recontato
+    // com intervalo maior (2+ dias) não gerava nenhum reconhecimento,
+    // como se fosse a primeira vez. Agora varia em 3 níveis (ver
+    // calcularContextoContato no Módulo 6, que já limita a janela a até
+    // LIMITE_DIAS_CONTATO_RECENTE dias -- além disso, contatoRecente nem
+    // chega a vir preenchido):
+    //   1. Ontem de verdade (dia de calendário anterior) -- "ontem".
+    //   2. Dia útil anterior, mas não ontem de calendário (ex.: hoje é
+    //      segunda e o contato foi sexta) -- nome do dia da semana.
+    //   3. Mais antigo que isso (2+ dias úteis) -- data por extenso, já
+    //      que "sexta-feira" fica ambíguo pra algo de mais de uma semana atrás.
+    const { ehOntemLiteral, ehDiaUtilAnterior, diaSemanaTexto, dataTexto } = ctx.contatoRecente;
+    if (ehOntemLiteral) {
+      return 'Retomando o contato de ontem, já que ainda não obtivemos retorno.';
+    }
+    if (ehDiaUtilAnterior) {
+      return `Retomando o contato de ${diaSemanaTexto}, já que ainda não obtivemos retorno.`;
+    }
+    return `Retomando nosso contato de ${encurtarData(dataTexto)}, já que ainda não obtivemos retorno.`;
   }
 
   function converterDataBrParaDate(texto) {
@@ -570,9 +608,17 @@
     const ctx = window.__contextoAdicional;
     if (!ctx || !ctx.contatoRecente || !ctx.contatoRecente.data) return false;
     const dataUltimoContato = ctx.contatoRecente.data;
+    // CORREÇÃO (bug real, confirmado pelo usuário): comparação era ">" --
+    // um título só entra em "registros" a partir de 1 dia de atraso (ver
+    // DIAS_ATRASO_MIN no Módulo 1), ou seja, um título com vencimento
+    // IGUAL à data do último contato ainda não estava atrasado (e por
+    // isso não aparecia) NAQUELE dia -- só passou a aparecer no dia
+    // seguinte. ">" tratava esse caso como "não é novo" por engano, por
+    // vencimento e contato caírem na mesma data. ">=" reconhece
+    // corretamente como novo.
     const temTituloNovo = dados.registros.some((r) => {
       const vencimento = converterDataBrParaDate(r.vencimentoTexto);
-      return vencimento && vencimento.getTime() > dataUltimoContato.getTime();
+      return vencimento && vencimento.getTime() >= dataUltimoContato.getTime();
     });
     return !temTituloNovo;
   }
@@ -679,13 +725,22 @@
       ? 'Segue o relatório atualizado com os débitos em aberto de cada razão social.'
       : 'Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:';
 
+    // CONFIRMADO com o usuário (bug real): pra EM_ATRASO/PRAZO_FINAL,
+    // linhaContexto é sempre '' -- se o relatório também for omitido e não
+    // houver promessa, a mensagem ficava só com a saudação e o "retomando
+    // contato", sem pergunta nenhuma (nada acionável). Nesses casos,
+    // mantém a pergunta final mesmo sem relatório -- é o único conteúdo
+    // que sobra.
+    const temConteudoAcionavel = !!(linhaContexto || linhaPromessa);
+    const incluirPerguntaFinal = !omitirRelatorio || !temConteudoAcionavel;
+
     // Cada item aqui vira um parágrafo da mensagem (separado por linha em
     // branco).
     const blocos = ['{{saudacao}}'];
     if (blocoContexto) blocos.push(blocoContexto);
     if (!omitirRelatorio) blocos.push(linhaRelatorio);
     if (linhaContexto) blocos.push(linhaContexto);
-    if (!omitirRelatorio) blocos.push('Podemos agendar para hoje o pagamento do débito em aberto?');
+    if (incluirPerguntaFinal) blocos.push(obterPerguntaFinal(escolhido));
 
     return substituirVariaveisDaFrase(blocos.join('\n\n'), dados);
   }
