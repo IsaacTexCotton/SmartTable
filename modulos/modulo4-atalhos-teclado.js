@@ -454,19 +454,25 @@
         return '';
       case 'ULTIMO_DIA': {
         const destino = dados.fluxo === 'SCPC' ? 'ao SCPC' : 'para cartório';
+        // CORRIGIDO (achado real via bateria de cobrança digna): sem
+        // "Lembramos que" aqui -- essa frase pode ficar logo atrás da linha
+        // de promessa DIA_DA_PROMESSA, que já abre com "Lembramos que...",
+        // e duas frases seguidas com a mesma abertura soam repetitivas/
+        // robóticas (ver skill cobrança-digna, princípio 3). Sem o prefixo
+        // fica igual claro sozinha e nunca duplica quando combinada.
         if (omitirRelatorio) {
           const datas = obterDatasVencimentoPorSituacao(dados, 'ULTIMO_DIA');
           const datasTexto = datas.join(', ');
           return datas.length > 1
-            ? `Lembramos que os títulos vencidos em ${datasTexto} estão no prazo final antes de serem encaminhados ${destino}.`
-            : `Lembramos que o título vencido em ${datasTexto} está no prazo final antes de ser encaminhado ${destino}.`;
+            ? `Os títulos vencidos em ${datasTexto} estão no prazo final antes de serem encaminhados ${destino}.`
+            : `O título vencido em ${datasTexto} está no prazo final antes de ser encaminhado ${destino}.`;
         }
         // Com relatório sendo enviado, basta referenciar a cor -- os
         // títulos em último dia já aparecem grifados em vermelho nele.
         const quantidade = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA').length;
         return quantidade > 1
-          ? `Lembramos que os títulos grifados em vermelho no relatório abaixo estão no prazo final antes de serem encaminhados ${destino}.`
-          : `Lembramos que o título grifado em vermelho no relatório abaixo está no prazo final antes de ser encaminhado ${destino}.`;
+          ? `Os títulos grifados em vermelho no relatório abaixo estão no prazo final antes de serem encaminhados ${destino}.`
+          : `O título grifado em vermelho no relatório abaixo está no prazo final antes de ser encaminhado ${destino}.`;
       }
       case 'NEGATIVADO_SCPC': {
         const dias = escolhido.diasAtrasoReal;
@@ -742,11 +748,25 @@
     const jaTemPerguntaOuPedido = /\?/.test(linhaContexto) || /\?/.test(linhaPromessa);
     const incluirPerguntaFinal = !jaTemPerguntaOuPedido;
 
+    // CORRIGIDO (achado real via bateria de cobrança digna): pode acontecer
+    // de blocoContexto E linhaContexto ficarem os dois vazios ao mesmo tempo
+    // -- ex. EM_ATRASO/PRAZO_FINAL (linhaContexto sempre '') + recontato sem
+    // título novo (omitirRelatorio=true) + sem promessa ativa + promessa do
+    // último contato já resolvida (obterLinhaContatoRecente também some
+    // nesse caso). Sem relatório e sem nenhuma dessas linhas, a mensagem
+    // caía pra só saudação + pergunta final genérica ("Podemos agendar...")
+    // sem citar título, valor ou situação nenhuma -- o cliente não tem como
+    // saber do que se trata. Mantém o relatório mesmo com
+    // omitirRelatorio=true nesse caso específico -- é a única âncora que
+    // sobra pra dar contexto à pergunta.
+    const semNenhumaAncora = !blocoContexto && !linhaContexto;
+    const incluirRelatorio = !omitirRelatorio || semNenhumaAncora;
+
     // Cada item aqui vira um parágrafo da mensagem (separado por linha em
     // branco).
     const blocos = ['{{saudacao}}'];
     if (blocoContexto) blocos.push(blocoContexto);
-    if (!omitirRelatorio) blocos.push(linhaRelatorio);
+    if (incluirRelatorio) blocos.push(linhaRelatorio);
     if (linhaContexto) blocos.push(linhaContexto);
     if (incluirPerguntaFinal) blocos.push(obterPerguntaFinal(escolhido));
 
