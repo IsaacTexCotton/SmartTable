@@ -39,7 +39,8 @@
  *   "Controle: {grupoId}|{cnpj}" de cada linha e remonta a URL de destino
  *   (confirmado com exemplo real: Controle: 0|48176147/0001-63 ->
  *   /crm/clientes/grupo/0?cnpj=48176147%2F0001-63). Se o formato da lista
- *   mudar no futuro, ajuste CONFIG.REGEX_CONTROLE e CONFIG.montarUrlCliente.
+ *   mudar no futuro, ajuste CONFIG.REGEX_CONTROLE e/ou
+ *   window.__smartTableUtil.montarUrlCliente (Módulo 0).
  * ========================================================================= */
 (function () {
   'use strict';
@@ -47,6 +48,10 @@
   // Evita inicializar duas vezes se o arquivo for injetado/recarregado mais de uma vez.
   if (window.__filaAtendimentoCarregado) return;
   window.__filaAtendimentoCarregado = true;
+
+  // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
+  // deste arquivo no @require do wrapper.
+  const { toast, montarUrlCliente } = window.__smartTableUtil;
 
   /* ---------------------------------------------------------------------
    * 1. CONFIGURAÇÃO — únicos pontos que talvez precisem de ajuste.
@@ -59,12 +64,6 @@
     // "Controle: {grupoId}|{cnpj}" — é esse padrão que usamos pra
     // reconstruir a URL de destino sem precisar de link nenhum.
     REGEX_CONTROLE: /Controle:\s*(\d+)\|([\d.\/-]+)/,
-    // Monta a URL real do cliente a partir do grupoId + cnpj extraídos.
-    // Confirmado com exemplo real: Controle: 0|48176147/0001-63 ->
-    // https://texhub.texcotton.com.br/crm/clientes/grupo/0?cnpj=48176147%2F0001-63
-    montarUrlCliente(grupoId, cnpj) {
-      return `${location.origin}/crm/clientes/grupo/${grupoId}?cnpj=${encodeURIComponent(cnpj)}`;
-    },
     // Texto usado para identificar o botão "Registrar e Enviar" (o script
     // procura esse trecho, em minúsculas, dentro do texto de qualquer botão).
     TEXTO_BOTAO_REGISTRAR: 'registrar e enviar',
@@ -207,36 +206,6 @@
   function extrairDiasAtraso(texto) {
     const match = (texto || '').match(CONFIG.REGEX_DIAS_ATRASO);
     return match ? parseInt(match[1], 10) : 0;
-  }
-
-  // Toast próprio, não bloqueante, some sozinho (mesma filosofia do Módulo 1/2).
-  function toast(mensagem, duracaoMs) {
-    duracaoMs = duracaoMs || 3200;
-    const el = document.createElement('div');
-    el.textContent = mensagem;
-    Object.assign(el.style, {
-      position: 'fixed',
-      bottom: '24px',
-      right: '24px',
-      background: '#16232F',
-      color: '#fff',
-      padding: '12px 18px',
-      borderRadius: '8px',
-      boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
-      fontSize: '14px',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      zIndex: 999999,
-      maxWidth: '340px',
-      opacity: '0',
-      transition: 'opacity .25s ease',
-      pointerEvents: 'none',
-    });
-    document.body.appendChild(el);
-    requestAnimationFrame(() => { el.style.opacity = '1'; });
-    setTimeout(() => {
-      el.style.opacity = '0';
-      setTimeout(() => el.remove(), 300);
-    }, duracaoMs);
   }
 
   /* ---------------------------------------------------------------------
@@ -387,7 +356,7 @@
         return; // já foi atendido hoje -- não bota na fila de novo
       }
 
-      const url = CONFIG.montarUrlCliente(grupoId, cnpj);
+      const url = montarUrlCliente(grupoId, cnpj);
       const nome = texto.split('Controle:')[0].trim().slice(0, 60) || 'Cliente';
       const diasAtraso = extrairDiasAtraso(texto);
       const candidato = { url, cnpj, label: nome, diasAtraso };
@@ -751,10 +720,20 @@
     obterFila,
     salvarFila,
     limparFila,
+    validarFormatoDaFila,
     construirFilaAPartirDaPagina,
+    paginaTemClientesParaFila,
+    criarBotaoRetomar,
     iniciarFila,
     irParaProximo,
     irParaAnterior,
+    registrarSucessoSemAvancar,
+    sincronizarPosicao,
+    marcarComoAtendidoHoje,
+    obterAtendidosHoje,
+    extrairCnpjDaUrl,
+    mesmoDiaDeHoje,
+    getPaginaNaFila: () => paginaNaFila,
     // Expõe o "armar" da interceptação do window.open pro Módulo 4 chamar
     // explicitamente ANTES do clique simulado do Alt+S -- garante que a
     // detecção de sucesso funciona não importa qual estratégia de clique

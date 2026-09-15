@@ -45,13 +45,17 @@
   if (window.__contextoAdicionalCarregado) return;
   window.__contextoAdicionalCarregado = true;
 
+  // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
+  // deste arquivo no @require do wrapper.
+  const { normalizarData } = window.__smartTableUtil;
+
   // Confirmação visual de que a versão certa carregou -- resposta direta pro
   // problema de "o Tampermonkey atualizou mesmo?" que já causou confusão
   // (o wrapper pode estar em @version novo enquanto os @require ainda estão
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.54';
+  const VERSAO_SMARTTABLE = '1.0.55';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -111,12 +115,6 @@
    * mas precisa da direção "dia útil ANTERIOR", que não existe lá (Módulo 1
    * só tem "a partir de"/"próximo", sempre pra frente no tempo).
    * --------------------------------------------------------------------- */
-  function normalizarData(data) {
-    const d = new Date(data);
-    d.setHours(12, 0, 0, 0);
-    return d;
-  }
-
   function chaveData(data) {
     const ano = data.getFullYear();
     const mes = String(data.getMonth() + 1).padStart(2, '0');
@@ -571,5 +569,11 @@
     lerTodosContatos,
     calcularContextoPromessa,
     calcularContatoAntigo,
+    CHAVE_SNAPSHOT_TITULOS,
+    DIAS_EXPIRACAO_SNAPSHOT_TITULOS,
+    lerSnapshotsTitulos,
+    salvarSnapshotsTitulos,
+    verificarESalvarSnapshotTitulos,
+    obterCnpjDaPagina,
   };
 })();

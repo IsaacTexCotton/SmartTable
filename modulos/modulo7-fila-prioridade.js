@@ -52,8 +52,10 @@
  * travar o resto). Se isso acontecer na prática, a correção é permitir
  * pop-ups pra este site nas configurações do navegador (ação única).
  *
- * Onde colar: anexado ao FINAL do smart-table.js, depois do Módulo 3 (Fila
- * de Atendimento) -- usa window.filaDebug.construirFilaAPartirDaPagina,
+ * Onde colar: anexado ao FINAL do smart-table.js, depois do Módulo 0
+ * (Utilitários Compartilhados -- usa window.__smartTableUtil.toast/esperar/
+ * normalizarData/escolherTituloRepresentativo) e do Módulo 3 (Fila de
+ * Atendimento) -- usa window.filaDebug.construirFilaAPartirDaPagina,
  * .salvarFila, .obterFila e .CONFIG. O atalho de teclado (Alt+U) em si fica
  * no Módulo 4, que chama window.filaPrioridadeDebug.iniciar() -- mesmo
  * padrão usado pro Alt+I chamar window.filaDebug.iniciarFila().
@@ -63,6 +65,10 @@
 
   if (window.__filaPrioridadeCarregada) return;
   window.__filaPrioridadeCarregada = true;
+
+  // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
+  // deste arquivo no @require do wrapper.
+  const { toast, esperar, normalizarData, escolherTituloRepresentativo } = window.__smartTableUtil;
 
   /* ---------------------------------------------------------------------
    * 1. CONFIGURAÇÃO
@@ -76,15 +82,13 @@
     DIA_ATRASO_MIN_CONSIDERADO: 2, // dia 1 não é considerado dia de cobrança
     // Prioridade 4: 2º ao 4º dia de EM_ATRASO.
     DIAS_PRIORIDADE_ATRASO_INICIAL: [2, 3, 4],
-    // Prioridade 5: mesmo limiar usado pelo Módulo 4 pra mensagem de aviso
-    // final antes da suspensão de cadastro SCPC -- MANTER SINCRONIZADO
-    // manualmente com DIAS_ULTIMO_DIA_SUSPENSAO_SCPC lá, se um dia mudar.
-    DIA_ULTIMO_DIA_SUSPENSAO_SCPC: 19,
-    // Janela inteira de aviso de suspensão SCPC (mesma janela que o
-    // Módulo 4 usa pra decidir qual título "representa" o cliente --
-    // ver escolherTituloRepresentativo abaixo). MANTER SINCRONIZADO
-    // manualmente com DIAS_AVISO_SUSPENSAO_SCPC_MIN lá.
-    DIA_INICIO_AVISO_SUSPENSAO_SCPC: 16,
+    // Prioridade 5 e escolha do título representativo: mesmos limiares do
+    // aviso de suspensão de cadastro SCPC usados em todo o resto do sistema
+    // -- vêm do Módulo 0 (window.__smartTableUtil), não são mais uma cópia
+    // local. MANTER SINCRONIZADO manualmente só se um dia o Módulo 2
+    // (protegido, ainda com sua própria cópia) divergir.
+    DIA_ULTIMO_DIA_SUSPENSAO_SCPC: window.__smartTableUtil.DIAS_ULTIMO_DIA_SUSPENSAO_SCPC,
+    DIA_INICIO_AVISO_SUSPENSAO_SCPC: window.__smartTableUtil.DIAS_AVISO_SUSPENSAO_SCPC_MIN,
     // Tempo esperando cada aba de fundo ficar pronta pra ler (Módulo 1 +
     // Módulo 6 carregados) -- mesma ordem de grandeza do Alt+A.
     TIMEOUT_CLASSIFICACAO_MS: 8000,
@@ -109,35 +113,6 @@
   /* ---------------------------------------------------------------------
    * 3. UTILITÁRIOS DE UI (toast + indicador de progresso persistente)
    * --------------------------------------------------------------------- */
-  function toast(mensagem, duracaoMs) {
-    duracaoMs = duracaoMs || 3200;
-    const el = document.createElement('div');
-    el.textContent = mensagem;
-    Object.assign(el.style, {
-      position: 'fixed',
-      bottom: '24px',
-      right: '24px',
-      background: '#16232F',
-      color: '#fff',
-      padding: '12px 18px',
-      borderRadius: '8px',
-      boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
-      fontSize: '14px',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      zIndex: 999999,
-      maxWidth: '360px',
-      opacity: '0',
-      transition: 'opacity .25s ease',
-      pointerEvents: 'none',
-    });
-    document.body.appendChild(el);
-    requestAnimationFrame(() => { el.style.opacity = '1'; });
-    setTimeout(() => {
-      el.style.opacity = '0';
-      setTimeout(() => el.remove(), 300);
-    }, duracaoMs);
-  }
-
   // Indicador único e persistente (não empilha toasts) -- atualizado in
   // place enquanto a classificação roda, já que pode levar minutos.
   function atualizarIndicadorProgresso(texto) {
@@ -167,16 +142,6 @@
       indicadorEl.remove();
       indicadorEl = null;
     }
-  }
-
-  function esperar(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  function normalizarData(data) {
-    const d = new Date(data);
-    d.setHours(0, 0, 0, 0);
-    return d;
   }
 
   /* ---------------------------------------------------------------------
@@ -310,39 +275,11 @@
   /* ---------------------------------------------------------------------
    * 5. CLASSIFICAÇÃO REAL (fase 2 -- visita cada candidato em aba de fundo)
    * --------------------------------------------------------------------- */
-  // Mesma regra do Módulo 4 (escolherTituloRepresentativo), duplicada de
-  // propósito aqui pelo mesmo motivo que o Módulo 4 duplica do Módulo 2:
-  // módulos diferentes, mesma decisão de "qual título representa o
-  // cliente" -- ULTIMO_DIA sempre vence, senão o de maior atraso real.
-  // BUG REAL (relatado pelo usuário): o critério antigo só priorizava
-  // ULTIMO_DIA -- um título em NEGATIVADO_SCPC no 19º dia (aviso de
-  // suspensão de cadastro) perdia pra qualquer outro título do mesmo
-  // cliente com mais dias de atraso (ex.: já em EM_CARTORIO há mais
-  // tempo), fazendo esse cliente cair na prioridade 6 (genérica) em vez da
-  // 5 (aviso de suspensão), mesmo tendo um título bem na janela crítica.
-  // Mesma correção aplicada no Módulo 4 -- a janela de aviso SCPC (16 a 19
-  // dias) tem a MESMA prioridade que ULTIMO_DIA na escolha do "título
-  // representante".
-  function maiorAtrasoEntre(lista) {
-    return lista.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
-  }
-
-  function escolherTituloRepresentativo(dados) {
-    if (!dados || !dados.registros || dados.registros.length === 0) return null;
-
-    const emUltimoDia = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA');
-    if (emUltimoDia.length > 0) return maiorAtrasoEntre(emUltimoDia);
-
-    const emAvisoSuspensaoScpc = dados.registros.filter(
-      (r) =>
-        r.situacaoKey === 'NEGATIVADO_SCPC' &&
-        r.diasAtrasoReal >= CONFIG.DIA_INICIO_AVISO_SUSPENSAO_SCPC &&
-        r.diasAtrasoReal <= CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC
-    );
-    if (emAvisoSuspensaoScpc.length > 0) return maiorAtrasoEntre(emAvisoSuspensaoScpc);
-
-    return maiorAtrasoEntre(dados.registros);
-  }
+  // Mesma regra do Módulo 4 -- agora centralizada no Módulo 0
+  // (window.__smartTableUtil.escolherTituloRepresentativo). ULTIMO_DIA
+  // sempre vence, senão a janela de aviso de suspensão SCPC (16-19 dias),
+  // senão o título de maior atraso real. Ver histórico completo do bug de
+  // priorização no Módulo 0.
 
   // Espera a aba de fundo carregar os módulos necessários pra classificar
   // (Módulo 1 pronto pra simular() + Módulo 6 já com __contextoAdicional

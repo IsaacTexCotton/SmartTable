@@ -1,0 +1,459 @@
+// Testes da Fila por Prioridade (Módulo 7) -- portados de
+// fila-prioridade/harness.js, rodando contra o código REAL de
+// modulos/modulo7-fila-prioridade.js via window.filaPrioridadeDebug.
+// Inclui, no final, o teste de regressão do BUG CRÍTICO achado pelo
+// /code-reviewer: normalizarData() do Módulo 7 usava meia-noite
+// (setHours(0,0,0,0)) enquanto Módulo 1/6 usam meio-dia, fazendo uma
+// promessa datada pra HOJE ser tratada como "futura" por engano --
+// corrigido consolidando os três num só (Módulo 0).
+const { novaJanela } = require('./helpers/dom-env');
+const { criarChecador } = require('./helpers/checar');
+
+const { checar, resumo } = criarChecador('fila-prioridade');
+
+const SPECS = [
+  { arquivo: 'modulo0-utilitarios-compartilhados.js' },
+  { arquivo: 'modulo3-fila-atendimento.js' },
+  { arquivo: 'modulo7-fila-prioridade.js' },
+];
+
+function abrirLista(url, bodyHtml, clientesArray) {
+  return novaJanela({ url, bodyHtml, clientes: clientesArray, specs: SPECS });
+}
+
+function linhaHtml({ grupoId, cnpj, dias }) {
+  return `<tr>
+    <td>
+      <span>Controle: ${grupoId}</span><span>|</span><span>${cnpj}</span>
+      <span>${dias} dias</span>
+    </td>
+  </tr>`;
+}
+
+function clienteJson({ cnpj, cluster, movimentacaoIso, diasAtraso }) {
+  const obj = { cnpj, cluster: cluster || '', dataUltimaMovimentacao: movimentacaoIso || null };
+  if (diasAtraso !== undefined) obj.diasAtraso = diasAtraso;
+  return obj;
+}
+
+function hojeIso() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') + 'T10:00:00.000000';
+}
+
+function registro(situacaoKey, diasAtrasoReal, extra) {
+  return Object.assign({ situacaoKey, diasAtrasoReal, tituloCompleto: '90001/1', vencimentoTexto: '01/09/2026' }, extra || {});
+}
+
+// =====================================================================
+// 1. Leitura da lista: cluster e data de movimentação extraídos certo
+// =====================================================================
+(function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '11111111/0001-11', dias: 19 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: '11111111/0001-11', cluster: 'Normal', movimentacaoIso: '2026-09-10T08:00:00.000000' })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  checar('candidatosEnriquecidos encontra o cliente da linha', candidatos && candidatos.length === 1, JSON.stringify(candidatos));
+  checar('lê o cluster certo de window.CLIENTES ("Normal")', candidatos[0].cluster === 'Normal', candidatos[0].cluster);
+  checar('lê dataUltimaMovimentacao de window.CLIENTES (não mais adivinhado por posição)', candidatos[0].movimentacaoDataIso === '2026-09-10T08:00:00.000000', candidatos[0].movimentacaoDataIso);
+  checar('dias de atraso lidos certo (19)', candidatos[0].diasAtraso === 19, candidatos[0].diasAtraso);
+})();
+
+(function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '99999999/0001-99', dias: 10 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: '99999999/0001-99', cluster: 'Carteira', movimentacaoIso: '2026-08-19T10:00:00.000000' })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  checar('cluster "Carteira" (não mais confundido com situacaoCobrancaDescricao)', candidatos[0].cluster === 'Carteira', candidatos[0].cluster);
+})();
+
+(function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '88888888/0001-88', dias: 25 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: '88888888/0001-88', cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000', diasAtraso: 8 })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+
+  checar(
+    'diasAtraso de window.CLIENTES (8) vence o valor extraído por regex da linha (25)',
+    candidatos[0].diasAtraso === 8,
+    `lido: ${candidatos[0].diasAtraso}`
+  );
+
+  const { sobreviventes, excluidos } = w.filaPrioridadeDebug.filtrarPorRegrasDaLista(candidatos);
+  checar(
+    'com o valor certo (8 dias), o cliente NÃO é excluído por ">19 dias" (o bug real excluía por engano)',
+    sobreviventes.length === 1 && excluidos.dias === 0,
+    JSON.stringify({ sobreviventes, excluidos })
+  );
+})();
+
+(function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '77777777/0001-77', dias: 12 })}</tbody></table>`;
+  const clientes = [{ cnpj: '77777777/0001-77', cluster: 'Normal' }];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  checar('sem diasAtraso em window.CLIENTES, mantém o valor extraído por regex (12) como fallback', candidatos[0].diasAtraso === 12, candidatos[0].diasAtraso);
+})();
+
+// =====================================================================
+// 2-5. Exclusões da fase de lista
+// =====================================================================
+(function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '22222222/0001-22', dias: 20 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: '22222222/0001-22', cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000' })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  const { sobreviventes, excluidos } = w.filaPrioridadeDebug.filtrarPorRegrasDaLista(candidatos);
+  checar('cliente com 20 dias de atraso é excluído', sobreviventes.length === 0 && excluidos.dias === 1, JSON.stringify({ sobreviventes, excluidos }));
+})();
+
+(function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '33333333/0001-33', dias: 1 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: '33333333/0001-33', cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000' })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  const { sobreviventes, excluidos } = w.filaPrioridadeDebug.filtrarPorRegrasDaLista(candidatos);
+  checar('cliente com 1 dia de atraso é excluído', sobreviventes.length === 0 && excluidos.diaUm === 1, JSON.stringify({ sobreviventes, excluidos }));
+})();
+
+(function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '44444444/0001-44', dias: 10 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: '44444444/0001-44', cluster: 'Normal', movimentacaoIso: hojeIso() })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  const { sobreviventes, excluidos } = w.filaPrioridadeDebug.filtrarPorRegrasDaLista(candidatos);
+  checar('cliente com movimentação hoje é excluído', sobreviventes.length === 0 && excluidos.movimentacaoHoje === 1, JSON.stringify({ sobreviventes, excluidos }));
+})();
+
+(function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '77777777/0001-77', dias: 10 })}</tbody></table>`;
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html);
+  let excecao = null;
+  let candidatos;
+  try {
+    candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  } catch (e) {
+    excecao = e;
+  }
+  checar('sem window.CLIENTES não lança exceção', excecao === null, excecao && excecao.message);
+  checar('sem window.CLIENTES, cliente ainda aparece (cluster vazio, sem exclusão indevida)', candidatos && candidatos.length === 1 && candidatos[0].cluster === '' && candidatos[0].movimentacaoDataIso === null);
+})();
+
+(function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '55555555/0001-55', dias: 8 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: '55555555/0001-55', cluster: 'Normal', movimentacaoIso: '2026-09-10T08:00:00.000000' })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  const { sobreviventes } = w.filaPrioridadeDebug.filtrarPorRegrasDaLista(candidatos);
+  checar('cliente elegível (8 dias, sem exclusões) sobrevive ao filtro da lista', sobreviventes.length === 1);
+})();
+
+// =====================================================================
+// 6. determinarPrioridade -- as 6 faixas, na ordem certa (waterfall)
+// =====================================================================
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const dp = w.filaPrioridadeDebug.determinarPrioridade;
+
+  checar('P1: ULTIMO_DIA + Cartório', dp(registro('ULTIMO_DIA', 6), 'CARTORIO', 'Normal') === 1);
+  checar('P2: Cluster Novo (mesmo em EM_ATRASO comum)', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Novo') === 2);
+  checar('P2 vence sobre P3/P4 quando aplicável simultaneamente', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Novo') === 2, 'deveria ser 2, não 3, pois P2 vem antes de P3 na checagem');
+  checar('P1 vence sobre P2 quando os dois se aplicam (Cartório+Novo)', dp(registro('ULTIMO_DIA', 6), 'CARTORIO', 'Novo') === 1, 'P1 é checado primeiro, deve vencer');
+  checar('P3: ULTIMO_DIA + SCPC (sem cluster Novo)', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Normal') === 3);
+  checar('P4: EM_ATRASO dia 2', dp(registro('EM_ATRASO', 2), 'CARTORIO', 'Normal') === 4);
+  checar('P4: EM_ATRASO dia 3', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 4);
+  checar('P4: EM_ATRASO dia 4', dp(registro('EM_ATRASO', 4), 'CARTORIO', 'Normal') === 4);
+  checar('P4 vale pros dois fluxos ("de ambos")', dp(registro('EM_ATRASO', 3), 'SCPC', 'Normal') === 4);
+  checar('EM_ATRASO dia 5 NÃO é P4 (cai no resto -> P6)', dp(registro('EM_ATRASO', 5), 'CARTORIO', 'Normal') === 6);
+  checar('P5: NEGATIVADO_SCPC dia 19 exato', dp(registro('NEGATIVADO_SCPC', 19), 'SCPC', 'Normal') === 5);
+  checar('NEGATIVADO_SCPC dia 18 NÃO é P5 (cai no resto -> P6)', dp(registro('NEGATIVADO_SCPC', 18), 'SCPC', 'Normal') === 6);
+  checar('NEGATIVADO_SCPC dia 10 NÃO é P5 (cai no resto -> P6)', dp(registro('NEGATIVADO_SCPC', 10), 'SCPC', 'Normal') === 6);
+  checar('P6: EM_CARTORIO no meio do caminho (nenhuma faixa específica)', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal') === 6);
+  checar('P6: PRAZO_FINAL', dp(registro('PRAZO_FINAL', 6), 'CARTORIO', 'Normal') === 6);
+  checar('cluster com espaços/maiúsculas ainda reconhece "Novo"', dp(registro('EM_ATRASO', 3), 'CARTORIO', '  NOVO  ') === 2);
+})();
+
+// =====================================================================
+// 7. escolherTituloRepresentativo (agora vem do Módulo 0, exposto aqui
+//    via window.filaPrioridadeDebug pra não quebrar os testes existentes)
+// =====================================================================
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const escolher = w.filaPrioridadeDebug.escolherTituloRepresentativo;
+
+  checar('retorna null sem registros', escolher({ registros: [] }) === null);
+  checar('escolhe o único título quando só tem um', escolher({ registros: [registro('EM_ATRASO', 3)] }).diasAtrasoReal === 3);
+
+  const comUltimoDia = escolher({
+    registros: [registro('EM_CARTORIO', 30), registro('ULTIMO_DIA', 6), registro('EM_ATRASO', 3)],
+  });
+  checar('ULTIMO_DIA sempre vence, mesmo com outro em cartório há mais tempo', comUltimoDia.situacaoKey === 'ULTIMO_DIA', JSON.stringify(comUltimoDia));
+
+  const semUltimoDia = escolher({
+    registros: [registro('EM_ATRASO', 3), registro('EM_CARTORIO', 30), registro('PRAZO_FINAL', 6)],
+  });
+  checar('sem ULTIMO_DIA, escolhe o de maior atraso real', semUltimoDia.diasAtrasoReal === 30, JSON.stringify(semUltimoDia));
+
+  [16, 17, 18, 19].forEach((dias) => {
+    const comAvisoScpc = escolher({
+      registros: [registro('EM_CARTORIO', 45), registro('NEGATIVADO_SCPC', dias)],
+    });
+    checar(
+      `janela de aviso SCPC (dia ${dias}) vence sobre EM_CARTORIO mais atrasado (45 dias)`,
+      comAvisoScpc.situacaoKey === 'NEGATIVADO_SCPC' && comAvisoScpc.diasAtrasoReal === dias,
+      JSON.stringify(comAvisoScpc)
+    );
+  });
+
+  const ultimoDiaVsAvisoScpc = escolher({
+    registros: [registro('NEGATIVADO_SCPC', 19), registro('ULTIMO_DIA', 6)],
+  });
+  checar(
+    'ULTIMO_DIA continua vencendo mesmo com NEGATIVADO_SCPC dia 19 no mesmo cliente',
+    ultimoDiaVsAvisoScpc.situacaoKey === 'ULTIMO_DIA',
+    JSON.stringify(ultimoDiaVsAvisoScpc)
+  );
+
+  const foraDaJanela = escolher({
+    registros: [registro('EM_CARTORIO', 45), registro('NEGATIVADO_SCPC', 25)],
+  });
+  checar(
+    'fora da janela de aviso SCPC (dia 25), volta a valer o maior atraso real (EM_CARTORIO 45)',
+    foraDaJanela.situacaoKey === 'EM_CARTORIO' && foraDaJanela.diasAtrasoReal === 45,
+    JSON.stringify(foraDaJanela)
+  );
+})();
+
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const escolher = w.filaPrioridadeDebug.escolherTituloRepresentativo;
+  const dp = w.filaPrioridadeDebug.determinarPrioridade;
+
+  const dados = { registros: [registro('EM_CARTORIO', 45), registro('NEGATIVADO_SCPC', 19)] };
+  const escolhido = escolher(dados);
+  const prioridade = dp(escolhido, 'SCPC', 'Normal');
+  checar(
+    'cliente com SCPC dia 19 + EM_CARTORIO 45 dias cai na prioridade 5 (não na 6)',
+    prioridade === 5,
+    `prioridade=${prioridade}, escolhido=${JSON.stringify(escolhido)}`
+  );
+})();
+
+// =====================================================================
+// 8-10. Herdados do Módulo 3 + integração com o schema da fila
+// =====================================================================
+(function () {
+  const html = `<table><tbody>
+    ${linhaHtml({ grupoId: 0, cnpj: '66666666/0001-66', dias: 5 })}
+    ${linhaHtml({ grupoId: 0, cnpj: '66666666/0002-47', dias: 15 })}
+  </tbody></table>`;
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  checar('matriz/filial (mesma raiz) continuam unificadas em 1 só', candidatos.length === 1, JSON.stringify(candidatos));
+  checar('mantém a filial mais atrasada (15 dias)', candidatos[0].diasAtraso === 15);
+})();
+
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  checar('window.filaDebug.CONFIG.VERSAO_SCHEMA está exposto', typeof w.filaDebug.CONFIG.VERSAO_SCHEMA === 'number', w.filaDebug.CONFIG);
+  checar('window.filaDebug.salvarFila está exposto', typeof w.filaDebug.salvarFila === 'function');
+})();
+
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const fila = {
+    versao: w.filaDebug.CONFIG.VERSAO_SCHEMA,
+    clientes: [
+      { url: 'https://x/a', cnpj: 'A', label: 'Cliente A', diasAtraso: 6, prioridadeTier: 1, prioridadeNome: 'Cartório — último dia' },
+      { url: 'https://x/b', cnpj: 'B', label: 'Cliente B', diasAtraso: 3, prioridadeTier: 4, prioridadeNome: 'Atraso inicial (2º–4º dia)' },
+    ],
+    indiceAtual: -1,
+    totalAtendidos: 0,
+    totalPulados: 0,
+    iniciadoEm: Date.now(),
+  };
+  w.filaDebug.salvarFila(fila);
+  const lida = w.filaDebug.obterFila();
+  checar('fila montada pelo Módulo 7 é aceita de volta por obterFila (schema bate)', lida !== null, lida);
+  checar('campos de prioridade sobrevivem ao round-trip pelo localStorage', lida && lida.clientes[0].prioridadeTier === 1 && lida.clientes[1].prioridadeNome === 'Atraso inicial (2º–4º dia)');
+})();
+
+// =====================================================================
+// 11-13. Assíncronos -- encadeados (await), nunca em paralelo: novaJanela()
+// reatribui global.window/document/localStorage (necessário porque
+// window.eval() roda no escopo global do Node, não isolado por janela).
+// =====================================================================
+const promessa11 = (function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes/grupo/0?cnpj=B', '<div>tela do cliente B</div>');
+  const fila = {
+    versao: w.filaDebug.CONFIG.VERSAO_SCHEMA,
+    clientes: [
+      { url: 'https://x/a', cnpj: 'A', label: 'A', diasAtraso: 6, prioridadeTier: 1, prioridadeNome: 'Cartório — último dia' },
+      { url: 'https://x/b', cnpj: 'B', label: 'B', diasAtraso: 3, prioridadeTier: 4, prioridadeNome: 'Atraso inicial (2º–4º dia)' },
+    ],
+    indiceAtual: 1,
+    totalAtendidos: 1,
+    totalPulados: 0,
+    iniciadoEm: Date.now(),
+  };
+  w.filaDebug.salvarFila(fila);
+
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const toasts = Array.from(w.document.body.querySelectorAll('div')).filter((el) => /prioridade/i.test(el.textContent || ''));
+      checar('toast de troca de prioridade aparece ao entrar em faixa diferente', toasts.length > 0, w.document.body.innerHTML);
+      resolve();
+    }, 20);
+  });
+})();
+
+const promessa12 = promessa11.then(async function () {
+  const linhas = Array.from({ length: 10 }, (_, i) =>
+    linhaHtml({ grupoId: 0, cnpj: `9${i}999999/0001-${String(10 + i).padStart(2, '0')}`, dias: 8 })
+  ).join('');
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', `<table><tbody>${linhas}</tbody></table>`);
+
+  let chamadasWindowOpen = 0;
+  w.open = () => {
+    chamadasWindowOpen++;
+    return null;
+  };
+
+  await w.filaPrioridadeDebug.iniciar();
+
+  checar(
+    'disjuntor para no 3º pop-up bloqueado seguido, não varre os 10 candidatos',
+    chamadasWindowOpen === 3,
+    `window.open foi chamado ${chamadasWindowOpen}x (esperado: 3)`
+  );
+
+  const filaSalva = w.filaDebug.obterFila();
+  checar('nenhuma fila é salva quando o disjuntor para tudo cedo', filaSalva === null, filaSalva);
+
+  const avisoBloqueio = Array.from(w.document.body.querySelectorAll('div')).some((el) => /bloqueando|pop-up/i.test(el.textContent || ''));
+  checar('mostra um aviso claro sobre pop-up bloqueado', avisoBloqueio);
+});
+
+const promessa13 = promessa12.then(async function () {
+  const linhas = [
+    linhaHtml({ grupoId: 0, cnpj: '11111111/0001-11', dias: 8 }),
+    linhaHtml({ grupoId: 0, cnpj: '22222222/0001-22', dias: 8 }),
+  ].join('');
+  const clientesArray = [
+    clienteJson({ cnpj: '11111111/0001-11', cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000', diasAtraso: 8 }),
+    clienteJson({ cnpj: '22222222/0001-22', cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000', diasAtraso: 8 }),
+  ];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', `<table><tbody>${linhas}</tbody></table>`, clientesArray);
+
+  w.open = (url) => {
+    const cnpjNaUrl = decodeURIComponent(url.split('cnpj=')[1] || '');
+    const temNaoCobrar = cnpjNaUrl === '11111111/0001-11';
+    return {
+      closed: false,
+      close() { this.closed = true; },
+      __avisoCobranca: {
+        simular: () => ({
+          fluxo: 'CARTORIO',
+          registros: temNaoCobrar ? [] : [{ situacaoKey: 'EM_ATRASO', diasAtrasoReal: 8, tituloCompleto: '1/1', vencimentoTexto: '01/09/2026' }],
+          naoCobrar: temNaoCobrar ? [{ tituloCompleto: '1/1', posicao: 'CARTEIRA' }] : [],
+        }),
+      },
+      __contextoAdicional: {},
+      __contextoAdicionalDebug: { lerPromessas: () => [] },
+    };
+  };
+
+  await w.filaPrioridadeDebug.iniciar();
+
+  const filaSalva = w.filaDebug.obterFila();
+  checar('fila é montada (cliente normal passou)', filaSalva !== null && filaSalva.clientes.length === 1, JSON.stringify(filaSalva));
+  checar(
+    'cliente com "não cobrar" fica de fora da fila, mesmo com outro cliente normal presente',
+    filaSalva && filaSalva.clientes.every((c) => c.cnpj !== '11111111/0001-11'),
+    filaSalva && JSON.stringify(filaSalva.clientes)
+  );
+  checar(
+    'cliente normal (sem não cobrar) entra normalmente',
+    filaSalva && filaSalva.clientes.some((c) => c.cnpj === '22222222/0001-22')
+  );
+});
+
+// =====================================================================
+// 14. REGRESSÃO DO BUG CRÍTICO (achado pelo /code-reviewer): promessa
+// datada pra HOJE não pode ser tratada como "futura". Antes da
+// consolidação, normalizarData() do Módulo 7 usava meia-noite
+// (setHours(0,0,0,0)) enquanto a data da promessa (produzida pelo Módulo 6
+// via converterDataBr, que usa meio-dia) ficava, em milissegundos, DEPOIS
+// de "hoje" -- excluindo por engano um cliente com promessa pra hoje.
+// =====================================================================
+const promessa14 = promessa13.then(async function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '55555555/0001-99', dias: 8 })}</tbody></table>`;
+  const clientesArray = [clienteJson({ cnpj: '55555555/0001-99', cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000', diasAtraso: 8 })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientesArray);
+
+  // Mesma convenção que o Módulo 6 usa de verdade pra "hoje" (meio-dia) --
+  // ver window.__smartTableUtil.normalizarData no Módulo 0.
+  const hojeMeioDia = new Date();
+  hojeMeioDia.setHours(12, 0, 0, 0);
+
+  w.open = () => ({
+    closed: false,
+    close() { this.closed = true; },
+    __avisoCobranca: {
+      simular: () => ({
+        fluxo: 'CARTORIO',
+        registros: [{ situacaoKey: 'EM_ATRASO', diasAtrasoReal: 8, tituloCompleto: '1/1', vencimentoTexto: '01/09/2026' }],
+        naoCobrar: [],
+      }),
+    },
+    __contextoAdicional: {},
+    __contextoAdicionalDebug: { lerPromessas: () => [{ status: 'PENDENTE', dataPrometida: hojeMeioDia, titulos: ['1/1'] }] },
+  });
+
+  await w.filaPrioridadeDebug.iniciar();
+
+  const filaSalva = w.filaDebug.obterFila();
+  checar(
+    'BUG CRÍTICO CORRIGIDO: promessa datada pra HOJE não exclui o cliente por "promessa futura"',
+    filaSalva !== null && filaSalva.clientes.length === 1 && filaSalva.clientes[0].cnpj === '55555555/0001-99',
+    filaSalva && JSON.stringify(filaSalva)
+  );
+});
+
+// Sanity check: promessa claramente no futuro (amanhã) continua excluindo
+// normalmente -- a correção não pode ter "desligado" a exclusão inteira.
+const promessa15 = promessa14.then(async function () {
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '55555555/0001-88', dias: 8 })}</tbody></table>`;
+  const clientesArray = [clienteJson({ cnpj: '55555555/0001-88', cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000', diasAtraso: 8 })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientesArray);
+
+  const amanhaMeioDia = new Date();
+  amanhaMeioDia.setDate(amanhaMeioDia.getDate() + 1);
+  amanhaMeioDia.setHours(12, 0, 0, 0);
+
+  w.open = () => ({
+    closed: false,
+    close() { this.closed = true; },
+    __avisoCobranca: {
+      simular: () => ({
+        fluxo: 'CARTORIO',
+        registros: [{ situacaoKey: 'EM_ATRASO', diasAtrasoReal: 8, tituloCompleto: '1/1', vencimentoTexto: '01/09/2026' }],
+        naoCobrar: [],
+      }),
+    },
+    __contextoAdicional: {},
+    __contextoAdicionalDebug: { lerPromessas: () => [{ status: 'PENDENTE', dataPrometida: amanhaMeioDia, titulos: ['1/1'] }] },
+  });
+
+  await w.filaPrioridadeDebug.iniciar();
+
+  const filaSalva = w.filaDebug.obterFila();
+  checar(
+    'promessa claramente no futuro (amanhã) continua excluindo o cliente normalmente',
+    filaSalva === null || filaSalva.clientes.every((c) => c.cnpj !== '55555555/0001-88'),
+    filaSalva && JSON.stringify(filaSalva)
+  );
+});
+
+promessa15.then(resumo);

@@ -25,13 +25,14 @@
  * quando você quiser seguir pro próximo da fila (Módulo 3 não navega
  * sozinho mais -- isso é sempre uma decisão sua).
  *
- * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos 1, 2,
- * 3 (Fila de Atendimento), 7 (Fila por Prioridade) e 5 (Alerta de Grupo).
- * Depende do Módulo 3 estar carregado antes (usa window.filaDebug.iniciarFila
- * / irParaProximo / irParaAnterior), do Módulo 7 (usa
- * window.filaPrioridadeDebug.iniciar pro Alt+U) e do Módulo 5 (usa
- * window.__alertaGrupo pra linha de grupo com vencido na mensagem e pro
- * Alt+G).
+ * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos 0
+ * (Utilitários Compartilhados), 1, 2, 3 (Fila de Atendimento), 7 (Fila por
+ * Prioridade) e 5 (Alerta de Grupo). Depende do Módulo 0 (window.__smartTableUtil
+ * -- esperar/escolherTituloRepresentativo/constantes SCPC), do Módulo 3
+ * estar carregado antes (usa window.filaDebug.iniciarFila / irParaProximo /
+ * irParaAnterior), do Módulo 7 (usa window.filaPrioridadeDebug.iniciar pro
+ * Alt+U) e do Módulo 5 (usa window.__alertaGrupo pra linha de grupo com
+ * vencido na mensagem e pro Alt+G).
  * * IMPORTANTE — dois atalhos ainda precisam de confirmação sua:
  *   "Gerar Relatório" e "Entrar na tela de contato" não têm uma função
  *   global exposta que eu conheça, então este módulo procura o botão certo
@@ -46,6 +47,16 @@
 
   if (window.__atalhosTecladoCarregados) return;
   window.__atalhosTecladoCarregados = true;
+
+  // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
+  // deste arquivo no @require do wrapper.
+  const {
+    esperar,
+    escolherTituloRepresentativo,
+    DIAS_AVISO_SUSPENSAO_SCPC_MIN,
+    DIAS_AVISO_SUSPENSAO_SCPC_MAX,
+    DIAS_ULTIMO_DIA_SUSPENSAO_SCPC,
+  } = window.__smartTableUtil;
 
   /* ---------------------------------------------------------------------
    * 1. CONFIGURAÇÃO
@@ -158,10 +169,6 @@
       return true;
     }
     return false;
-  }
-
-  function esperar(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // Espera (com polling) o botão aparecer em OUTRA janela same-origin já
@@ -416,60 +423,17 @@
     return encontrado;
   }
 
-  // Dias de atraso (do título mais atrasado, ver NOTA_DIAS_SUSPENSAO_SCPC
-  // abaixo) em que o SCPC passa a avisar sobre a suspensão de cadastro --
-  // CONFIRMADO com o usuário: 16 a 18 dias avisa que a suspensão vem a
-  // caminho; exatamente no 19º dia é o último dia antes da suspensão de
-  // verdade (cadastro vai pra um analista).
-  const DIAS_AVISO_SUSPENSAO_SCPC_MIN = 16;
-  const DIAS_AVISO_SUSPENSAO_SCPC_MAX = 18;
-  const DIAS_ULTIMO_DIA_SUSPENSAO_SCPC = 19;
-
   /* ---------------------------------------------------------------------
    * 3.0b MENSAGEM PERSONALIZADA (Alt+A) -- escolha do título e do texto
    * -----------------------------------------------------------------
    * Prioridade de qual título "representa" o cliente na mensagem: MESMA
-   * regra que o Módulo 2 já usa pra montar o resumo do CRM. Duplicada aqui
-   * de propósito -- Módulo 2 não pode ser editado sem confirmação -- pra
+   * regra que o Módulo 2 já usa pra montar o resumo do CRM -- centralizada
+   * no Módulo 0 (window.__smartTableUtil.escolherTituloRepresentativo).
+   * Módulo 2 continua com sua própria cópia local (não pode ser editado
+   * sem confirmação explícita do usuário), mas todos os outros consumidores
+   * dessa regra (este módulo e o Módulo 7) usam a versão compartilhada, pra
    * nota do CRM e mensagem do cliente sempre baterem sobre o mesmo título.
-   *
-   * BUG REAL (relatado pelo usuário): o critério antigo só dava prioridade
-   * a ULTIMO_DIA -- um título em NEGATIVADO_SCPC bem no 19º dia (aviso de
-   * suspensão de cadastro, ver DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) perdia pra
-   * QUALQUER outro título do mesmo cliente com mais dias de atraso (ex.:
-   * já em EM_CARTORIO há mais tempo), mesmo sendo o aviso mais urgente e
-   * específico daquele dia -- a mensagem inteira saía sem mencionar a
-   * suspensão. CONFIRMADO com o usuário: a janela de aviso SCPC (16 a 19
-   * dias) tem a MESMA prioridade que ULTIMO_DIA -- ela também é sobre um
-   * prazo específico que expira hoje ou está prestes a expirar, não sobre
-   * "só mais um título vencido".
-   *
-   * Ordem de prioridade (primeira faixa não-vazia decide):
-   *   1. ULTIMO_DIA (prazo final antes de cartório/SCPC)
-   *   2. NEGATIVADO_SCPC na janela de aviso de suspensão (16 a 19 dias)
-   *   3. Maior atraso real entre todos os títulos (situação normal, sem
-   *      nenhum prazo específico correndo)
    * --------------------------------------------------------------------- */
-  function maiorAtrasoEntre(lista) {
-    return lista.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
-  }
-
-  function escolherTituloRepresentativo(dados) {
-    if (!dados || !dados.registros || dados.registros.length === 0) return null;
-
-    const emUltimoDia = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA');
-    if (emUltimoDia.length > 0) return maiorAtrasoEntre(emUltimoDia);
-
-    const emAvisoSuspensaoScpc = dados.registros.filter(
-      (r) =>
-        r.situacaoKey === 'NEGATIVADO_SCPC' &&
-        r.diasAtrasoReal >= DIAS_AVISO_SUSPENSAO_SCPC_MIN &&
-        r.diasAtrasoReal <= DIAS_ULTIMO_DIA_SUSPENSAO_SCPC
-    );
-    if (emAvisoSuspensaoScpc.length > 0) return maiorAtrasoEntre(emAvisoSuspensaoScpc);
-
-    return maiorAtrasoEntre(dados.registros);
-  }
 
   // Datas de vencimento (formato curto, sem duplicatas) dos títulos numa
   // dada situação -- usado só quando o relatório está sendo OMITIDO (ver
@@ -1533,4 +1497,13 @@
     '%c[Atalhos] ' + LISTA_ATALHOS.map((a) => `${a.tecla}: ${a.descricao}`).join(' | '),
     'color:#16232F;font-weight:bold;'
   );
+
+  // Hook de depuração/teste (mesmo padrão do window.filaDebug no Módulo 3 e
+  // window.__contextoAdicionalDebug no Módulo 6) -- expõe a montagem da
+  // mensagem personalizada do Alt+A pra validação automatizada sem precisar
+  // simular o atalho de teclado inteiro.
+  window.__atalhosDebug = {
+    montarMensagemPersonalizada,
+    deveOmitirRelatorio,
+  };
 })();

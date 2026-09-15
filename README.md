@@ -34,9 +34,7 @@ publicamente seletores, endpoints e regras de negócio do CRM interno — decis�
 já tomada e confirmada.
 
 **Nota sobre a URL de atualização**: `@updateURL`/`@downloadURL`/`@require`
-apontam hoje para a branch `claude/new-session-37eexq` (ainda não há branch
-`main` neste repo). Se/quando este trabalho for mesclado numa branch estável,
-atualize essas URLs em `smart-table.user.js` para apontar pra ela.
+apontam para a branch `main`.
 
 ## Opção 2: Local Overrides do Chrome DevTools (forma original)
 
@@ -47,6 +45,11 @@ decisões, armadilhas e itens em aberto.
 
 ## Módulos (`modulos/`), colados nessa ordem no mesmo arquivo
 
+0. `modulo0-utilitarios-compartilhados.js` — funções e constantes usadas por
+   2+ módulos (normalização de data, toast, `escolherTituloRepresentativo`,
+   limiares de aviso SCPC etc.), extraídas depois de uma auditoria apontar
+   duplicação real. Precisa carregar ANTES de todos os outros. Módulo 1 e 2
+   (protegidos) mantêm suas próprias cópias locais, de propósito.
 1. `modulo1-aviso-cobranca.js` — classifica títulos vencidos, gera relatório
    em imagem, expõe `window.__avisoCobranca`. **Não editar sem confirmação
    explícita do usuário** (não foi escrito por Claude originalmente).
@@ -61,6 +64,28 @@ decisões, armadilhas e itens em aberto.
 6. `modulo6-contexto-adicional.js` — lê Promessas e Contatos ao carregar a
    página do cliente, expõe `window.__contextoAdicional` para o Alt+A
    (mensagem personalizada) consultar sem custo extra.
+7. `modulo7-fila-prioridade.js` — monta uma fila de atendimento ordenada por
+   uma régua de prioridade de negócio (Alt+U), visitando cada candidato em
+   aba de fundo pra classificar a situação real do título.
 
 Ver `contexto-v7.md` para fatos técnicos confirmados, armadilhas já
 encontradas e itens em aberto — não redescobrir do zero.
+
+## Testes (`tests/`)
+
+Testes de regressão em Node + jsdom que rodam contra o código REAL de
+`modulos/*.js` (nunca reimplementações à parte), usando os hooks de
+depuração que os próprios módulos já expõem (`window.filaDebug`,
+`window.__avisoCobranca`, `window.__contextoAdicionalDebug`,
+`window.filaPrioridadeDebug`, `window.__atalhosDebug`).
+
+```
+npm install
+npm test
+```
+
+Cada `tests/*.test.js` cobre um módulo (fila de atendimento, mensagens do
+Alt+A, fila por prioridade, snapshot de pagamento, resumo do "Registrar e
+Enviar"). Rode `npm test` antes de subir qualquer mudança em `modulos/` —
+esses testes já pegaram bugs reais nesta base de código (ex.: o bug crítico
+de `normalizarData` corrigido no Módulo 0).

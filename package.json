@@ -1,0 +1,11 @@
+{
+  "name": "smarttable",
+  "private": true,
+  "description": "Testes de regressão do userscript SmartTable (rodam contra o código real de modulos/*.js num DOM simulado com jsdom).",
+  "scripts": {
+    "test": "node tests/run-all.js"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0"
+  }
+}

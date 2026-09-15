@@ -27,6 +27,10 @@
   if (window.__alertaGrupoCarregado) return;
   window.__alertaGrupoCarregado = true;
 
+  // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
+  // deste arquivo no @require do wrapper.
+  const { montarUrlCliente } = window.__smartTableUtil;
+
   /* ---------------------------------------------------------------------
    * 1. CONFIGURAÇÃO
    * --------------------------------------------------------------------- */
@@ -76,10 +80,6 @@
   function extrairGrupoIdDaUrl() {
     const m = location.pathname.match(/\/crm\/clientes\/grupo\/(\d+)/);
     return m ? m[1] : null;
-  }
-
-  function montarUrlCliente(grupoId, cnpj) {
-    return `${location.origin}/crm/clientes/grupo/${grupoId}?cnpj=${encodeURIComponent(cnpj)}`;
   }
 
   function verificarOutrasEmpresasComVencido() {
