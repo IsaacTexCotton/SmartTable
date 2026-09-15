@@ -563,12 +563,15 @@
     const ctx = window.__contextoAdicional;
     if (!ctx || !ctx.contatoRecente) return '';
 
-    // CONFIRMADO com o usuário (bug real): se há uma promessa ativa, o
-    // contato mais recente NÃO ficou sem retorno -- pelo contrário, foi
-    // dele que a promessa saiu. "Ainda não obtivemos retorno" contradiz
-    // isso; a linha de promessa (obterLinhaPromessa) já cobre o contexto
-    // certo pra esse caso, então essa aqui não deve aparecer junto.
-    if (ctx.promessa) return '';
+    // CONFIRMADO com o usuário (bug real, 2 rodadas): "ainda não obtivemos
+    // retorno" fica errado sempre que o último contato resultou numa
+    // promessa -- independente do status ATUAL dela. ctx.promessa só cobre
+    // promessa ainda ativa (pendente/quebrada/parcial); se a promessa do
+    // último contato já foi paga/resolvida, ctx.promessa vem null mas o
+    // cliente CONTINUA tendo retornado naquele contato -- daí
+    // houvePromessaNoUltimoContato (Módulo 6), que checa qualquer promessa
+    // datada pro mesmo dia do último contato, sem olhar status.
+    if (ctx.promessa || ctx.houvePromessaNoUltimoContato) return '';
 
     // CONFIRMADO com o usuário: antes só existia esta linha quando o
     // contato anterior foi EXATAMENTE o dia útil anterior -- um recontato

@@ -51,7 +51,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.38';
+  const VERSAO_SMARTTABLE = '1.0.39';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -381,12 +381,25 @@
     return maisRecente.data.getTime() < dataCorte.getTime();
   }
 
+  // CONFIRMADO com o usuário (bug real): se existe uma promessa datada
+  // pro mesmo dia do último contato -- INDEPENDENTE do status atual dela
+  // (mesmo já paga/resolvida, então fora de calcularContextoPromessa) --
+  // é porque o cliente retornou naquele contato. "Retomando o contato de
+  // ontem, já que ainda não obtivemos retorno" fica errado nesse caso.
+  function houvePromessaNaDataDoUltimoContato(contatoRecente) {
+    if (!contatoRecente || !contatoRecente.data) return false;
+    const promessas = lerPromessas();
+    return promessas.some((p) => mesmaData(p.dataPrometida, contatoRecente.data));
+  }
+
   function calcularContexto() {
     const hoje = normalizarData(new Date());
     const totalContatos = document.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_CONTATO).length;
+    const contatoRecente = calcularContextoContato(hoje);
     return {
       promessa: calcularContextoPromessa(hoje),
-      contatoRecente: calcularContextoContato(hoje),
+      contatoRecente,
+      houvePromessaNoUltimoContato: houvePromessaNaDataDoUltimoContato(contatoRecente),
       semContatoAnterior: totalContatos === 0,
       contatoAntigo: calcularContatoAntigo(totalContatos),
       calcularTitulosPendentes,
@@ -402,7 +415,7 @@
       console.log('[Contexto Adicional] Calculado:', window.__contextoAdicional);
     } catch (erro) {
       console.warn('[Contexto Adicional] Falha ao calcular -- Alt+A segue funcionando sem essas linhas extras:', erro.message);
-      window.__contextoAdicional = { promessa: null, contatoRecente: null, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
+      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
     }
   }
 
@@ -430,7 +443,7 @@
         console.warn(
           '[Contexto Adicional] Containers de Promessas/Contatos não encontrados nesta página -- normal fora da tela de cliente.'
         );
-        window.__contextoAdicional = { promessa: null, contatoRecente: null, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
+        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
       }
     }, 5000);
   }
