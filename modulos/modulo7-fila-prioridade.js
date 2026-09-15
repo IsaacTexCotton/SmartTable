@@ -394,7 +394,19 @@
 
     const resultados = [];
     let excluidosPorPromessa = 0;
-    let comErro = 0;
+    let comPopupBloqueado = 0;
+    let comOutroErro = 0;
+    let popupsBloqueadosSeguidos = 0;
+
+    // BUG REAL (relatado pelo usuário, primeiro teste ao vivo): a partir da
+    // SEGUNDA aba, window.open() já não está mais dentro do gesto original
+    // do Alt+U (cada chamada seguinte vem depois de um await) -- o Chrome
+    // bloqueia todas elas como pop-up, e o laço varria os 30-60 candidatos
+    // inteiros só pra descobrir isso no final, um por um, sem avisar nada
+    // no meio do caminho. Com esse disjuntor, 3 bloqueios seguidos já para
+    // tudo e avisa na hora -- é inútil continuar tentando abrir aba se o
+    // navegador está bloqueando de forma consistente.
+    const LIMITE_POPUPS_BLOQUEADOS_SEGUIDOS = 3;
 
     for (let i = 0; i < sobreviventes.length; i++) {
       const cliente = sobreviventes[i];
@@ -403,10 +415,30 @@
       const resultado = await classificarCliente(cliente);
       if (resultado.excluidoPorPromessaFutura) {
         excluidosPorPromessa++;
+        popupsBloqueadosSeguidos = 0;
+      } else if (resultado.erro === 'popup-bloqueado') {
+        comPopupBloqueado++;
+        popupsBloqueadosSeguidos++;
+        if (popupsBloqueadosSeguidos >= LIMITE_POPUPS_BLOQUEADOS_SEGUIDOS) {
+          removerIndicadorProgresso();
+          classificandoEmAndamento = false;
+          console.warn(
+            `[Fila Prioridade] Parando cedo: ${popupsBloqueadosSeguidos} pop-ups bloqueados seguidos ` +
+            `(${i + 1}/${sobreviventes.length} candidatos verificados).`
+          );
+          toast(
+            '⚠️ O navegador está bloqueando as abas de fundo. Permita pop-ups para texhub.texcotton.com.br ' +
+            '(ícone na barra de endereço, ou chrome://settings/content/popups) e tente Alt+U de novo.',
+            9000
+          );
+          return;
+        }
       } else if (resultado.erro) {
-        comErro++;
+        comOutroErro++;
+        popupsBloqueadosSeguidos = 0;
       } else {
         resultados.push(resultado);
+        popupsBloqueadosSeguidos = 0;
       }
     }
 
@@ -449,14 +481,20 @@
       );
     }
     if (excluidosPorPromessa) resumoPartes.push(`${excluidosPorPromessa} excluído(s) por promessa futura`);
-    if (comErro) resumoPartes.push(`${comErro} com erro/timeout`);
-    toast(resumoPartes.join(' -- '), 5000);
+    if (comPopupBloqueado) resumoPartes.push(`${comPopupBloqueado} pulado(s) por pop-up bloqueado`);
+    if (comOutroErro) resumoPartes.push(`${comOutroErro} com erro/timeout`);
+    const duracaoResumoMs = 6000;
+    toast(resumoPartes.join(' -- '), duracaoResumoMs);
 
     console.log('[Fila Prioridade] Fila montada:', clientesDaFila);
 
+    // CORRIGIDO (bug real: o resumo acima mal dava tempo de aparecer antes
+    // da navegação apagar a página) -- espera o toast terminar de verdade
+    // antes de navegar, em vez dos 400ms que bastavam só pro "fila
+    // iniciada" simples do Alt+I (sem nada crítico pra ler ali).
     setTimeout(() => {
       window.location.href = clientesDaFila[0].url;
-    }, 400);
+    }, duracaoResumoMs);
   }
 
   /* ---------------------------------------------------------------------
