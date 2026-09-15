@@ -768,6 +768,7 @@
   // instante em que ela é criada (postMessage não fica esperando, se
   // perde se ninguém estiver ouvindo ainda).
   function enviarFilaParaAbaWhatsApp(aba, paragrafos) {
+    console.log('[Atalhos] [DEBUG] enviarFilaParaAbaWhatsApp chamada -- aba.closed logo de cara =', aba.closed);
     const payload = { tipo: 'smarttable-fila-whatsapp', paragrafos };
     const MAX_TENTATIVAS = 25; // ~10s com intervalo de 400ms -- cobre o carregamento do WhatsApp Web
     let tentativas = 0;
@@ -790,6 +791,7 @@
     const intervalo = setInterval(() => {
       tentativas++;
       if (recebeuAck || aba.closed) {
+        console.log('[Atalhos] [DEBUG] Parando na tentativa ' + tentativas + ' -- recebeuAck =', recebeuAck, '| aba.closed =', aba.closed);
         pararTudo();
         return;
       }

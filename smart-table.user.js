@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Automação de Cobrança TexCotton
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      1.0.29
+// @version      1.0.30
 // @description  Automação do fluxo de cobrança no CRM TexCotton: classificação de títulos vencidos, relatório, registrar e enviar, fila de atendimento, atalhos de teclado, alerta de grupo econômico, contexto adicional (promessas/contatos) e envio de mensagem por parágrafo no WhatsApp Web.
 // @author       Isaac
 // @match        https://texhub.texcotton.com.br/crm/*
