@@ -54,11 +54,26 @@
         const registros = dados.registros || [];
         if (registros.length === 0) return 'Enviado cobrança.';
 
-        // Prioridade: titulo no ultimo dia de prazo (6o dia, fluxo cartorio)
-        // vence a escolha do titulo mais vencido, mesmo que exista outro
-        // com mais dias de atraso.
+        // CORRIGIDO (bug real, relatado pelo usuário): o criterio antigo so
+        // priorizava ULTIMO_DIA -- um titulo em NEGATIVADO_SCPC bem no 19o
+        // dia (aviso de suspensao de cadastro) perdia pra qualquer outro
+        // titulo do mesmo cliente com mais dias de atraso (ex.: ja em
+        // EM_CARTORIO ha mais tempo), fazendo a nota do CRM (e a mensagem
+        // do Modulo 4, que espelha esta logica de proposito) citar o
+        // titulo errado -- sem nenhuma mencao ao aviso mais urgente do dia.
+        // A janela de aviso SCPC (16 a 19 dias -- mesmos limiares do
+        // Modulo 4, MANTER SINCRONIZADO se um dia mudarem) agora tem a
+        // MESMA prioridade que ULTIMO_DIA.
         const emUltimoDia = registros.filter(r => r.situacaoKey === 'ULTIMO_DIA');
-        const escolhido = emUltimoDia.length > 0 ? maiorAtraso(emUltimoDia) : maiorAtraso(registros);
+        let escolhido;
+        if (emUltimoDia.length > 0) {
+            escolhido = maiorAtraso(emUltimoDia);
+        } else {
+            const emAvisoSuspensaoScpc = registros.filter(
+                r => r.situacaoKey === 'NEGATIVADO_SCPC' && r.diasAtrasoReal >= 16 && r.diasAtrasoReal <= 19
+            );
+            escolhido = emAvisoSuspensaoScpc.length > 0 ? maiorAtraso(emAvisoSuspensaoScpc) : maiorAtraso(registros);
+        }
 
         return 'Enviado cobrança ' + escolhido.diasAtrasoReal + 'º dia.';
     }

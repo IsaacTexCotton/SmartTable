@@ -416,25 +416,6 @@
     return encontrado;
   }
 
-  /* ---------------------------------------------------------------------
-   * 3.0b MENSAGEM PERSONALIZADA (Alt+A) -- escolha do título e do texto
-   * -----------------------------------------------------------------
-   * Prioridade de qual título "representa" o cliente na mensagem: MESMA
-   * regra que o Módulo 2 já usa pra montar o resumo do CRM (maiorAtraso
-   * entre os títulos em ULTIMO_DIA; se não tiver nenhum, o de maior atraso
-   * real, seja qual for a situação). Duplicada aqui de propósito -- Módulo
-   * 2 não pode ser editado sem confirmação -- pra nota do CRM e mensagem
-   * do cliente sempre baterem sobre o mesmo título. Confirmado com o
-   * usuário: ULTIMO_DIA sempre vence, mesmo com outro título já em
-   * cartório/negativado.
-   * --------------------------------------------------------------------- */
-  function escolherTituloRepresentativo(dados) {
-    if (!dados || !dados.registros || dados.registros.length === 0) return null;
-    const emUltimoDia = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA');
-    const candidatos = emUltimoDia.length > 0 ? emUltimoDia : dados.registros;
-    return candidatos.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
-  }
-
   // Dias de atraso (do título mais atrasado, ver NOTA_DIAS_SUSPENSAO_SCPC
   // abaixo) em que o SCPC passa a avisar sobre a suspensão de cadastro --
   // CONFIRMADO com o usuário: 16 a 18 dias avisa que a suspensão vem a
@@ -443,6 +424,52 @@
   const DIAS_AVISO_SUSPENSAO_SCPC_MIN = 16;
   const DIAS_AVISO_SUSPENSAO_SCPC_MAX = 18;
   const DIAS_ULTIMO_DIA_SUSPENSAO_SCPC = 19;
+
+  /* ---------------------------------------------------------------------
+   * 3.0b MENSAGEM PERSONALIZADA (Alt+A) -- escolha do título e do texto
+   * -----------------------------------------------------------------
+   * Prioridade de qual título "representa" o cliente na mensagem: MESMA
+   * regra que o Módulo 2 já usa pra montar o resumo do CRM. Duplicada aqui
+   * de propósito -- Módulo 2 não pode ser editado sem confirmação -- pra
+   * nota do CRM e mensagem do cliente sempre baterem sobre o mesmo título.
+   *
+   * BUG REAL (relatado pelo usuário): o critério antigo só dava prioridade
+   * a ULTIMO_DIA -- um título em NEGATIVADO_SCPC bem no 19º dia (aviso de
+   * suspensão de cadastro, ver DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) perdia pra
+   * QUALQUER outro título do mesmo cliente com mais dias de atraso (ex.:
+   * já em EM_CARTORIO há mais tempo), mesmo sendo o aviso mais urgente e
+   * específico daquele dia -- a mensagem inteira saía sem mencionar a
+   * suspensão. CONFIRMADO com o usuário: a janela de aviso SCPC (16 a 19
+   * dias) tem a MESMA prioridade que ULTIMO_DIA -- ela também é sobre um
+   * prazo específico que expira hoje ou está prestes a expirar, não sobre
+   * "só mais um título vencido".
+   *
+   * Ordem de prioridade (primeira faixa não-vazia decide):
+   *   1. ULTIMO_DIA (prazo final antes de cartório/SCPC)
+   *   2. NEGATIVADO_SCPC na janela de aviso de suspensão (16 a 19 dias)
+   *   3. Maior atraso real entre todos os títulos (situação normal, sem
+   *      nenhum prazo específico correndo)
+   * --------------------------------------------------------------------- */
+  function maiorAtrasoEntre(lista) {
+    return lista.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
+  }
+
+  function escolherTituloRepresentativo(dados) {
+    if (!dados || !dados.registros || dados.registros.length === 0) return null;
+
+    const emUltimoDia = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA');
+    if (emUltimoDia.length > 0) return maiorAtrasoEntre(emUltimoDia);
+
+    const emAvisoSuspensaoScpc = dados.registros.filter(
+      (r) =>
+        r.situacaoKey === 'NEGATIVADO_SCPC' &&
+        r.diasAtrasoReal >= DIAS_AVISO_SUSPENSAO_SCPC_MIN &&
+        r.diasAtrasoReal <= DIAS_ULTIMO_DIA_SUSPENSAO_SCPC
+    );
+    if (emAvisoSuspensaoScpc.length > 0) return maiorAtrasoEntre(emAvisoSuspensaoScpc);
+
+    return maiorAtrasoEntre(dados.registros);
+  }
 
   // Datas de vencimento (formato curto, sem duplicatas) dos títulos numa
   // dada situação -- usado só quando o relatório está sendo OMITIDO (ver

@@ -80,6 +80,11 @@
     // final antes da suspensão de cadastro SCPC -- MANTER SINCRONIZADO
     // manualmente com DIAS_ULTIMO_DIA_SUSPENSAO_SCPC lá, se um dia mudar.
     DIA_ULTIMO_DIA_SUSPENSAO_SCPC: 19,
+    // Janela inteira de aviso de suspensão SCPC (mesma janela que o
+    // Módulo 4 usa pra decidir qual título "representa" o cliente --
+    // ver escolherTituloRepresentativo abaixo). MANTER SINCRONIZADO
+    // manualmente com DIAS_AVISO_SUSPENSAO_SCPC_MIN lá.
+    DIA_INICIO_AVISO_SUSPENSAO_SCPC: 16,
     // Tempo esperando cada aba de fundo ficar pronta pra ler (Módulo 1 +
     // Módulo 6 carregados) -- mesma ordem de grandeza do Alt+A.
     TIMEOUT_CLASSIFICACAO_MS: 8000,
@@ -309,11 +314,34 @@
   // propósito aqui pelo mesmo motivo que o Módulo 4 duplica do Módulo 2:
   // módulos diferentes, mesma decisão de "qual título representa o
   // cliente" -- ULTIMO_DIA sempre vence, senão o de maior atraso real.
+  // BUG REAL (relatado pelo usuário): o critério antigo só priorizava
+  // ULTIMO_DIA -- um título em NEGATIVADO_SCPC no 19º dia (aviso de
+  // suspensão de cadastro) perdia pra qualquer outro título do mesmo
+  // cliente com mais dias de atraso (ex.: já em EM_CARTORIO há mais
+  // tempo), fazendo esse cliente cair na prioridade 6 (genérica) em vez da
+  // 5 (aviso de suspensão), mesmo tendo um título bem na janela crítica.
+  // Mesma correção aplicada no Módulo 4 -- a janela de aviso SCPC (16 a 19
+  // dias) tem a MESMA prioridade que ULTIMO_DIA na escolha do "título
+  // representante".
+  function maiorAtrasoEntre(lista) {
+    return lista.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
+  }
+
   function escolherTituloRepresentativo(dados) {
     if (!dados || !dados.registros || dados.registros.length === 0) return null;
+
     const emUltimoDia = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA');
-    const candidatos = emUltimoDia.length > 0 ? emUltimoDia : dados.registros;
-    return candidatos.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
+    if (emUltimoDia.length > 0) return maiorAtrasoEntre(emUltimoDia);
+
+    const emAvisoSuspensaoScpc = dados.registros.filter(
+      (r) =>
+        r.situacaoKey === 'NEGATIVADO_SCPC' &&
+        r.diasAtrasoReal >= CONFIG.DIA_INICIO_AVISO_SUSPENSAO_SCPC &&
+        r.diasAtrasoReal <= CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC
+    );
+    if (emAvisoSuspensaoScpc.length > 0) return maiorAtrasoEntre(emAvisoSuspensaoScpc);
+
+    return maiorAtrasoEntre(dados.registros);
   }
 
   // Espera a aba de fundo carregar os módulos necessários pra classificar
