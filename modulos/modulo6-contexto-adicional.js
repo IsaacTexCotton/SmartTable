@@ -51,7 +51,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.43';
+  const VERSAO_SMARTTABLE = '1.0.44';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -422,27 +422,32 @@
   // sobrescrever com o retrato atual -- sempre roda as duas coisas juntas,
   // nessa ordem. Aproveita a gravação pra descartar entradas antigas de
   // outros clientes.
+  // Retorna { houve, titulos } -- titulos é a lista dos tituloCompleto que
+  // sumiram desde o retrato anterior (provavelmente pagos), pra dar pra
+  // agradecer o pagamento pelo número certo em vez de só um boolean genérico
+  // (ver obterLinhaAgradecimentoPagamento no Módulo 4).
   function verificarESalvarSnapshotTitulos() {
     const cnpj = obterCnpjDaPagina();
-    if (!cnpj) return false;
-    if (!window.__avisoCobranca || typeof window.__avisoCobranca.simular !== 'function') return false;
+    if (!cnpj) return { houve: false, titulos: [] };
+    if (!window.__avisoCobranca || typeof window.__avisoCobranca.simular !== 'function') {
+      return { houve: false, titulos: [] };
+    }
 
     let dados;
     try {
       dados = window.__avisoCobranca.simular();
     } catch (erro) {
-      return false; // tabela de títulos ainda não carregou nesta visita -- sem dado pra comparar
+      return { houve: false, titulos: [] }; // tabela de títulos ainda não carregou nesta visita -- sem dado pra comparar
     }
 
     const titulosAtuais = dados.registros.map((r) => r.tituloCompleto);
     const snapshots = lerSnapshotsTitulos();
     const anterior = snapshots[cnpj];
 
-    const houveTituloSumido = !!(
-      anterior &&
-      Array.isArray(anterior.titulos) &&
-      anterior.titulos.some((t) => titulosAtuais.indexOf(t) === -1)
-    );
+    const titulosSumidos =
+      anterior && Array.isArray(anterior.titulos)
+        ? anterior.titulos.filter((t) => titulosAtuais.indexOf(t) === -1)
+        : [];
 
     const agora = Date.now();
     const limiteMs = DIAS_EXPIRACAO_SNAPSHOT_TITULOS * 24 * 60 * 60 * 1000;
@@ -456,7 +461,7 @@
     snapshotsLimpos[cnpj] = { titulos: titulosAtuais, salvoEm: agora };
     salvarSnapshotsTitulos(snapshotsLimpos);
 
-    return houveTituloSumido;
+    return { houve: titulosSumidos.length > 0, titulos: titulosSumidos };
   }
 
   // true quando há pelo menos um contato registrado, mas o mais recente
@@ -487,11 +492,13 @@
     const hoje = normalizarData(new Date());
     const totalContatos = document.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_CONTATO).length;
     const contatoRecente = calcularContextoContato(hoje);
+    const infoPagamento = verificarESalvarSnapshotTitulos();
     return {
       promessa: calcularContextoPromessa(hoje),
       contatoRecente,
       houvePromessaNoUltimoContato: houvePromessaNaDataDoUltimoContato(contatoRecente),
-      houveTituloPagoDesdeUltimaVisita: verificarESalvarSnapshotTitulos(),
+      houveTituloPagoDesdeUltimaVisita: infoPagamento.houve,
+      titulosPagosDesdeUltimaVisita: infoPagamento.titulos,
       semContatoAnterior: totalContatos === 0,
       contatoAntigo: calcularContatoAntigo(totalContatos),
       calcularTitulosPendentes,
@@ -507,7 +514,7 @@
       console.log('[Contexto Adicional] Calculado:', window.__contextoAdicional);
     } catch (erro) {
       console.warn('[Contexto Adicional] Falha ao calcular -- Alt+A segue funcionando sem essas linhas extras:', erro.message);
-      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
+      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
     }
   }
 
@@ -535,7 +542,7 @@
         console.warn(
           '[Contexto Adicional] Containers de Promessas/Contatos não encontrados nesta página -- normal fora da tela de cliente.'
         );
-        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
+        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
       }
     }, 5000);
   }

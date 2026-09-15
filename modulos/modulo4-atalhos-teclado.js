@@ -577,7 +577,12 @@
     // cliente CONTINUA tendo retornado naquele contato -- daí
     // houvePromessaNoUltimoContato (Módulo 6), que checa qualquer promessa
     // datada pro mesmo dia do último contato, sem olhar status.
-    if (ctx.promessa || ctx.houvePromessaNoUltimoContato) return '';
+    // CORRIGIDO (mesma lógica, achado ao implementar o agradecimento de
+    // pagamento): um título que sumiu desde a última visita (pago sem
+    // nenhuma promessa associada) também É retorno do cliente -- dizer
+    // "ainda não obtivemos retorno" bem ao lado de um agradecimento de
+    // pagamento seria contraditório na mesma mensagem.
+    if (ctx.promessa || ctx.houvePromessaNoUltimoContato || ctx.houveTituloPagoDesdeUltimaVisita) return '';
 
     // REVERTIDO (confirmado com o usuário): a variação de 3 níveis puxava
     // datas velhas demais, sem relação com a cobrança atual -- volta a
@@ -589,6 +594,30 @@
     const { ehOntemLiteral, diaSemanaTexto } = ctx.contatoRecente;
     const referencia = ehOntemLiteral ? 'ontem' : diaSemanaTexto;
     return `Retomando o contato de ${referencia}, já que ainda não obtivemos retorno.`;
+  }
+
+  // NOVO (achado da revisão contra a skill cobrança-digna: reconhecer o
+  // pagamento antes de cobrar o resto gera mais cooperação -- princípio de
+  // reciprocidade -- do que só mandar a lista atualizada sem comentário).
+  // Só agradece dentro da MESMA janela que o resto do recontato já usa --
+  // contato mais recente exatamente no dia útil anterior (ctx.contatoRecente
+  // só vem preenchido nesse caso, ver Módulo 6) -- pra não abrir uma janela
+  // de tempo nova e inconsistente com o resto da régua.
+  // Fica de fora quando há promessa ativa (ctx.promessa) porque a própria
+  // linha de promessa (QUEBRADA/PARCIAL/DIA_DA_PROMESSA) já comenta o
+  // pagamento daquele título -- agradecer de novo aqui duplicaria o assunto
+  // e deixaria a mensagem maior do que precisa.
+  function obterLinhaAgradecimentoPagamento() {
+    const ctx = window.__contextoAdicional;
+    if (!ctx || !ctx.contatoRecente || !ctx.houveTituloPagoDesdeUltimaVisita) return '';
+    if (ctx.promessa) return '';
+
+    const titulos = ctx.titulosPagosDesdeUltimaVisita || [];
+    if (titulos.length === 0) return 'Recebemos a baixa de um dos títulos em aberto, obrigado!';
+    const titulosTexto = titulos.join(', ');
+    return titulos.length > 1
+      ? `Recebemos a baixa dos títulos ${titulosTexto}, obrigado!`
+      : `Recebemos a baixa do título ${titulosTexto}, obrigado!`;
   }
 
   function converterDataBrParaDate(texto) {
@@ -717,9 +746,10 @@
     }
 
     const linhaApresentacao = obterLinhaApresentacaoContatoAntigo();
+    const linhaAgradecimentoPagamento = obterLinhaAgradecimentoPagamento();
     const linhaContatoRecente = obterLinhaContatoRecente();
     const linhaPromessa = obterLinhaPromessa();
-    const blocoContexto = [linhaApresentacao, linhaContatoRecente, linhaPromessa]
+    const blocoContexto = [linhaApresentacao, linhaAgradecimentoPagamento, linhaContatoRecente, linhaPromessa]
       .filter((l) => l)
       .join('\n');
 
