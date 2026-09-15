@@ -51,7 +51,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.39';
+  const VERSAO_SMARTTABLE = '1.0.40';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -368,6 +368,104 @@
     }
   }
 
+  /* ---------------------------------------------------------------------
+   * 4b. DETECÇÃO DE PAGAMENTO SEM PROMESSA (retrato de títulos vencidos)
+   * -----------------------------------------------------------------
+   * CONFIRMADO com o usuário: se um título sumiu da lista de vencidos
+   * desde a última vez que esta página foi aberta (bem provavelmente
+   * porque foi pago), o relatório deve continuar sendo enviado no
+   * recontato -- deveOmitirRelatorio (Módulo 4) só detectava título
+   * NOVO, não título que sumiu.
+   *
+   * Não há como ler a coluna "Dt. pagamento" direto do CRM sem trocar o
+   * filtro visível da tabela de títulos pra "Pagos" (investigado com o
+   * usuário: a tabela é RECONSTRUÍDA por filtro, não é só esconder
+   * linhas -- mexer nisso trocaria o que está na tela do operador).
+   * Alternativa combinada com o usuário: guardamos no localStorage, por
+   * CNPJ, quais títulos estavam vencidos na última vez que a página foi
+   * aberta, e comparamos com a visita atual.
+   *
+   * RISCO ACEITO (avisado ao usuário): só funciona neste navegador/
+   * computador -- não sincroniza entre máquinas -- e é uma inferência (o
+   * título pode ter sumido por outro motivo, não só pagamento -- ex.:
+   * renegociação, baixa manual). Mas nunca gera informação financeira
+   * ERRADA: isso só decide SE o relatório é reenviado -- o conteúdo do
+   * relatório em si sempre é montado com os dados ao vivo da página no
+   * momento do envio, nunca a partir do retrato salvo.
+   * --------------------------------------------------------------------- */
+  const CHAVE_SNAPSHOT_TITULOS = 'smarttable_snapshot_titulos_v1';
+  // Entradas de clientes não revisitados há mais que isso são descartadas
+  // a cada gravação -- sem isso, o objeto no localStorage só cresce.
+  const DIAS_EXPIRACAO_SNAPSHOT_TITULOS = 30;
+
+  function obterCnpjDaPagina() {
+    try {
+      return new URLSearchParams(location.search).get('cnpj');
+    } catch (erro) {
+      return null;
+    }
+  }
+
+  function lerSnapshotsTitulos() {
+    try {
+      const raw = localStorage.getItem(CHAVE_SNAPSHOT_TITULOS);
+      const dados = raw ? JSON.parse(raw) : {};
+      return dados && typeof dados === 'object' ? dados : {};
+    } catch (erro) {
+      console.warn('[Contexto Adicional] Não consegui ler o retrato de títulos do localStorage -- tratando como vazio.', erro);
+      return {};
+    }
+  }
+
+  function salvarSnapshotsTitulos(snapshots) {
+    try {
+      localStorage.setItem(CHAVE_SNAPSHOT_TITULOS, JSON.stringify(snapshots));
+    } catch (erro) {
+      console.warn('[Contexto Adicional] Não consegui salvar o retrato de títulos no localStorage.', erro);
+    }
+  }
+
+  // Compara com o retrato salvo da visita anterior (se houver) ANTES de
+  // sobrescrever com o retrato atual -- sempre roda as duas coisas juntas,
+  // nessa ordem. Aproveita a gravação pra descartar entradas antigas de
+  // outros clientes.
+  function verificarESalvarSnapshotTitulos() {
+    const cnpj = obterCnpjDaPagina();
+    if (!cnpj) return false;
+    if (!window.__avisoCobranca || typeof window.__avisoCobranca.simular !== 'function') return false;
+
+    let dados;
+    try {
+      dados = window.__avisoCobranca.simular();
+    } catch (erro) {
+      return false; // tabela de títulos ainda não carregou nesta visita -- sem dado pra comparar
+    }
+
+    const titulosAtuais = dados.registros.map((r) => r.tituloCompleto);
+    const snapshots = lerSnapshotsTitulos();
+    const anterior = snapshots[cnpj];
+
+    const houveTituloSumido = !!(
+      anterior &&
+      Array.isArray(anterior.titulos) &&
+      anterior.titulos.some((t) => titulosAtuais.indexOf(t) === -1)
+    );
+
+    const agora = Date.now();
+    const limiteMs = DIAS_EXPIRACAO_SNAPSHOT_TITULOS * 24 * 60 * 60 * 1000;
+    const snapshotsLimpos = {};
+    Object.keys(snapshots).forEach((chaveCnpj) => {
+      const entrada = snapshots[chaveCnpj];
+      if (entrada && typeof entrada.salvoEm === 'number' && (agora - entrada.salvoEm) < limiteMs) {
+        snapshotsLimpos[chaveCnpj] = entrada;
+      }
+    });
+    snapshotsLimpos[cnpj] = { titulos: titulosAtuais, salvoEm: agora };
+    salvarSnapshotsTitulos(snapshotsLimpos);
+
+    return houveTituloSumido;
+  }
+
   // true quando há pelo menos um contato registrado, mas o mais recente
   // deles é anterior à data de corte -- checar só o mais recente já cobre
   // "todos são anteriores", já que por definição nenhum outro pode ser
@@ -400,6 +498,7 @@
       promessa: calcularContextoPromessa(hoje),
       contatoRecente,
       houvePromessaNoUltimoContato: houvePromessaNaDataDoUltimoContato(contatoRecente),
+      houveTituloPagoDesdeUltimaVisita: verificarESalvarSnapshotTitulos(),
       semContatoAnterior: totalContatos === 0,
       contatoAntigo: calcularContatoAntigo(totalContatos),
       calcularTitulosPendentes,
@@ -415,7 +514,7 @@
       console.log('[Contexto Adicional] Calculado:', window.__contextoAdicional);
     } catch (erro) {
       console.warn('[Contexto Adicional] Falha ao calcular -- Alt+A segue funcionando sem essas linhas extras:', erro.message);
-      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
+      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
     }
   }
 
@@ -443,7 +542,7 @@
         console.warn(
           '[Contexto Adicional] Containers de Promessas/Contatos não encontrados nesta página -- normal fora da tela de cliente.'
         );
-        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
+        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
       }
     }, 5000);
   }

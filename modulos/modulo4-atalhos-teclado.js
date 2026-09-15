@@ -610,6 +610,15 @@
   function deveOmitirRelatorio(dados) {
     const ctx = window.__contextoAdicional;
     if (!ctx || !ctx.contatoRecente || !ctx.contatoRecente.data) return false;
+
+    // CONFIRMADO com o usuário: título que SUMIU da lista desde a última
+    // visita (bem provavelmente pago) também é informação nova -- não só
+    // título que apareceu. houveTituloPagoDesdeUltimaVisita vem do Módulo
+    // 6 (retrato salvo no localStorage, por CNPJ -- não há como ler a
+    // data de pagamento direto do CRM sem trocar o filtro visível da
+    // tabela).
+    if (ctx.houveTituloPagoDesdeUltimaVisita) return false;
+
     const dataUltimoContato = ctx.contatoRecente.data;
     // CORREÇÃO (bug real, confirmado pelo usuário): comparação era ">" --
     // um título só entra em "registros" a partir de 1 dia de atraso (ver
