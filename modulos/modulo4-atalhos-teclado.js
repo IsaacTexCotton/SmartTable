@@ -800,8 +800,11 @@
       }
       try {
         aba.postMessage(payload, ORIGEM_WHATSAPP_WEB);
+        if (tentativas <= 3 || tentativas % 5 === 0) {
+          console.log('[Atalhos] [DEBUG] postMessage enviado (tentativa ' + tentativas + '), aba.closed =', aba.closed);
+        }
       } catch (erro) {
-        // aba pode ainda estar em about:blank/redirecionando -- tenta de novo no próximo tick
+        console.warn('[Atalhos] [DEBUG] postMessage falhou na tentativa ' + tentativas + ':', erro);
       }
     }, 400);
   }

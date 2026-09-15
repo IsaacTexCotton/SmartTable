@@ -93,6 +93,13 @@
     }
 
     window.addEventListener('message', (event) => {
+        // DEBUG temporário: mostra QUALQUER mensagem recebida antes de
+        // filtrar por origem/tipo, pra diagnosticar por que a fila não
+        // está chegando -- WhatsApp Web também troca postMessage entre
+        // seus próprios iframes/workers, então é esperado ver várias
+        // linhas que não são nossas (origin diferente da do CRM).
+        console.log('[WhatsApp Multi] [DEBUG] message recebida -- origin:', event.origin, '| data:', event.data);
+
         if (event.origin !== ORIGEM_CRM) return;
         if (!event.data || event.data.tipo !== 'smarttable-fila-whatsapp') return;
 
