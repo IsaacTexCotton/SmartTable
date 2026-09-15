@@ -69,9 +69,6 @@
     TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS: 8000,
     INTERVALO_POLL_OUTRA_RAZAO_MS: 200,
     ATRASO_FECHAR_ABA_OUTRA_RAZAO_MS: 2000,
-    // Alt+S: por quanto tempo fica de prontidão esperando o WhatsApp abrir,
-    // pra garantir o texto certo no link (ver instalarCorrecaoTextoWhatsApp).
-    TIMEOUT_CORRECAO_WHATSAPP_MS: 3000,
     // Trechos de texto (minúsculo) usados pra achar os botões que ainda
     // não têm uma função global conhecida. AJUSTAR SE NÃO FUNCIONAR.
     TEXTO_BOTAO_RELATORIO: 'relatório',
@@ -690,93 +687,29 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 3.0d GARANTIR TEXTO CORRETO NO WHATSAPP (Alt+S)
+   * 3.0d COPIAR A MENSAGEM PRA ÁREA DE TRANSFERÊNCIA (Alt+S)
    * -----------------------------------------------------------------
-   * DIAGNÓSTICO REAL (código de abrirWhatsAppCliente() confirmado pelo
-   * usuário via console): a função do CRM já monta a URL certa, com a
-   * mensagem certa -- 'https://wa.me/' + telefone + '?text=' +
-   * encodeURIComponent(mensagem) -- e chama window.open(url, '_blank',
-   * 'noopener,noreferrer'). O texto nunca esteve errado na URL; o
-   * problema é wa.me acionando o APLICATIVO DESKTOP do WhatsApp quando
-   * instalado, que perde o texto nesse handoff (confirmado pelo usuário).
-   * Forçar web.whatsapp.com (em vez de wa.me/api.whatsapp.com) resolve
-   * isso.
-   *
-   * TENTATIVA DESCARTADA (uma mensagem por parágrafo, cada uma numa aba
-   * separada nossa): testada ao vivo com o usuário e abandonada -- o
-   * WhatsApp Web só permite UMA sessão ativa por vez no navegador, e o
-   * usuário mantém uma aba do WhatsApp Web aberta o dia inteiro. Uma aba
-   * nossa nunca fica aberta tempo suficiente pro operador interagir,
-   * mesmo sem nenhuma outra aba/app conflitando no momento do teste --
-   * não é algo controlável só com JavaScript de fora. Ver histórico do
-   * commit pra detalhes de tudo que foi testado e descartado.
+   * HISTÓRICO: chegamos a forçar web.whatsapp.com (em vez do link wa.me
+   * de abrirWhatsAppCliente(), que aciona o app desktop e perde o texto
+   * nesse handoff) e, depois, a abrir mensagens em aba separada uma a
+   * uma -- CONFIRMADO com o usuário: reverter as duas coisas, ele
+   * prefere que o Alt+S continue abrindo o APP DESKTOP (como
+   * abrirWhatsAppCliente() já faz por conta própria, sem mexer na URL).
+   * Fica só a rede de segurança abaixo: copia a mensagem pra área de
+   * transferência, então se o app abrir sem o texto (o handoff
+   * ocasionalmente perde), um Ctrl+V resolve sem precisar achar/cortar
+   * da caixa de observações.
    * --------------------------------------------------------------------- */
-
-  // Extrai o telefone de qualquer um dos dois formatos que o CRM usa:
-  // wa.me/<numero> (telefone no path) ou *.whatsapp.com/send?phone=<numero>
-  // (telefone na query).
-  function extrairTelefoneWhatsApp(url) {
-    if (!url) return null;
-    let alvo;
-    try {
-      alvo = new URL(url, window.location.href);
-    } catch (erro) {
-      return null;
-    }
-    if (/(^|\.)wa\.me$/.test(alvo.hostname)) {
-      return alvo.pathname.replace(/^\/+/, '').split('/')[0] || null;
-    }
-    if (/(^|\.)whatsapp\.com$/.test(alvo.hostname)) {
-      return alvo.searchParams.get('phone');
-    }
-    return null; // não é um link do WhatsApp
-  }
-
-  // SEMPRE web.whatsapp.com, nunca wa.me/api.whatsapp.com -- CONFIRMADO
-  // pelo usuário: esses dois acionam a abertura do aplicativo desktop
-  // quando instalado, perdendo o texto nesse handoff. web.whatsapp.com
-  // abre direto numa aba do navegador, sem esse handoff.
-  function corrigirUrlWhatsAppComTexto(url, mensagem) {
-    const telefone = extrairTelefoneWhatsApp(url);
-    if (!telefone) return null;
-    const alvoWeb = new URL('https://web.whatsapp.com/send');
-    alvoWeb.searchParams.set('phone', telefone);
-    alvoWeb.searchParams.set('text', mensagem);
-    return alvoWeb.toString();
-  }
-
   function instalarCorrecaoTextoWhatsApp() {
     const caixa = encontrarCaixaDeObservacoes();
     const mensagem = caixa ? caixa.value.trim() : '';
-    if (!mensagem) return; // nada pra corrigir -- deixa o fluxo normal (e o aviso de erro dele) seguir
+    if (!mensagem) return; // nada pra copiar -- deixa o fluxo normal (e o aviso de erro dele) seguir
 
-    // REDE DE SEGURANÇA: copia a mensagem inteira pra área de
-    // transferência -- se por qualquer motivo o link não vier preenchido,
-    // um Ctrl+V resolve, sem precisar achar/cortar da caixa de observações.
     if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
       navigator.clipboard.writeText(mensagem).catch((erro) => {
         console.warn('[Atalhos] Não consegui copiar a mensagem pra área de transferência automaticamente:', erro);
       });
     }
-
-    const openOriginal = window.open;
-    let restaurado = false;
-    const restaurar = () => {
-      if (restaurado) return;
-      restaurado = true;
-      if (window.open === novoOpen) window.open = openOriginal;
-    };
-
-    const novoOpen = function (url, nome, features) {
-      const urlCorrigida = corrigirUrlWhatsAppComTexto(url, mensagem);
-      return openOriginal.call(window, urlCorrigida || url, nome, features);
-    };
-    window.open = novoOpen;
-
-    // Cobre o tempo do POST de registrar o contato (Módulo 2) antes dele
-    // chamar abrirWhatsAppCliente() -- mesma ideia do TIMEOUT_SUCESSO_MS
-    // do Módulo 3, com folga extra por segurança.
-    setTimeout(restaurar, CONFIG_ATALHOS.TIMEOUT_CORRECAO_WHATSAPP_MS);
   }
 
   function acionarRegistrarEEnviar() {
