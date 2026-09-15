@@ -66,9 +66,6 @@
   const CONFIG = {
     SELETOR_LINHA: 'table tbody tr',
     REGEX_CONTROLE: /Controle:\s*(\d+)\|([\d.\/-]+)/,
-    // CONFIRMADO com o usuário via HTML real: o Cluster aparece numa span
-    // com essa classe (ex.: <span class="pbi-meta">Normal</span>).
-    SELETOR_CLUSTER: '.pbi-meta',
     VALOR_CLUSTER_NOVO: 'novo',
     // Exclusões (confirmadas com o usuário).
     DIAS_ATRASO_MAX: 19,
@@ -179,7 +176,32 @@
   // Reaproveita construirFilaAPartirDaPagina (já cuida de deduplicar
   // matriz/filial mantendo o mais atrasado, e de pular quem já foi
   // atendido hoje) e enriquece cada candidato com cluster + data da última
-  // movimentação, lidos direto da mesma linha da tabela.
+  // movimentação.
+  //
+  // CORRIGIDO (bug real, achado ao vivo): a primeira versão tentava adivinhar
+  // esses dois campos lendo texto renderizado (span.pbi-meta pro cluster, a
+  // "última data visível" na linha pra movimentação) -- as duas suposições
+  // eram erradas. pbi-meta é na verdade situacaoCobrancaDescricao, e a
+  // "última data" só coincidia por sorte com a real na maioria dos casos,
+  // mas não dava pra confiar (67 de 133 clientes bateram "hoje", muitos
+  // deles claramente por coincidência de posição, não pela data certa).
+  //
+  // A CORREÇÃO: window.CLIENTES é um array com os dados brutos do cliente
+  // que a própria página já usa pra renderizar a tabela (confirmado via
+  // HTML/JS real -- var CLIENTES = [...] dentro de um <script> da página).
+  // Como o script roda com @grant none, temos acesso direto a esse array --
+  // ler os campos ali (cluster, dataUltimaMovimentacao) é muito mais
+  // confiável do que tentar re-derivar a mesma informação a partir do HTML
+  // já renderizado.
+  function obterMapaClientes() {
+    if (!Array.isArray(window.CLIENTES)) return null;
+    const mapa = new Map();
+    window.CLIENTES.forEach((c) => {
+      if (c && c.cnpj) mapa.set(c.cnpj, c);
+    });
+    return mapa;
+  }
+
   function candidatosEnriquecidos() {
     if (!window.filaDebug || typeof window.filaDebug.construirFilaAPartirDaPagina !== 'function') {
       console.warn('[Fila Prioridade] Módulo de Fila (Módulo 3) não encontrado -- confirme se foi colado ANTES deste arquivo.');
@@ -187,35 +209,35 @@
     }
 
     const base = window.filaDebug.construirFilaAPartirDaPagina();
-
-    const linhasPorCnpj = new Map();
-    document.querySelectorAll(CONFIG.SELETOR_LINHA).forEach((linha) => {
-      const match = (linha.textContent || '').match(CONFIG.REGEX_CONTROLE);
-      if (match && !linhasPorCnpj.has(match[2])) linhasPorCnpj.set(match[2], linha);
-    });
+    const mapaClientes = obterMapaClientes();
+    if (!mapaClientes) {
+      console.warn(
+        '[Fila Prioridade] window.CLIENTES não encontrado nesta página (a lista pode ter mudado de estrutura) -- ' +
+        'seguindo sem cluster nem checagem de última movimentação (ninguém será excluído por isso, e ninguém ' +
+        'entra na prioridade 2 por cluster). Me avise se isso acontecer -- não deveria.'
+      );
+    }
 
     return base.map((cliente) => {
-      const linha = linhasPorCnpj.get(cliente.cnpj);
-      const texto = linha ? (linha.textContent || '') : '';
-      const clusterEl = linha ? linha.querySelector(CONFIG.SELETOR_CLUSTER) : null;
-      // Última movimentação: a ÚLTIMA data no formato DD/MM/AAAA que
-      // aparecer na linha -- CONFIRMADO com o usuário que, das datas
-      // visíveis, é a mais recente (a segunda, no exemplo real que ele
-      // mandou) que representa a última movimentação.
-      const datas = texto.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+      const dadosCliente = mapaClientes ? mapaClientes.get(cliente.cnpj) : null;
       return Object.assign({}, cliente, {
-        cluster: clusterEl ? clusterEl.textContent.trim() : '',
-        movimentacaoTexto: datas.length > 0 ? datas[datas.length - 1] : null,
+        cluster: dadosCliente ? (dadosCliente.cluster || '') : '',
+        // Formato ISO ("2026-09-11T08:00:11.523327") -- comparamos só a
+        // parte "AAAA-MM-DD" por string, mesmo padrão que o próprio script
+        // da página usa (ver isBeforeOrToday/isBeforeToday no HTML real) --
+        // evita qualquer pegadinha de fuso horário na conversão pra Date.
+        movimentacaoDataIso: dadosCliente ? (dadosCliente.dataUltimaMovimentacao || null) : null,
       });
     });
   }
 
-  function movimentacaoEhHoje(movimentacaoTexto) {
-    if (!movimentacaoTexto) return false;
-    const m = movimentacaoTexto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (!m) return false;
-    const data = normalizarData(new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])));
-    return data.getTime() === normalizarData(new Date()).getTime();
+  function movimentacaoEhHoje(movimentacaoDataIso) {
+    if (!movimentacaoDataIso) return false;
+    const dataStr = String(movimentacaoDataIso).split('T')[0];
+    const hoje = new Date();
+    const hojeStr =
+      hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-' + String(hoje.getDate()).padStart(2, '0');
+    return dataStr === hojeStr;
   }
 
   // Exclusões que já dá pra decidir só com o que a lista mostra -- não
@@ -237,7 +259,7 @@
         excluidos.diaUm++;
         return;
       }
-      if (movimentacaoEhHoje(c.movimentacaoTexto)) {
+      if (movimentacaoEhHoje(c.movimentacaoDataIso)) {
         excluidos.movimentacaoHoje++;
         return;
       }
