@@ -39,12 +39,6 @@
 (function () {
   'use strict';
 
-  // Atalhos são só pro CRM -- com web.whatsapp.com agora no @match (ver
-  // Módulo 7), evita instalar o listener de teclado lá, onde nenhuma das
-  // ações faz sentido e só arriscaria colidir com atalhos do próprio
-  // WhatsApp Web.
-  if (location.hostname !== 'texhub.texcotton.com.br') return;
-
   if (window.__atalhosTecladoCarregados) return;
   window.__atalhosTecladoCarregados = true;
 
@@ -696,7 +690,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 3.0d WHATSAPP: TEXTO CERTO E UMA MENSAGEM POR PARÁGRAFO (Alt+S)
+   * 3.0d GARANTIR TEXTO CORRETO NO WHATSAPP (Alt+S)
    * -----------------------------------------------------------------
    * DIAGNÓSTICO REAL (código de abrirWhatsAppCliente() confirmado pelo
    * usuário via console): a função do CRM já monta a URL certa, com a
@@ -706,32 +700,17 @@
    * problema é wa.me acionando o APLICATIVO DESKTOP do WhatsApp quando
    * instalado, que perde o texto nesse handoff (confirmado pelo usuário).
    * Forçar web.whatsapp.com (em vez de wa.me/api.whatsapp.com) resolve
-   * isso -- mas o usuário também precisa que cada PARÁGRAFO da mensagem
-   * vire uma mensagem separada no WhatsApp (por isso as mensagens têm
-   * parágrafos -- ele cortava um de cada vez à mão). Confirmado: o
-   * script prepara cada parágrafo na caixa de digitação, mas quem aperta
-   * Enter pra enviar é o operador -- sem envio automático.
+   * isso.
    *
-   * Isso exige rodar código DENTRO da aba do WhatsApp Web (Módulo 7,
-   * @match separado), que não compartilha "window" com esta aba (origem
-   * diferente) -- a ponte é window.postMessage, sem precisar de nenhuma
-   * permissão especial do Tampermonkey.
-   *
-   * CONFLITO CONTORNADO: o Módulo 2 fecha a aba do WhatsApp sozinho 1,5s
-   * depois de abrir (ATRASO_FECHAR_ABA_WHATSAPP_MS) -- incompatível com
-   * o operador precisando ficar nela apertando Enter várias vezes. Não dá
-   * pra editar o Módulo 2 (protegido), então a aba real (onde a
-   * mensagem-por-mensagem acontece) é aberta por nós separadamente, e
-   * devolvemos pro Módulo 2/3 um objeto "de mentira" (truthy, com um
-   * close() que não faz nada) -- suficiente pro Módulo 3 marcar sucesso
-   * na fila de atendimento, e o "fechamento" do Módulo 2 não afeta a aba
-   * real, que continua aberta pro operador.
+   * TENTATIVA DESCARTADA (uma mensagem por parágrafo, cada uma numa aba
+   * separada nossa): testada ao vivo com o usuário e abandonada -- o
+   * WhatsApp Web só permite UMA sessão ativa por vez no navegador, e o
+   * usuário mantém uma aba do WhatsApp Web aberta o dia inteiro. Uma aba
+   * nossa nunca fica aberta tempo suficiente pro operador interagir,
+   * mesmo sem nenhuma outra aba/app conflitando no momento do teste --
+   * não é algo controlável só com JavaScript de fora. Ver histórico do
+   * commit pra detalhes de tudo que foi testado e descartado.
    * --------------------------------------------------------------------- */
-  const ORIGEM_WHATSAPP_WEB = 'https://web.whatsapp.com';
-  // Nome fixo de janela -- reaproveita a MESMA aba entre chamadas (ver
-  // comentário em novoOpen), em vez de abrir uma nova a cada Alt+S, o que
-  // o próprio WhatsApp Web rejeita (só permite uma sessão ativa por vez).
-  const NOME_ABA_WHATSAPP = 'smarttable-whatsapp';
 
   // Extrai o telefone de qualquer um dos dois formatos que o CRM usa:
   // wa.me/<numero> (telefone no path) ou *.whatsapp.com/send?phone=<numero>
@@ -766,76 +745,19 @@
     return alvoWeb.toString();
   }
 
-  // Reenvia a fila de parágrafos pra aba do WhatsApp em intervalos, até
-  // receber a confirmação (ACK) do Módulo 7 -- necessário porque a aba
-  // recém-aberta ainda não tem nosso listener de "message" registrado no
-  // instante em que ela é criada (postMessage não fica esperando, se
-  // perde se ninguém estiver ouvindo ainda).
-  function enviarFilaParaAbaWhatsApp(aba, paragrafos) {
-    console.log('[Atalhos] [DEBUG] enviarFilaParaAbaWhatsApp chamada -- aba.closed logo de cara =', aba.closed);
-    const payload = { tipo: 'smarttable-fila-whatsapp', paragrafos };
-    const MAX_TENTATIVAS = 25; // ~10s com intervalo de 400ms -- cobre o carregamento do WhatsApp Web
-    let tentativas = 0;
-    let recebeuAck = false;
-
-    function pararTudo() {
-      clearInterval(intervalo);
-      window.removeEventListener('message', ouvirAck);
-    }
-
-    function ouvirAck(event) {
-      if (event.origin !== ORIGEM_WHATSAPP_WEB) return;
-      if (!event.data || event.data.tipo !== 'smarttable-fila-whatsapp-ack') return;
-      recebeuAck = true;
-      console.log('[Atalhos] Aba do WhatsApp confirmou recebimento da fila de mensagens.');
-      pararTudo();
-    }
-    window.addEventListener('message', ouvirAck);
-
-    const intervalo = setInterval(() => {
-      tentativas++;
-      if (recebeuAck || aba.closed) {
-        console.log('[Atalhos] [DEBUG] Parando na tentativa ' + tentativas + ' -- recebeuAck =', recebeuAck, '| aba.closed =', aba.closed);
-        pararTudo();
-        return;
-      }
-      if (tentativas > MAX_TENTATIVAS) {
-        pararTudo();
-        console.warn('[Atalhos] A aba do WhatsApp não confirmou recebimento da fila de mensagens a tempo.');
-        return;
-      }
-      try {
-        aba.postMessage(payload, ORIGEM_WHATSAPP_WEB);
-        if (tentativas <= 3 || tentativas % 5 === 0) {
-          console.log('[Atalhos] [DEBUG] postMessage enviado (tentativa ' + tentativas + '), aba.closed =', aba.closed);
-        }
-      } catch (erro) {
-        console.warn('[Atalhos] [DEBUG] postMessage falhou na tentativa ' + tentativas + ':', erro);
-      }
-    }, 400);
-  }
-
   function instalarCorrecaoTextoWhatsApp() {
     const caixa = encontrarCaixaDeObservacoes();
     const mensagem = caixa ? caixa.value.trim() : '';
     if (!mensagem) return; // nada pra corrigir -- deixa o fluxo normal (e o aviso de erro dele) seguir
 
-    // REDE DE SEGURANÇA (fallback se, por qualquer motivo, nada abaixo
-    // funcionar): copia a mensagem inteira pra área de transferência.
+    // REDE DE SEGURANÇA: copia a mensagem inteira pra área de
+    // transferência -- se por qualquer motivo o link não vier preenchido,
+    // um Ctrl+V resolve, sem precisar achar/cortar da caixa de observações.
     if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
       navigator.clipboard.writeText(mensagem).catch((erro) => {
         console.warn('[Atalhos] Não consegui copiar a mensagem pra área de transferência automaticamente:', erro);
       });
     }
-
-    // Só vale a pena o fluxo de "uma mensagem por parágrafo" com 2+
-    // parágrafos -- com 1 só, seria idêntico ao link de sempre.
-    const paragrafos = mensagem
-      .split(/\n\s*\n/)
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
-    const usarFilaDeParagrafos = paragrafos.length > 1;
-    console.log('[Atalhos] Mensagem dividida em ' + paragrafos.length + ' parágrafo(s) -- modo múltiplas mensagens: ' + usarFilaDeParagrafos + '.');
 
     const openOriginal = window.open;
     let restaurado = false;
@@ -846,39 +768,6 @@
     };
 
     const novoOpen = function (url, nome, features) {
-      console.log('[Atalhos] window.open interceptado, url =', url);
-      if (usarFilaDeParagrafos) {
-        const telefone = extrairTelefoneWhatsApp(url);
-        console.log('[Atalhos] Telefone extraído da URL:', telefone);
-        if (telefone) {
-          // Aba própria, separada da que abrirWhatsAppCliente() pediu --
-          // pra não ser fechada pelo Módulo 2 (ver comentário acima).
-          // Já leva o 1º parágrafo como "text=" de fallback, caso o
-          // Módulo 7 não consiga assumir por algum motivo.
-          //
-          // DIAGNOSTICADO com o usuário (aba.closed = true logo na 1ª
-          // tentativa): o WhatsApp Web só permite UMA aba ativa por vez --
-          // ao abrir uma aba NOVA com o usuário já tendo outra aberta, o
-          // próprio WhatsApp fecha a nova quase instantaneamente. Usar
-          // sempre o MESMO nome de janela (NOME_ABA_WHATSAPP) faz o
-          // navegador reaproveitar essa mesma aba -- que passa a ser "a"
-          // aba do WhatsApp do SmartTable -- em vez de abrir uma segunda a
-          // cada Alt+S. Se o usuário mantiver OUTRA aba do WhatsApp aberta
-          // por fora (não aberta por nós), o conflito volta -- vale avisar
-          // pra ele usar só a aba que o próprio script abre/reaproveita.
-          const urlPropria = 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(telefone) +
-            '&text=' + encodeURIComponent(paragrafos[0]);
-          const abaReal = openOriginal.call(window, urlPropria, NOME_ABA_WHATSAPP, features);
-          console.log('[Atalhos] Tentativa de abrir/reaproveitar aba própria retornou:', abaReal ? 'aba disponível' : 'BLOQUEADA (popup blocker?)');
-          if (abaReal) {
-            console.log('[Atalhos] WhatsApp em modo de múltiplas mensagens (' + paragrafos.length + ' parágrafo(s)).');
-            enviarFilaParaAbaWhatsApp(abaReal, paragrafos);
-            return { close() {}, closed: false };
-          }
-          // Popup bloqueado -- cai pro comportamento de sempre abaixo.
-        }
-      }
-      console.log('[Atalhos] Caindo no link único de sempre (sem múltiplas mensagens).');
       const urlCorrigida = corrigirUrlWhatsAppComTexto(url, mensagem);
       return openOriginal.call(window, urlCorrigida || url, nome, features);
     };
@@ -1484,71 +1373,4 @@
     '%c[Atalhos] ' + LISTA_ATALHOS.map((a) => `${a.tecla}: ${a.descricao}`).join(' | '),
     'color:#16232F;font-weight:bold;'
   );
-
-  // Teste manual do fluxo de múltiplas mensagens do WhatsApp SEM passar
-  // pelo Alt+S -- não registra contato nenhum no CRM (não chama o POST de
-  // "Registrar e Enviar"), só abre uma aba de teste e manda a fila de
-  // parágrafos, exatamente como o Alt+S faria. Rodar no console:
-  //   window.atalhosDebug.testarWhatsAppMultiplasMensagens('55DDDNUMERO')
-  // (telefone só com dígitos, com DDI 55 -- ex.: seu próprio número, pra
-  // ver as mensagens chegando de verdade). Opcionalmente, um 2º argumento
-  // com a lista de parágrafos, senão usa uma de exemplo.
-  function executarTesteWhatsApp(telefone, paragrafos) {
-    if (!telefone) {
-      console.warn('[Atalhos] Uso: window.atalhosDebug.testarWhatsAppMultiplasMensagens(\'55DDDNUMERO\')');
-      return;
-    }
-    const lista = Array.isArray(paragrafos) && paragrafos.length > 0
-      ? paragrafos
-      : [
-        'Parágrafo de teste 1 -- SmartTable.',
-        'Parágrafo de teste 2 -- se isto chegou como mensagem separada, o modo de múltiplas mensagens está funcionando.',
-        'Parágrafo de teste 3 -- aperte Enter em cada um pra confirmar.',
-      ];
-    const urlPropria = 'https://web.whatsapp.com/send?phone=' + encodeURIComponent(telefone) +
-      '&text=' + encodeURIComponent(lista[0]);
-    const aba = window.open(urlPropria, NOME_ABA_WHATSAPP);
-    console.log('[Atalhos] [TESTE] window.open retornou:', aba, '| aba.closed logo de cara =', aba && aba.closed);
-    if (!aba) {
-      console.warn('[Atalhos] Não consegui abrir a aba de teste -- popup bloqueado?');
-      return;
-    }
-    console.log('[Atalhos] [TESTE] Aba aberta, enviando fila de ' + lista.length + ' parágrafo(s)...');
-    enviarFilaParaAbaWhatsApp(aba, lista);
-  }
-
-  window.atalhosDebug = {
-    testarWhatsAppMultiplasMensagens: executarTesteWhatsApp,
-
-    // DIAGNÓSTICO: testar via console NÃO conta como gesto real do
-    // usuário pro navegador (execução no DevTools fica de fora da
-    // "ativação do usuário" que autoriza popups) -- diferente de um
-    // clique de verdade, que é o que o Alt+S usa. Esta versão cria um
-    // botão flutuante; CLICAR nele (gesto real) roda o mesmo teste,
-    // isolando se o problema é o WhatsApp fechando a aba ou o navegador
-    // bloqueando por falta de gesto real. Uso:
-    //   window.atalhosDebug.mostrarBotaoTesteWhatsApp('55DDDNUMERO')
-    mostrarBotaoTesteWhatsApp(telefone, paragrafos) {
-      const existente = document.getElementById('smarttable-botao-teste-whatsapp');
-      if (existente) existente.remove();
-
-      const botao = document.createElement('button');
-      botao.id = 'smarttable-botao-teste-whatsapp';
-      botao.textContent = '🧪 Testar WhatsApp múltiplas mensagens';
-      Object.assign(botao.style, {
-        position: 'fixed', bottom: '70px', right: '20px', zIndex: '999999',
-        padding: '12px 18px', background: '#0B8043', color: '#FFFFFF',
-        border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '600',
-        cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-        fontFamily: '-apple-system, Segoe UI, Arial, sans-serif',
-      });
-      botao.addEventListener('click', () => {
-        console.log('[Atalhos] [TESTE] Botão clicado (gesto real) -- abrindo WhatsApp...');
-        executarTesteWhatsApp(telefone, paragrafos);
-        botao.remove();
-      });
-      document.body.appendChild(botao);
-      console.log('[Atalhos] [TESTE] Botão adicionado no canto inferior direito da tela -- clique nele.');
-    },
-  };
 })();

@@ -1,11 +1,10 @@
 // ==UserScript==
 // @name         SmartTable — Automação de Cobrança TexCotton
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      1.0.32
-// @description  Automação do fluxo de cobrança no CRM TexCotton: classificação de títulos vencidos, relatório, registrar e enviar, fila de atendimento, atalhos de teclado, alerta de grupo econômico, contexto adicional (promessas/contatos) e envio de mensagem por parágrafo no WhatsApp Web.
+// @version      1.0.33
+// @description  Automação do fluxo de cobrança no CRM TexCotton: classificação de títulos vencidos, relatório, registrar e enviar, fila de atendimento, atalhos de teclado, alerta de grupo econômico e contexto adicional (promessas/contatos).
 // @author       Isaac
 // @match        https://texhub.texcotton.com.br/crm/*
-// @match        https://web.whatsapp.com/*
 // @run-at       document-idle
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table.user.js
@@ -16,7 +15,6 @@
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo5-alerta-grupo.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo4-atalhos-teclado.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo6-contexto-adicional.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo7-whatsapp-multimensagem.js
 // ==/UserScript==
 
 // Este arquivo é só o "invólucro" do Tampermonkey (metadados + @require dos
