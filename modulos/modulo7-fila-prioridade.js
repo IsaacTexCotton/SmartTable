@@ -218,8 +218,11 @@
       );
     }
 
-    return base.map((cliente) => {
+    let semCorrespondenciaNoMapa = 0;
+
+    const enriquecidos = base.map((cliente) => {
       const dadosCliente = mapaClientes ? mapaClientes.get(cliente.cnpj) : null;
+      if (mapaClientes && !dadosCliente) semCorrespondenciaNoMapa++;
       return Object.assign({}, cliente, {
         cluster: dadosCliente ? (dadosCliente.cluster || '') : '',
         // Formato ISO ("2026-09-11T08:00:11.523327") -- comparamos só a
@@ -227,8 +230,34 @@
         // da página usa (ver isBeforeOrToday/isBeforeToday no HTML real) --
         // evita qualquer pegadinha de fuso horário na conversão pra Date.
         movimentacaoDataIso: dadosCliente ? (dadosCliente.dataUltimaMovimentacao || null) : null,
+        // BUG REAL (relatado pelo usuário, achado ao vivo): o diasAtraso que
+        // vem de construirFilaAPartirDaPagina() é extraído por regex do
+        // texto INTEIRO da linha (primeira ocorrência de "N dias") -- a
+        // linha tem MAIS de um número seguido de "dias" (ex.: diasAtraso e
+        // diasAtrasoMedio são campos separados em window.CLIENTES, e nada
+        // garante que o regex pega o certo). Isso inflou a exclusão de
+        // ">19 dias" bem além do real (62 de 65 candidatos, número que o
+        // usuário confirmou não bater com a carteira de verdade).
+        // window.CLIENTES[].diasAtraso é o valor estruturado e correto --
+        // sobrescreve o valor extraído por regex sempre que disponível.
+        diasAtraso:
+          dadosCliente && typeof dadosCliente.diasAtraso === 'number' ? dadosCliente.diasAtraso : cliente.diasAtraso,
       });
     });
+
+    // Se window.CLIENTES existe mas algum CNPJ específico não bate com
+    // nada nele, esses candidatos caem de volta no valor extraído por
+    // regex (mesmo bug antigo) sem avisar nada -- isso deixaria passar em
+    // silêncio a mesma classe de problema que acabamos de corrigir.
+    if (semCorrespondenciaNoMapa > 0) {
+      console.warn(
+        `[Fila Prioridade] ${semCorrespondenciaNoMapa} candidato(s) não bateram com nenhum CNPJ em window.CLIENTES -- ` +
+        'esses ficaram com cluster/movimentação/diasAtraso extraídos por regex da linha (menos confiável). ' +
+        'Se isso acontecer com frequência, me avise -- pode indicar formato de CNPJ diferente entre os dois.'
+      );
+    }
+
+    return enriquecidos;
   }
 
   function movimentacaoEhHoje(movimentacaoDataIso) {
