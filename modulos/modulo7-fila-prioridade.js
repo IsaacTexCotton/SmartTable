@@ -1,0 +1,524 @@
+/* =========================================================================
+ * MÓDULO 7: FILA POR PRIORIDADE — CRM TexCotton
+ * -------------------------------------------------------------------------
+ * O que faz: monta uma fila de atendimento (mesmo formato/mecanismo do
+ * Módulo 3 -- navegação, painel, Alt+P/Alt+V, "continuar fila anterior")
+ * mas ORDENADA por uma régua de prioridade de negócio, em vez de só por
+ * dias de atraso. Atalho separado (Alt+U) -- o Alt+I original continua
+ * exatamente como está, sem nenhuma mudança de comportamento.
+ *
+ * REGRA DE PRIORIDADE (CONFIRMADA com o usuário), em ordem -- cada cliente
+ * entra na PRIMEIRA faixa que se aplicar a ele:
+ *   1. Cartório -- último dia (situação ULTIMO_DIA, fluxo Cartório)
+ *   2. Cluster "Novo"
+ *   3. SCPC -- último dia (situação ULTIMO_DIA, fluxo SCPC)
+ *   4. Atraso inicial, 2º ao 4º dia (situação EM_ATRASO, dias 2-4 --
+ *      dia 1 NÃO conta como dia de cobrança, fica de fora da lista)
+ *   5. Aviso final antes da suspensão (situação NEGATIVADO_SCPC, dia 19
+ *      exato -- mesmo limiar usado pelo Módulo 4 pra mensagem)
+ *   6. Demais dias (tudo que não caiu em nenhuma faixa acima)
+ *
+ * EXCLUSÕES (nunca entram na lista, em nenhuma faixa):
+ *   - Mais de 19 dias de atraso
+ *   - Dia 1 de atraso (não é considerado dia de cobrança ainda)
+ *   - Última movimentação (a data mais recente mostrada na linha da
+ *     lista) é HOJE
+ *   - Existe alguma promessa (qualquer status) com data prometida DEPOIS
+ *     de hoje
+ *
+ * POR QUE PRECISA VISITAR CADA CLIENTE: a lista de clientes (página de
+ * lista) só mostra dias de atraso, cluster e a data da última movimentação
+ * -- NÃO mostra a situação real do título (ULTIMO_DIA/NEGATIVADO_SCPC) nem
+ * o fluxo (Cartório/SCPC), porque esses dois só existem depois de rodar a
+ * classificação de verdade (Módulo 1), que por sua vez depende de um campo
+ * ("SCPC:") que só aparece na PÁGINA DE DETALHE de cada cliente. Promessas
+ * também só existem na aba "Promessas" da página de detalhe. Por isso este
+ * módulo visita cada candidato em aba de fundo (mesma técnica do Alt+A pra
+ * outras razões do grupo, só que sequencial -- ver nota de popup abaixo) e
+ * só monta a fila depois de classificar todo mundo.
+ *
+ * SOBRE POPUP: diferente do Alt+A/Alt+G (que abrem no máximo 2-3 abas, tudo
+ * dentro do mesmo gesto de clique), aqui pode ser necessário visitar
+ * DEZENAS de clientes -- abrir todas as abas de uma vez seria abusivo e
+ * provavelmente travaria o navegador. Este módulo abre UMA aba de cada vez,
+ * de forma sequencial (fecha antes de abrir a próxima). Isso significa que,
+ * depois das primeiras, os `window.open` já não estão mais dentro do gesto
+ * original de teclado -- SE o navegador bloquear alguma aba como pop-up,
+ * aparece um aviso no console e aquele cliente fica de fora da lista (sem
+ * travar o resto). Se isso acontecer na prática, a correção é permitir
+ * pop-ups pra este site nas configurações do navegador (ação única).
+ *
+ * Onde colar: anexado ao FINAL do smart-table.js, depois do Módulo 3 (Fila
+ * de Atendimento) -- usa window.filaDebug.construirFilaAPartirDaPagina,
+ * .salvarFila, .obterFila e .CONFIG. O atalho de teclado (Alt+U) em si fica
+ * no Módulo 4, que chama window.filaPrioridadeDebug.iniciar() -- mesmo
+ * padrão usado pro Alt+I chamar window.filaDebug.iniciarFila().
+ * ========================================================================= */
+(function () {
+  'use strict';
+
+  if (window.__filaPrioridadeCarregada) return;
+  window.__filaPrioridadeCarregada = true;
+
+  /* ---------------------------------------------------------------------
+   * 1. CONFIGURAÇÃO
+   * --------------------------------------------------------------------- */
+  const CONFIG = {
+    SELETOR_LINHA: 'table tbody tr',
+    REGEX_CONTROLE: /Controle:\s*(\d+)\|([\d.\/-]+)/,
+    // CONFIRMADO com o usuário via HTML real: o Cluster aparece numa span
+    // com essa classe (ex.: <span class="pbi-meta">Normal</span>).
+    SELETOR_CLUSTER: '.pbi-meta',
+    VALOR_CLUSTER_NOVO: 'novo',
+    // Exclusões (confirmadas com o usuário).
+    DIAS_ATRASO_MAX: 19,
+    DIA_ATRASO_MIN_CONSIDERADO: 2, // dia 1 não é considerado dia de cobrança
+    // Prioridade 4: 2º ao 4º dia de EM_ATRASO.
+    DIAS_PRIORIDADE_ATRASO_INICIAL: [2, 3, 4],
+    // Prioridade 5: mesmo limiar usado pelo Módulo 4 pra mensagem de aviso
+    // final antes da suspensão de cadastro SCPC -- MANTER SINCRONIZADO
+    // manualmente com DIAS_ULTIMO_DIA_SUSPENSAO_SCPC lá, se um dia mudar.
+    DIA_ULTIMO_DIA_SUSPENSAO_SCPC: 19,
+    // Tempo esperando cada aba de fundo ficar pronta pra ler (Módulo 1 +
+    // Módulo 6 carregados) -- mesma ordem de grandeza do Alt+A.
+    TIMEOUT_CLASSIFICACAO_MS: 8000,
+    INTERVALO_POLL_MS: 200,
+  };
+
+  const NOMES_PRIORIDADE = {
+    1: 'Cartório — último dia',
+    2: 'Cluster Novo',
+    3: 'SCPC — último dia',
+    4: 'Atraso inicial (2º–4º dia)',
+    5: 'Aviso final antes da suspensão',
+    6: 'Demais dias',
+  };
+
+  /* ---------------------------------------------------------------------
+   * 2. ESTADO
+   * --------------------------------------------------------------------- */
+  let classificandoEmAndamento = false;
+  let indicadorEl = null;
+
+  /* ---------------------------------------------------------------------
+   * 3. UTILITÁRIOS DE UI (toast + indicador de progresso persistente)
+   * --------------------------------------------------------------------- */
+  function toast(mensagem, duracaoMs) {
+    duracaoMs = duracaoMs || 3200;
+    const el = document.createElement('div');
+    el.textContent = mensagem;
+    Object.assign(el.style, {
+      position: 'fixed',
+      bottom: '24px',
+      right: '24px',
+      background: '#16232F',
+      color: '#fff',
+      padding: '12px 18px',
+      borderRadius: '8px',
+      boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+      fontSize: '14px',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      zIndex: 999999,
+      maxWidth: '360px',
+      opacity: '0',
+      transition: 'opacity .25s ease',
+      pointerEvents: 'none',
+    });
+    document.body.appendChild(el);
+    requestAnimationFrame(() => { el.style.opacity = '1'; });
+    setTimeout(() => {
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 300);
+    }, duracaoMs);
+  }
+
+  // Indicador único e persistente (não empilha toasts) -- atualizado in
+  // place enquanto a classificação roda, já que pode levar minutos.
+  function atualizarIndicadorProgresso(texto) {
+    if (!indicadorEl) {
+      indicadorEl = document.createElement('div');
+      Object.assign(indicadorEl.style, {
+        position: 'fixed',
+        bottom: '24px',
+        right: '24px',
+        background: '#16232F',
+        color: '#fff',
+        padding: '12px 18px',
+        borderRadius: '8px',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.25)',
+        fontSize: '14px',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        zIndex: 999999,
+        maxWidth: '360px',
+      });
+      document.body.appendChild(indicadorEl);
+    }
+    indicadorEl.textContent = texto;
+  }
+
+  function removerIndicadorProgresso() {
+    if (indicadorEl) {
+      indicadorEl.remove();
+      indicadorEl = null;
+    }
+  }
+
+  function esperar(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function normalizarData(data) {
+    const d = new Date(data);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  /* ---------------------------------------------------------------------
+   * 4. LEITURA DA LISTA (fase 1 -- síncrona, reaproveitando o Módulo 3)
+   * --------------------------------------------------------------------- */
+  // Reaproveita construirFilaAPartirDaPagina (já cuida de deduplicar
+  // matriz/filial mantendo o mais atrasado, e de pular quem já foi
+  // atendido hoje) e enriquece cada candidato com cluster + data da última
+  // movimentação, lidos direto da mesma linha da tabela.
+  function candidatosEnriquecidos() {
+    if (!window.filaDebug || typeof window.filaDebug.construirFilaAPartirDaPagina !== 'function') {
+      console.warn('[Fila Prioridade] Módulo de Fila (Módulo 3) não encontrado -- confirme se foi colado ANTES deste arquivo.');
+      return null;
+    }
+
+    const base = window.filaDebug.construirFilaAPartirDaPagina();
+
+    const linhasPorCnpj = new Map();
+    document.querySelectorAll(CONFIG.SELETOR_LINHA).forEach((linha) => {
+      const match = (linha.textContent || '').match(CONFIG.REGEX_CONTROLE);
+      if (match && !linhasPorCnpj.has(match[2])) linhasPorCnpj.set(match[2], linha);
+    });
+
+    return base.map((cliente) => {
+      const linha = linhasPorCnpj.get(cliente.cnpj);
+      const texto = linha ? (linha.textContent || '') : '';
+      const clusterEl = linha ? linha.querySelector(CONFIG.SELETOR_CLUSTER) : null;
+      // Última movimentação: a ÚLTIMA data no formato DD/MM/AAAA que
+      // aparecer na linha -- CONFIRMADO com o usuário que, das datas
+      // visíveis, é a mais recente (a segunda, no exemplo real que ele
+      // mandou) que representa a última movimentação.
+      const datas = texto.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+      return Object.assign({}, cliente, {
+        cluster: clusterEl ? clusterEl.textContent.trim() : '',
+        movimentacaoTexto: datas.length > 0 ? datas[datas.length - 1] : null,
+      });
+    });
+  }
+
+  function movimentacaoEhHoje(movimentacaoTexto) {
+    if (!movimentacaoTexto) return false;
+    const m = movimentacaoTexto.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return false;
+    const data = normalizarData(new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])));
+    return data.getTime() === normalizarData(new Date()).getTime();
+  }
+
+  // Exclusões que já dá pra decidir só com o que a lista mostra -- não
+  // precisa visitar ninguém pra isso.
+  function filtrarPorRegrasDaLista(candidatos) {
+    const sobreviventes = [];
+    const excluidos = { dias: 0, diaUm: 0, movimentacaoHoje: 0, semDias: 0 };
+
+    candidatos.forEach((c) => {
+      if (c.diasAtraso === null || c.diasAtraso === undefined) {
+        excluidos.semDias++;
+        return;
+      }
+      if (c.diasAtraso > CONFIG.DIAS_ATRASO_MAX) {
+        excluidos.dias++;
+        return;
+      }
+      if (c.diasAtraso < CONFIG.DIA_ATRASO_MIN_CONSIDERADO) {
+        excluidos.diaUm++;
+        return;
+      }
+      if (movimentacaoEhHoje(c.movimentacaoTexto)) {
+        excluidos.movimentacaoHoje++;
+        return;
+      }
+      sobreviventes.push(c);
+    });
+
+    return { sobreviventes, excluidos };
+  }
+
+  /* ---------------------------------------------------------------------
+   * 5. CLASSIFICAÇÃO REAL (fase 2 -- visita cada candidato em aba de fundo)
+   * --------------------------------------------------------------------- */
+  // Mesma regra do Módulo 4 (escolherTituloRepresentativo), duplicada de
+  // propósito aqui pelo mesmo motivo que o Módulo 4 duplica do Módulo 2:
+  // módulos diferentes, mesma decisão de "qual título representa o
+  // cliente" -- ULTIMO_DIA sempre vence, senão o de maior atraso real.
+  function escolherTituloRepresentativo(dados) {
+    if (!dados || !dados.registros || dados.registros.length === 0) return null;
+    const emUltimoDia = dados.registros.filter((r) => r.situacaoKey === 'ULTIMO_DIA');
+    const candidatos = emUltimoDia.length > 0 ? emUltimoDia : dados.registros;
+    return candidatos.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
+  }
+
+  // Espera a aba de fundo carregar os módulos necessários pra classificar
+  // (Módulo 1 pronto pra simular() + Módulo 6 já com __contextoAdicional
+  // calculado, mesmo que tenha caído no fallback de erro -- o que importa
+  // é não ler pela metade).
+  function esperarAbaPronta(janela, timeoutMs, intervaloMs) {
+    return new Promise((resolve) => {
+      const prazoFinal = Date.now() + timeoutMs;
+      (function tentar() {
+        if (janela.closed) return resolve(false);
+        let pronto = false;
+        try {
+          pronto = !!(
+            janela.__avisoCobranca &&
+            typeof janela.__avisoCobranca.simular === 'function' &&
+            janela.__contextoAdicional
+          );
+        } catch (erro) {
+          return resolve(false); // cross-origin ou janela em estado estranho
+        }
+        if (pronto) return resolve(true);
+        if (Date.now() >= prazoFinal) return resolve(false);
+        setTimeout(tentar, intervaloMs);
+      })();
+    });
+  }
+
+  // Primeira faixa que se aplicar vence -- por isso a ordem de checagem
+  // aqui segue exatamente a numeração das prioridades (1 a 6).
+  function determinarPrioridade(escolhido, fluxo, cluster) {
+    if (escolhido.situacaoKey === 'ULTIMO_DIA' && fluxo === 'CARTORIO') return 1;
+    if ((cluster || '').trim().toLowerCase() === CONFIG.VALOR_CLUSTER_NOVO) return 2;
+    if (escolhido.situacaoKey === 'ULTIMO_DIA' && fluxo === 'SCPC') return 3;
+    if (
+      escolhido.situacaoKey === 'EM_ATRASO' &&
+      CONFIG.DIAS_PRIORIDADE_ATRASO_INICIAL.includes(escolhido.diasAtrasoReal)
+    ) {
+      return 4;
+    }
+    if (
+      escolhido.situacaoKey === 'NEGATIVADO_SCPC' &&
+      escolhido.diasAtrasoReal === CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC
+    ) {
+      return 5;
+    }
+    return 6;
+  }
+
+  // Visita UM candidato: abre a aba, espera ficar pronta, lê situação +
+  // fluxo (Módulo 1) e promessas (Módulo 6), fecha a aba, devolve o
+  // resultado. Nunca lança -- qualquer falha vira { erro: '...' } pra não
+  // travar o restante do lote.
+  async function classificarCliente(cliente) {
+    const aba = window.open(cliente.url, '_blank');
+    if (!aba) {
+      console.warn(`[Fila Prioridade] Não consegui abrir aba para "${cliente.label}" -- pop-up bloqueado? Permita pop-ups pra este site e tente de novo.`);
+      return { cliente, erro: 'popup-bloqueado' };
+    }
+
+    try {
+      const pronto = await esperarAbaPronta(aba, CONFIG.TIMEOUT_CLASSIFICACAO_MS, CONFIG.INTERVALO_POLL_MS);
+      if (!pronto) {
+        console.warn(`[Fila Prioridade] "${cliente.label}" não carregou a tempo -- deixando de fora da lista.`);
+        return { cliente, erro: 'timeout' };
+      }
+
+      let dadosTitulos;
+      try {
+        dadosTitulos = aba.__avisoCobranca.simular();
+      } catch (erro) {
+        console.warn(`[Fila Prioridade] Falha ao ler títulos de "${cliente.label}":`, erro.message);
+        return { cliente, erro: 'falha-titulos' };
+      }
+
+      const escolhido = escolherTituloRepresentativo(dadosTitulos);
+      if (!escolhido) {
+        return { cliente, erro: 'sem-titulo-representativo' };
+      }
+
+      let promessas = [];
+      if (aba.__contextoAdicionalDebug && typeof aba.__contextoAdicionalDebug.lerPromessas === 'function') {
+        try {
+          promessas = aba.__contextoAdicionalDebug.lerPromessas();
+        } catch (erro) {
+          console.warn(`[Fila Prioridade] Falha ao ler promessas de "${cliente.label}" -- seguindo sem checar promessa futura:`, erro.message);
+        }
+      }
+
+      const hoje = normalizarData(new Date());
+      const temPromessaFutura = promessas.some(
+        (p) => p.dataPrometida && p.dataPrometida.getTime() > hoje.getTime()
+      );
+      if (temPromessaFutura) {
+        return { cliente, excluidoPorPromessaFutura: true };
+      }
+
+      const prioridade = determinarPrioridade(escolhido, dadosTitulos.fluxo, cliente.cluster);
+      return { cliente, escolhido, fluxo: dadosTitulos.fluxo, prioridade };
+    } finally {
+      try {
+        if (!aba.closed) aba.close();
+      } catch (erro) {
+        // aba pode já ter sido fechada manualmente -- ignora.
+      }
+    }
+  }
+
+  /* ---------------------------------------------------------------------
+   * 6. ORQUESTRAÇÃO (Alt+U)
+   * --------------------------------------------------------------------- */
+  async function iniciar() {
+    if (classificandoEmAndamento) {
+      toast('Já tem uma classificação em andamento -- aguarde terminar.');
+      return;
+    }
+
+    const candidatos = candidatosEnriquecidos();
+    if (candidatos === null) return; // aviso já foi ao console
+    if (candidatos.length === 0) {
+      toast('⚠️ Nenhum cliente encontrado nesta página com os seletores atuais.');
+      return;
+    }
+
+    const { sobreviventes, excluidos } = filtrarPorRegrasDaLista(candidatos);
+    if (sobreviventes.length === 0) {
+      toast('Nenhum cliente elegível depois dos filtros (dias de atraso, dia 1, movimentação de hoje).');
+      return;
+    }
+
+    classificandoEmAndamento = true;
+    atualizarIndicadorProgresso(`Classificando 0/${sobreviventes.length}...`);
+
+    const resultados = [];
+    let excluidosPorPromessa = 0;
+    let comErro = 0;
+
+    for (let i = 0; i < sobreviventes.length; i++) {
+      const cliente = sobreviventes[i];
+      atualizarIndicadorProgresso(`Classificando ${i + 1}/${sobreviventes.length}: ${cliente.label}`);
+
+      const resultado = await classificarCliente(cliente);
+      if (resultado.excluidoPorPromessaFutura) {
+        excluidosPorPromessa++;
+      } else if (resultado.erro) {
+        comErro++;
+      } else {
+        resultados.push(resultado);
+      }
+    }
+
+    removerIndicadorProgresso();
+    classificandoEmAndamento = false;
+
+    if (resultados.length === 0) {
+      toast('Classificação terminou, mas nenhum cliente ficou elegível pra fila.', 5000);
+      return;
+    }
+
+    // Ordena por prioridade (1 primeiro) e, dentro da mesma prioridade,
+    // por dias de atraso decrescente -- mesmo critério de urgência que o
+    // resto do sistema já usa.
+    resultados.sort((a, b) => {
+      if (a.prioridade !== b.prioridade) return a.prioridade - b.prioridade;
+      return b.escolhido.diasAtrasoReal - a.escolhido.diasAtrasoReal;
+    });
+
+    const clientesDaFila = resultados.map((r) => Object.assign({}, r.cliente, {
+      diasAtraso: r.escolhido.diasAtrasoReal,
+      prioridadeTier: r.prioridade,
+      prioridadeNome: NOMES_PRIORIDADE[r.prioridade],
+    }));
+
+    const fila = {
+      versao: window.filaDebug.CONFIG.VERSAO_SCHEMA,
+      clientes: clientesDaFila,
+      indiceAtual: -1,
+      totalAtendidos: 0,
+      totalPulados: 0,
+      iniciadoEm: Date.now(),
+    };
+    window.filaDebug.salvarFila(fila);
+
+    const resumoPartes = [`▶ Fila por prioridade: ${clientesDaFila.length} cliente(s)`];
+    if (excluidos.dias || excluidos.diaUm || excluidos.movimentacaoHoje) {
+      resumoPartes.push(
+        `${excluidos.dias + excluidos.diaUm + excluidos.movimentacaoHoje} excluído(s) pela lista (dias/dia 1/movimentação hoje)`
+      );
+    }
+    if (excluidosPorPromessa) resumoPartes.push(`${excluidosPorPromessa} excluído(s) por promessa futura`);
+    if (comErro) resumoPartes.push(`${comErro} com erro/timeout`);
+    toast(resumoPartes.join(' -- '), 5000);
+
+    console.log('[Fila Prioridade] Fila montada:', clientesDaFila);
+
+    setTimeout(() => {
+      window.location.href = clientesDaFila[0].url;
+    }, 400);
+  }
+
+  /* ---------------------------------------------------------------------
+   * 7. AVISO DE TROCA DE PRIORIDADE (roda em toda página, como o Módulo 3)
+   * --------------------------------------------------------------------- */
+  // Só reage a filas montadas por ESTE módulo (clientes com prioridadeTier
+  // definido) -- uma fila comum do Alt+I nunca tem esse campo, então isso
+  // nunca dispara pra ela. Compara o cliente atual com o anterior na fila;
+  // se a prioridade mudou (pra qualquer direção -- avançando ou voltando),
+  // avisa. Depende do Módulo 3 já ter rodado sincronizarPosicao() nesta
+  // mesma carga de página (é o que atualiza fila.indiceAtual pra bater com
+  // a URL atual) -- por isso este módulo precisa vir DEPOIS do Módulo 3 no
+  // @require.
+  function avisarSeTrocouDePrioridade() {
+    if (!window.filaDebug || typeof window.filaDebug.obterFila !== 'function') return;
+    const fila = window.filaDebug.obterFila();
+    if (!fila || fila.indiceAtual == null || fila.indiceAtual < 0) return;
+
+    const atual = fila.clientes[fila.indiceAtual];
+    if (!atual || atual.prioridadeTier == null) return; // não é uma fila por prioridade
+
+    if (fila.indiceAtual === 0) {
+      toast(`Prioridade ${atual.prioridadeTier}: ${atual.prioridadeNome}`, 4000);
+      return;
+    }
+
+    const anterior = fila.clientes[fila.indiceAtual - 1];
+    if (anterior && anterior.prioridadeTier !== atual.prioridadeTier) {
+      toast(`Entrando na prioridade ${atual.prioridadeTier}: ${atual.prioridadeNome}`, 4500);
+    }
+  }
+
+  /* ---------------------------------------------------------------------
+   * 8. INICIALIZAÇÃO
+   * --------------------------------------------------------------------- */
+  function aoCarregar() {
+    // Dá tempo do Módulo 3 rodar sincronizarPosicao() primeiro (mesmo
+    // documento, ordem de @require já garante isso na prática, mas o
+    // setTimeout(0) é uma rede de segurança barata contra reordenação
+    // futura por engano).
+    setTimeout(() => {
+      try {
+        avisarSeTrocouDePrioridade();
+      } catch (erro) {
+        console.error('[Fila Prioridade] Erro ao checar troca de prioridade -- continuando mesmo assim.', erro);
+      }
+    }, 0);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', aoCarregar);
+  } else {
+    aoCarregar();
+  }
+
+  window.filaPrioridadeDebug = {
+    CONFIG,
+    NOMES_PRIORIDADE,
+    iniciar,
+    candidatosEnriquecidos,
+    filtrarPorRegrasDaLista,
+    determinarPrioridade,
+    escolherTituloRepresentativo,
+  };
+})();

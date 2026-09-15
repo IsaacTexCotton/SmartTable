@@ -747,7 +747,9 @@
   // Helpers de depuração e ganchos usados pelo Módulo 4 (Atalhos de
   // Teclado). Acessíveis no console (Isaac já usa o DevTools ativamente).
   window.filaDebug = {
+    CONFIG,
     obterFila,
+    salvarFila,
     limparFila,
     construirFilaAPartirDaPagina,
     iniciarFila,

@@ -4,6 +4,9 @@
  * Atalhos (todos com Alt, pra não colidir com atalhos do navegador/CRM):
  *
  *   Alt + I  -> Iniciar Fila de Atendimento   (na página de lista)
+ *   Alt + U  -> Iniciar Fila por Prioridade   (na página de lista -- visita
+ *               cada cliente em aba de fundo pra classificar por situação
+ *               real, pode levar minutos; ver Módulo 7)
  *   Alt + R  -> Gerar Relatório               (na página do cliente)
  *   Alt + C  -> Entrar na tela de contato     (na página do cliente)
  *   Alt + F  -> Selecionar a 1ª frase padrão  (dentro da tela de contato)
@@ -23,10 +26,12 @@
  * sozinho mais -- isso é sempre uma decisão sua).
  *
  * Onde colar: anexado ao FINAL do smart-table.js, depois dos módulos 1, 2,
- * 3 (Fila de Atendimento) e 5 (Alerta de Grupo). Depende do Módulo 3 estar
- * carregado antes (usa window.filaDebug.iniciarFila / irParaProximo /
- * irParaAnterior) e do Módulo 5 (usa window.__alertaGrupo pra linha de
- * grupo com vencido na mensagem e pro Alt+G).
+ * 3 (Fila de Atendimento), 7 (Fila por Prioridade) e 5 (Alerta de Grupo).
+ * Depende do Módulo 3 estar carregado antes (usa window.filaDebug.iniciarFila
+ * / irParaProximo / irParaAnterior), do Módulo 7 (usa
+ * window.filaPrioridadeDebug.iniciar pro Alt+U) e do Módulo 5 (usa
+ * window.__alertaGrupo pra linha de grupo com vencido na mensagem e pro
+ * Alt+G).
  * * IMPORTANTE — dois atalhos ainda precisam de confirmação sua:
  *   "Gerar Relatório" e "Entrar na tela de contato" não têm uma função
  *   global exposta que eu conheça, então este módulo procura o botão certo
@@ -48,6 +53,7 @@
   const CONFIG_ATALHOS = {
     // Teclas físicas (event.code), sempre combinadas com Alt.
     TECLA_INICIAR_FILA: 'KeyI',
+    TECLA_FILA_PRIORIDADE: 'KeyU',
     TECLA_GERAR_RELATORIO: 'KeyR',
     TECLA_ABRIR_CONTATO: 'KeyC',
     TECLA_PROXIMO_DA_FILA: 'KeyP',
@@ -94,6 +100,7 @@
   // desalinhados entre si.
   const LISTA_ATALHOS = [
     { tecla: 'Alt+I', descricao: 'Iniciar Fila de Atendimento' },
+    { tecla: 'Alt+U', descricao: 'Iniciar Fila por Prioridade (visita cada cliente em aba de fundo pra classificar -- pode levar minutos)' },
     { tecla: 'Alt+R', descricao: 'Gerar Relatório' },
     { tecla: 'Alt+C', descricao: 'Entrar na tela de contato' },
     { tecla: 'Alt+F', descricao: 'Selecionar a 1ª frase padrão' },
@@ -276,6 +283,14 @@
       window.filaDebug.iniciarFila();
     } else {
       console.warn('[Atalhos] Módulo de Fila (Módulo 3) não encontrado. Confirme se ele foi colado ANTES deste arquivo.');
+    }
+  }
+
+  function acionarFilaPorPrioridade() {
+    if (window.filaPrioridadeDebug && typeof window.filaPrioridadeDebug.iniciar === 'function') {
+      window.filaPrioridadeDebug.iniciar();
+    } else {
+      console.warn('[Atalhos] Módulo de Fila por Prioridade (Módulo 7) não encontrado. Confirme se ele foi colado ANTES deste arquivo.');
     }
   }
 
@@ -1423,6 +1438,10 @@
         case CONFIG_ATALHOS.TECLA_INICIAR_FILA:
           e.preventDefault();
           acionarIniciarFila();
+          break;
+        case CONFIG_ATALHOS.TECLA_FILA_PRIORIDADE:
+          e.preventDefault();
+          acionarFilaPorPrioridade();
           break;
         case CONFIG_ATALHOS.TECLA_GERAR_RELATORIO:
           e.preventDefault();
