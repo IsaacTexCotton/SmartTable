@@ -6,7 +6,9 @@
 //   1. Calcula um resumo padronizado ("Enviado cobranca Xo dia.") a partir
 //      da classificacao que o modulo de Aviso de Cobranca ja calcula.
 //      Prioridade: titulo no ULTIMO_DIA (6o dia, fluxo cartorio) vence o
-//      titulo mais vencido do cliente.
+//      titulo mais vencido do cliente. EXCECAO: cliente sem nenhum contato
+//      registrado ainda registra "Primeiro contato - Tentativa" em vez do
+//      dia de atraso (ver ehPrimeiroContato).
 //   2. Registra o contato via API com esse resumo (canal=WHATSAPP,
 //      resultado=REGISTRO), sem depender do formulario nem do texto que
 //      esta na caixa de observacao.
@@ -41,9 +43,29 @@
         return lista.reduce((a, b) => (b.diasAtrasoReal > a.diasAtrasoReal ? b : a));
     }
 
+    // PEDIDO DO USUARIO: cliente sem NENHUM contato registrado ainda nao
+    // esta em regua de cobranca -- registrar "Enviado cobranca Xo dia."
+    // nesse caso conta uma historia errada no CRM (o dia de atraso do
+    // titulo nao e o dia de cobranca do cliente). O Alt+A ja trata esse
+    // caso na mensagem (so se apresenta e confirma o responsavel, ver
+    // semContatoAnterior no Modulo 4), entao a nota do CRM passa a bater
+    // com o que foi de fato enviado.
+    //
+    // semContatoAnterior vem do Modulo 6 (total de .contato-item na aba
+    // Contatos === 0). Se o Modulo 6 nao estiver disponivel, cai no
+    // comportamento de sempre -- este modulo nunca dependeu dele, entao a
+    // ausencia nao pode quebrar nada.
+    const RESUMO_PRIMEIRO_CONTATO = 'Primeiro contato - Tentativa';
+
+    function ehPrimeiroContato() {
+        return !!(window.__contextoAdicional && window.__contextoAdicional.semContatoAnterior);
+    }
+
     // Reaproveita a classificacao ja calculada pelo modulo de Aviso de
     // Cobranca, em vez de duplicar aqui o calculo de prazos e feriados.
     function calcularResumoPadronizado() {
+        if (ehPrimeiroContato()) return RESUMO_PRIMEIRO_CONTATO;
+
         if (!window.__avisoCobranca || typeof window.__avisoCobranca.simular !== 'function') {
             console.warn('[registrar-enviar] Módulo de Aviso de Cobrança indisponível; usando resumo genérico.');
             return 'Enviado cobrança.';

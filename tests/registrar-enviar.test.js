@@ -36,10 +36,11 @@ function mirrorGlobals(dom) {
   global.requestAnimationFrame = dom.window.requestAnimationFrame;
 }
 
-function novaJanela(registros) {
+function novaJanela(registros, contextoAdicional) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://texhub.texcotton.com.br/crm/clientes/grupo/0?cnpj=AAA' });
   mirrorGlobals(dom);
   dom.window.__avisoCobranca = { simular: () => ({ registros }) };
+  if (contextoAdicional) dom.window.__contextoAdicional = contextoAdicional;
   dom.window.eval(CODIGO);
   return dom.window;
 }
@@ -110,6 +111,51 @@ function registro(situacaoKey, diasAtrasoReal) {
   const w = novaJanela([registro('EM_CARTORIO', 10), registro('EM_CARTORIO', 30)]);
   const texto = w.__testarResumoPadronizado();
   checar('com TODOS os títulos em cartório, ainda escolhe o de maior atraso entre eles (defensivo)', texto === 'Enviado cobrança 30º dia.', texto);
+})();
+
+// =====================================================================
+// 8b. PEDIDO DO USUÁRIO: cliente sem nenhum contato registrado ainda não
+// está em régua de cobrança -- a nota do CRM registra "Primeiro contato -
+// Tentativa" em vez do dia de atraso do título (que não é o dia de
+// cobrança do cliente). Bate com a mensagem que o Alt+A já manda nesse
+// caso (só apresentação + confirmação do responsável).
+// =====================================================================
+(function () {
+  const w = novaJanela([registro('ULTIMO_DIA', 6)], { semContatoAnterior: true });
+  const texto = w.__testarResumoPadronizado();
+  checar('primeiro contato -> "Primeiro contato - Tentativa" (não o dia de atraso)', texto === 'Primeiro contato - Tentativa', texto);
+})();
+
+(function () {
+  // Mesmo com título em situação "urgente", primeiro contato continua
+  // sendo primeiro contato -- a exceção vem ANTES de qualquer regra de
+  // priorização de título.
+  const w = novaJanela([registro('EM_CARTORIO', 45), registro('NEGATIVADO_SCPC', 19)], { semContatoAnterior: true });
+  const texto = w.__testarResumoPadronizado();
+  checar('primeiro contato vence sobre qualquer priorização de título', texto === 'Primeiro contato - Tentativa', texto);
+})();
+
+(function () {
+  // Cliente COM contato anterior mantém o resumo de sempre.
+  const w = novaJanela([registro('ULTIMO_DIA', 6)], { semContatoAnterior: false });
+  const texto = w.__testarResumoPadronizado();
+  checar('cliente com contato anterior mantém "Enviado cobrança Xº dia."', texto === 'Enviado cobrança 6º dia.', texto);
+})();
+
+(function () {
+  // Sem Módulo 6 disponível (window.__contextoAdicional indefinido), cai
+  // no comportamento de sempre -- o Módulo 2 nunca dependeu dele.
+  const w = novaJanela([registro('ULTIMO_DIA', 6)]);
+  const texto = w.__testarResumoPadronizado();
+  checar('sem window.__contextoAdicional (Módulo 6 ausente), mantém o resumo de sempre', texto === 'Enviado cobrança 6º dia.', texto);
+})();
+
+(function () {
+  // Primeiro contato sem título nenhum classificado também não vira o
+  // genérico "Enviado cobrança." -- a exceção é checada antes disso.
+  const w = novaJanela([], { semContatoAnterior: true });
+  const texto = w.__testarResumoPadronizado();
+  checar('primeiro contato sem títulos ainda registra "Primeiro contato - Tentativa"', texto === 'Primeiro contato - Tentativa', texto);
 })();
 
 // =====================================================================
