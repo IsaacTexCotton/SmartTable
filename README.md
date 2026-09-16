@@ -115,8 +115,8 @@ Cada `tests/*.test.js` cobre um módulo (fila de atendimento, mensagens do
 Alt+A, fila por prioridade, snapshot de pagamento, contato recente,
 aviso de não cobrar, alerta de grupo econômico, geração de relatório de
 outras razões, resumo do "Registrar e Enviar", agendamento rápido de
-pagamento e contexto de promessa de pagamento). Rode `npm test` antes de
-subir qualquer mudança em
+pagamento, contexto de promessa de pagamento e cliente nunca contatado
+por este negociador). Rode `npm test` antes de subir qualquer mudança em
 `modulos/` —
 esses testes já pegaram bugs reais nesta base de código (ex.: o bug crítico
 de `normalizarData` corrigido no Módulo 0).

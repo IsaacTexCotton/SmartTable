@@ -46,6 +46,7 @@ function ctxBase(overrides) {
     titulosPagosDesdeUltimaVisita: [],
     semContatoAnterior: false,
     contatoAntigo: false,
+    nuncaContatadoPorMim: false,
     calcularTitulosPendentes: (t) => t,
   }, overrides || {});
 }
@@ -281,6 +282,25 @@ situacoesBase.forEach((sit) => {
     houvePromessaNoUltimoContato: false,
     temPromessaAtiva: false,
     semContatoAnterior: false,
+  });
+}
+
+// --- nuncaContatadoPorMim (PEDIDO DO USUÁRIO): cliente já contatado por
+// outro negociador, mas nunca por este -- recebe a mesma linha de
+// apresentação, por um motivo diferente do contatoAntigo.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  situacoesBase.forEach((sit) => {
+    const dados = { registros: [registro(sit)], fluxo: 'CARTORIO' };
+    window.__contextoAdicional = ctxBase({ nuncaContatadoPorMim: true });
+    rodarCenario({
+      descricao: `nuncaContatadoPorMim=true, sit=${sit}`,
+      dados,
+      situacaoEscolhida: sit,
+      houvePromessaNoUltimoContato: false,
+      temPromessaAtiva: false,
+      semContatoAnterior: false,
+    });
   });
 }
 
@@ -732,6 +752,37 @@ scpcDias.forEach((dias) => {
       mensagem: msg,
     });
   }
+}
+
+// --- PEDIDO DO USUÁRIO: a linha de apresentação sai pelos DOIS motivos
+// (contatoAntigo e nuncaContatadoPorMim), nunca duplicada quando os dois
+// valem ao mesmo tempo, e continua fora quando nenhum dos dois vale.
+{
+  const APRESENTACAO = 'Sou o Isaac do financeiro da Tex Cotton';
+  const contarApresentacoes = (msg) => (msg.match(/Sou o Isaac do financeiro da Tex Cotton/g) || []).length;
+
+  const casos = [
+    { descricao: 'nuncaContatadoPorMim=true -> linha de apresentação presente', ctx: { nuncaContatadoPorMim: true }, esperado: 1 },
+    { descricao: 'contatoAntigo=true -> linha de apresentação presente (sem regressão)', ctx: { contatoAntigo: true }, esperado: 1 },
+    { descricao: 'os dois motivos juntos -> apresentação aparece UMA vez só', ctx: { contatoAntigo: true, nuncaContatadoPorMim: true }, esperado: 1 },
+    { descricao: 'nenhum dos dois -> sem linha de apresentação', ctx: {}, esperado: 0 },
+  ];
+
+  casos.forEach((caso) => {
+    window.__alertaGrupo = { empresasComVencido: [] };
+    window.__contextoAdicional = ctxBase(caso.ctx);
+    const dados = { registros: [registro('EM_ATRASO')], fluxo: 'CARTORIO' };
+    const msg = montar(dados);
+    total++;
+    const quantidade = msg ? contarApresentacoes(msg) : -1;
+    if (quantidade !== caso.esperado) {
+      achados.push({
+        cenario: caso.descricao,
+        problemas: [`Esperava ${caso.esperado} ocorrência(s) de "${APRESENTACAO}", achei ${quantidade}.`],
+        mensagem: msg,
+      });
+    }
+  });
 }
 
 console.log(`[mensagens] ${total - achados.length}/${total} cenários passaram (${achados.length} achado(s)).`);

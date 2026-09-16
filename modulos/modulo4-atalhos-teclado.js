@@ -669,14 +669,22 @@
    * --------------------------------------------------------------------- */
   // CONFIRMADO com o usuário: diferente do caso de zero contatos (que vira
   // uma mensagem só de identificação, sem relatório -- ver semContatoAnterior
-  // em montarMensagemPersonalizada), aqui o cliente TEM contato registrado,
-  // só que o mais recente é anterior à data de corte (Módulo 6). Mensagem
-  // continua normal (relatório, situação, promessa), só ganha essa linha a
-  // mais logo após a saudação -- sem a pergunta de confirmação de
+  // em montarMensagemPersonalizada), aqui o cliente TEM contato registrado.
+  // Mensagem continua normal (relatório, situação, promessa), só ganha essa
+  // linha a mais logo após a saudação -- sem a pergunta de confirmação de
   // responsável, já que já houve contato antes.
-  function obterLinhaApresentacaoContatoAntigo() {
+  //
+  // DOIS motivos levam à mesma linha, e CONFIRMADO com o usuário que "as
+  // duas devem coexistir":
+  //   - contatoAntigo: já falamos com o cliente, mas faz tanto tempo
+  //     (anterior à data de corte, Módulo 6) que ele não deve lembrar.
+  //   - nuncaContatadoPorMim (PEDIDO DO USUÁRIO): o cliente já foi contatado
+  //     por OUTRO negociador, mas nunca por este -- do lado dele é a
+  //     primeira vez que esta pessoa fala com ele, então cabe se apresentar.
+  function obterLinhaApresentacao() {
     const ctx = window.__contextoAdicional;
-    if (!ctx || !ctx.contatoAntigo) return '';
+    if (!ctx) return '';
+    if (!ctx.contatoAntigo && !ctx.nuncaContatadoPorMim) return '';
     return 'Sou o Isaac do financeiro da Tex Cotton referente as marcas Animê, Bimbi, Youccie, Authoria e Momi';
   }
 
@@ -887,7 +895,7 @@
     const linhaScpcAdicional = obterLinhaNegativadoScpcAdicional(escolhido, dados);
     const linhaSituacao = [linhaContexto, linhaCartorioAdicional, linhaScpcAdicional].filter((l) => l).join(' ');
 
-    const linhaApresentacao = obterLinhaApresentacaoContatoAntigo();
+    const linhaApresentacao = obterLinhaApresentacao();
     const linhaAgradecimentoPagamento = obterLinhaAgradecimentoPagamento();
     const linhaContatoRecente = obterLinhaContatoRecente();
     const linhaPromessa = obterLinhaPromessa();

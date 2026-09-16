@@ -55,7 +55,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.71';
+  const VERSAO_SMARTTABLE = '1.1.0';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -108,6 +108,13 @@
     // os contatos são anteriores -- checar só o mais recente já cobre isso),
     // recebe uma linha de apresentação extra na mensagem (ver contatoAntigo).
     DATA_CORTE_CONTATO_ANTIGO: { ano: 2026, mes: 8, dia: 10 }, // 10/08/2026
+    // CONFIRMADO com o usuário: código do negociador dono desta carteira, do
+    // jeito que o CRM grava em data-usuario de cada .contato-item (formato
+    // confirmado ao vivo: "ISAAC.03876", "BIANCA.03665"). Cliente que já foi
+    // contatado por OUTRA pessoa mas nunca por este usuário também recebe a
+    // linha de apresentação (ver nuncaContatadoPorMim) -- é o primeiro
+    // contato DELE com o cliente, mesmo que o cliente já conheça a empresa.
+    USUARIO_NEGOCIADOR: 'ISAAC.03876',
   };
 
   /* ---------------------------------------------------------------------
@@ -257,6 +264,9 @@
       .map((item) => ({
         data: converterDataBr(item.dataset.data),
         efetivo: item.dataset.efetivo === 'true',
+        // Quem registrou o contato ("ISAAC.03876", "BIANCA.03665") --
+        // confirmado ao vivo no HTML real (data-usuario).
+        usuario: (item.dataset.usuario || '').trim(),
       }))
       .filter((c) => c.data);
   }
@@ -516,6 +526,24 @@
     return maisRecente.data.getTime() < dataCorte.getTime();
   }
 
+  // PEDIDO DO USUÁRIO: cliente que JÁ tem contato registrado, mas nenhum
+  // deles feito por ele (CONFIG_CONTEXTO.USUARIO_NEGOCIADOR) -- do ponto de
+  // vista do cliente a empresa já falou com ele, mas do ponto de vista do
+  // negociador é o primeiro contato dele com aquele cliente, então cabe se
+  // apresentar. Cliente com ZERO contatos não entra aqui de propósito: esse
+  // caso já tem mensagem própria (ver semContatoAnterior), que também se
+  // apresenta -- contar os dois juntos duplicaria a apresentação.
+  //
+  // Convive com contatoAntigo (CONFIRMADO com o usuário: "as duas devem
+  // coexistir") -- são motivos diferentes pra mesma linha: aqui é "nunca
+  // falei com você", lá é "faz muito tempo que falei com você".
+  function calcularNuncaContatadoPorMim(totalContatos) {
+    if (totalContatos === 0) return false;
+    const contatos = lerTodosContatos();
+    if (contatos.length === 0) return false;
+    return !contatos.some((c) => c.usuario === CONFIG_CONTEXTO.USUARIO_NEGOCIADOR);
+  }
+
   // CONFIRMADO com o usuário (bug real): se existe uma promessa datada
   // pro mesmo dia do último contato -- INDEPENDENTE do status atual dela
   // (mesmo já paga/resolvida, então fora de calcularContextoPromessa) --
@@ -540,6 +568,7 @@
       titulosPagosDesdeUltimaVisita: infoPagamento.titulos,
       semContatoAnterior: totalContatos === 0,
       contatoAntigo: calcularContatoAntigo(totalContatos),
+      nuncaContatadoPorMim: calcularNuncaContatadoPorMim(totalContatos),
       calcularTitulosPendentes,
     };
   }
@@ -553,7 +582,7 @@
       console.log('[Contexto Adicional] Calculado:', window.__contextoAdicional);
     } catch (erro) {
       console.warn('[Contexto Adicional] Falha ao calcular -- Alt+A segue funcionando sem essas linhas extras:', erro.message);
-      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
+      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, nuncaContatadoPorMim: false, calcularTitulosPendentes };
     }
   }
 
@@ -581,7 +610,7 @@
         console.warn(
           '[Contexto Adicional] Containers de Promessas/Contatos não encontrados nesta página -- normal fora da tela de cliente.'
         );
-        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, calcularTitulosPendentes };
+        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, nuncaContatadoPorMim: false, calcularTitulosPendentes };
       }
     }, 5000);
   }
@@ -611,6 +640,7 @@
     calcularContextoPromessa,
     calcularContextoContato,
     calcularContatoAntigo,
+    calcularNuncaContatadoPorMim,
     CHAVE_SNAPSHOT_TITULOS,
     DIAS_EXPIRACAO_SNAPSHOT_TITULOS,
     lerSnapshotsTitulos,
