@@ -36,6 +36,31 @@ já tomada e confirmada.
 **Nota sobre a URL de atualização**: `@updateURL`/`@downloadURL`/`@require`
 apontam para a branch `main`.
 
+## Versionamento
+
+`@version` em `smart-table.user.js` segue `MAJOR.MINOR.PATCH`, com critério
+fixo (decidido com o usuário) — em caso de dúvida entre duas categorias,
+sempre a MAIS ALTA das duas, nunca a mais baixa:
+
+- **PATCH** (`1.0.x`) — só correção de bug, ajuste de texto/frase, ajuste
+  visual (cor, espaçamento) ou refino de teste, sem mudar o que o script FAZ.
+  Ex.: corrigir uma frase que saía sem informação, corrigir um banner que
+  ficava por cima do modal errado.
+- **MINOR** (`1.x.0`) — qualquer atalho, botão, critério de faixa/prioridade
+  ou regra de negócio NOVA, e qualquer REORDENAÇÃO/redesenho de uma regra já
+  existente (mesmo sem adicionar um recurso novo — mudar a ordem da régua de
+  prioridade É uma mudança de comportamento observável, não um ajuste).
+  Ex.: os 3 botões de agendamento rápido, a deduplicação por grupo
+  econômico, a reordenação da régua de prioridade.
+- **MAJOR** (`x.0.0`) — só quando exige atenção do usuário ANTES de
+  atualizar: muda o formato salvo no `localStorage` de forma incompatível
+  com filas/retratos já salvos, remove ou remapeia um atalho existente, ou
+  muda uma mensagem automática de um jeito que o usuário não controla mais
+  (ex.: passa a enviar sem revisão manual). Nunca por acúmulo de MINORs --
+  só por uma mudança que quebra ou exige leitura do changelog antes de usar.
+
+`VERSAO_SMARTTABLE` no Módulo 6 é bumpado em lockstep, sempre.
+
 ## Opção 2: Local Overrides do Chrome DevTools (forma original)
 
 Colar o conteúdo dos 6 módulos, nessa ordem, no Local Override do arquivo
