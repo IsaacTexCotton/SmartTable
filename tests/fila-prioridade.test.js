@@ -150,7 +150,11 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
 })();
 
 // =====================================================================
-// 6. determinarPrioridade -- as 6 faixas, na ordem certa (waterfall)
+// 6. determinarPrioridade -- as 10 faixas, na ordem certa (waterfall).
+// PEDIDO DO USUÁRIO (2ª revisão): reordenou a régua inteira -- "segundo
+// dia" virou faixa própria (P3, bem no topo), SCPC-último-dia desceu de
+// P3 pra P6 (abaixo das faixas de promessa), e entrou uma faixa nova P8
+// pra conta "esquecida" (última movimentação há mais de 30 dias).
 // =====================================================================
 (function () {
   const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
@@ -158,27 +162,28 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
 
   checar('P1: ULTIMO_DIA + Cartório', dp(registro('ULTIMO_DIA', 6), 'CARTORIO', 'Normal') === 1);
   checar('P2: Cluster Novo (mesmo em EM_ATRASO comum)', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Novo') === 2);
-  checar('P2 vence sobre P3/P6 quando aplicável simultaneamente', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Novo') === 2, 'deveria ser 2, não 3, pois P2 vem antes de P3 na checagem');
+  checar('P2 vence sobre P3/P6 quando aplicável simultaneamente', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Novo') === 2, 'deveria ser 2, não 6, pois P2 vem antes de P6 na checagem');
   checar('P1 vence sobre P2 quando os dois se aplicam (Cartório+Novo)', dp(registro('ULTIMO_DIA', 6), 'CARTORIO', 'Novo') === 1, 'P1 é checado primeiro, deve vencer');
-  checar('P3: ULTIMO_DIA + SCPC (sem cluster Novo)', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Normal') === 3);
-  checar('P6: EM_ATRASO dia 2', dp(registro('EM_ATRASO', 2), 'CARTORIO', 'Normal') === 6);
-  checar('P6: EM_ATRASO dia 3', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 6);
-  checar('P6: EM_ATRASO dia 4', dp(registro('EM_ATRASO', 4), 'CARTORIO', 'Normal') === 6);
-  checar('P6 vale pros dois fluxos ("de ambos")', dp(registro('EM_ATRASO', 3), 'SCPC', 'Normal') === 6);
-  checar('EM_ATRASO dia 5 NÃO é atraso inicial (cai no resto -> P8)', dp(registro('EM_ATRASO', 5), 'CARTORIO', 'Normal') === 8);
+  checar('P3: segundo dia de EM_ATRASO (dia 2 exato)', dp(registro('EM_ATRASO', 2), 'CARTORIO', 'Normal') === 3);
+  checar('P3 vale pros dois fluxos ("de ambos")', dp(registro('EM_ATRASO', 2), 'SCPC', 'Normal') === 3);
+  checar('EM_ATRASO dia 3 NÃO é "segundo dia" (é atraso inicial, P9)', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 9);
+  checar('P6: ULTIMO_DIA + SCPC (sem cluster Novo)', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Normal') === 6);
   checar('P7: NEGATIVADO_SCPC dia 19 exato', dp(registro('NEGATIVADO_SCPC', 19), 'SCPC', 'Normal') === 7);
-  checar('NEGATIVADO_SCPC dia 18 NÃO é P7 (cai no resto -> P8)', dp(registro('NEGATIVADO_SCPC', 18), 'SCPC', 'Normal') === 8);
-  checar('NEGATIVADO_SCPC dia 10 NÃO é P7 (cai no resto -> P8)', dp(registro('NEGATIVADO_SCPC', 10), 'SCPC', 'Normal') === 8);
-  checar('P8: EM_CARTORIO no meio do caminho (nenhuma faixa específica)', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal') === 8);
-  checar('P8: PRAZO_FINAL', dp(registro('PRAZO_FINAL', 6), 'CARTORIO', 'Normal') === 8);
+  checar('NEGATIVADO_SCPC dia 18 NÃO é P7 (cai no resto -> P10)', dp(registro('NEGATIVADO_SCPC', 18), 'SCPC', 'Normal') === 10);
+  checar('NEGATIVADO_SCPC dia 10 NÃO é P7 (cai no resto -> P10)', dp(registro('NEGATIVADO_SCPC', 10), 'SCPC', 'Normal') === 10);
+  checar('P9: EM_ATRASO dia 3', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 9);
+  checar('P9: EM_ATRASO dia 4', dp(registro('EM_ATRASO', 4), 'CARTORIO', 'Normal') === 9);
+  checar('EM_ATRASO dia 5 NÃO é atraso inicial (cai no resto -> P10)', dp(registro('EM_ATRASO', 5), 'CARTORIO', 'Normal') === 10);
+  checar('P10: EM_CARTORIO no meio do caminho (nenhuma faixa específica)', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal') === 10);
+  checar('P10: PRAZO_FINAL', dp(registro('PRAZO_FINAL', 6), 'CARTORIO', 'Normal') === 10);
   checar('cluster com espaços/maiúsculas ainda reconhece "Novo"', dp(registro('EM_ATRASO', 3), 'CARTORIO', '  NOVO  ') === 2);
 })();
 
 // =====================================================================
-// 6b. NOVO (pedido do usuário): promessa entra na régua de prioridade.
-// Antes, quem prometeu pagar HOJE ou quebrou a promessa caía em "demais
-// dias" (última faixa) e era atendido por último -- justamente os
-// contatos de maior conversão da carteira.
+// 6b. Promessa entra na régua de prioridade (P4/P5) -- continua acima de
+// SCPC-último-dia (P6) e do aviso de suspensão (P7), mesmo depois da
+// reordenação: quem já se comprometeu continua sendo o contato de maior
+// conversão da carteira.
 // =====================================================================
 (function () {
   const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
@@ -190,27 +195,80 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
   checar('P5: promessa parcial (PARCIAL) entra na mesma faixa de "não cumprida"', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', promessa('PARCIAL')) === 5);
 
   checar(
-    'BUG CORRIGIDO: quem quebrou a promessa NÃO cai mais em "demais dias" (P8)',
-    dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', promessa('QUEBRADA')) !== 8
+    'BUG CORRIGIDO (1ª revisão): quem quebrou a promessa NÃO cai mais em "demais dias" (P10)',
+    dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', promessa('QUEBRADA')) !== 10
   );
   checar(
-    'promessa vence sobre atraso inicial (P4/P5 antes de P6)',
+    'promessa vence sobre segundo dia (P4/P5 antes de P3? NÃO -- P3 é checado ANTES, vence)',
+    dp(registro('EM_ATRASO', 2), 'CARTORIO', 'Normal', promessa('DIA_DA_PROMESSA')) === 3,
+    'segundo dia (P3) é checado antes das faixas de promessa (P4/P5) na régua nova'
+  );
+  checar(
+    'promessa vence sobre atraso inicial (P4/P5 antes de P9)',
     dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal', promessa('DIA_DA_PROMESSA')) === 4
+  );
+  checar(
+    'promessa vence sobre SCPC-último-dia (P5 antes de P6)',
+    dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Normal', promessa('QUEBRADA')) === 5
   );
   checar(
     'promessa vence sobre aviso final de suspensão (P5 antes de P7)',
     dp(registro('NEGATIVADO_SCPC', 19), 'SCPC', 'Normal', promessa('QUEBRADA')) === 5
   );
 
-  // Prazos irreversíveis continuam acima das promessas.
+  // Prazos irreversíveis (cartório-último-dia e cluster Novo) continuam
+  // acima das promessas -- só SCPC-último-dia desceu na reordenação.
   checar('P1 (cartório último dia) continua vencendo promessa', dp(registro('ULTIMO_DIA', 6), 'CARTORIO', 'Normal', promessa('DIA_DA_PROMESSA')) === 1);
   checar('P2 (cluster Novo) continua vencendo promessa', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Novo', promessa('QUEBRADA')) === 2);
-  checar('P3 (SCPC último dia) continua vencendo promessa', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Normal', promessa('QUEBRADA')) === 3);
 
   // Sem contexto de promessa (null/undefined) nada muda em relação a antes.
-  checar('sem promessa (null) -> régua normal', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal', null) === 6);
-  checar('sem promessa (argumento omitido) -> régua normal', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 6);
-  checar('tipo de promessa desconhecido não cria faixa nova', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal', promessa('QUALQUER_OUTRA')) === 6);
+  checar('sem promessa (null) -> régua normal', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal', null) === 9);
+  checar('sem promessa (argumento omitido) -> régua normal', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 9);
+  checar('tipo de promessa desconhecido não cria faixa nova', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal', promessa('QUALQUER_OUTRA')) === 9);
+})();
+
+// =====================================================================
+// 6c. NOVA (pedido do usuário): P8, última movimentação há mais de 30
+// dias corridos -- conta "esquecida". Usa movimentacaoDataIso + hoje
+// (normalizado, meio-dia), ambos opcionais na assinatura pra não quebrar
+// chamadas antigas.
+// =====================================================================
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const dp = w.filaPrioridadeDebug.determinarPrioridade;
+  const mm = w.filaPrioridadeDebug.movimentacaoMaisDeUmMes;
+
+  const hoje = new Date(2026, 8, 16, 12, 0, 0); // 16/09/2026, meio-dia
+  const isoHa10Dias = '2026-09-06T08:00:00.000000';
+  const isoHa31Dias = '2026-08-16T08:00:00.000000';
+  const isoHa30DiasExatos = '2026-08-17T08:00:00.000000';
+
+  checar('movimentacaoMaisDeUmMes: 10 dias atrás -> false', mm(isoHa10Dias, hoje) === false);
+  checar('movimentacaoMaisDeUmMes: 31 dias atrás -> true', mm(isoHa31Dias, hoje) === true);
+  checar('movimentacaoMaisDeUmMes: exatamente 30 dias -> false (é ">", não ">=")', mm(isoHa30DiasExatos, hoje) === false);
+  checar('movimentacaoMaisDeUmMes: sem data -> false', mm(null, hoje) === false);
+  checar('movimentacaoMaisDeUmMes: sem "hoje" -> false (defensivo)', mm(isoHa31Dias, null) === false);
+
+  checar(
+    'P8: EM_CARTORIO (sem faixa específica) com movimentação há 31 dias',
+    dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', null, isoHa31Dias, hoje) === 8
+  );
+  checar(
+    'sem movimentação antiga, mesmo cliente cai em "demais dias" (P10)',
+    dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', null, isoHa10Dias, hoje) === 10
+  );
+  checar(
+    'P8 vence sobre atraso inicial (P9) quando os dois se aplicam',
+    dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal', null, isoHa31Dias, hoje) === 8
+  );
+  checar(
+    'prazos irreversíveis (P1) continuam vencendo movimentação antiga',
+    dp(registro('ULTIMO_DIA', 6), 'CARTORIO', 'Normal', null, isoHa31Dias, hoje) === 1
+  );
+  checar(
+    'promessa (P4/P5) continua vencendo movimentação antiga',
+    dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', { tipo: 'QUEBRADA', promessa: { titulos: ['x'] } }, isoHa31Dias, hoje) === 5
+  );
 })();
 
 // =====================================================================
@@ -321,7 +379,7 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
 // Consequência esperada da regra de prioridade de pagamento (confirmada
 // pelo usuário) na Fila por Prioridade: cliente com um título velho em
 // EM_CARTORIO (45 dias) MAIS um título fresco em EM_ATRASO (3 dias, ainda
-// evitável) agora cai no atraso inicial (P6), não em "demais dias" -- porque
+// evitável) agora cai no atraso inicial (P9), não em "demais dias" -- porque
 // escolherTituloRepresentativo passa a escolher o título fora de cartório
 // como representante, e é ele que decide a prioridade.
 (function () {
@@ -333,8 +391,8 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
   const escolhido = escolher(dados);
   const prioridade = dp(escolhido, 'CARTORIO', 'Normal');
   checar(
-    'cliente com EM_CARTORIO 45 dias + EM_ATRASO 3 dias cai no atraso inicial (P6), não em "demais dias" (P8)',
-    prioridade === 6,
+    'cliente com EM_CARTORIO 45 dias + EM_ATRASO 3 dias cai no atraso inicial (P9), não em "demais dias" (P10)',
+    prioridade === 9,
     `prioridade=${prioridade}, escolhido=${JSON.stringify(escolhido)}`
   );
 })();
@@ -461,7 +519,7 @@ function resultadoFake({ cnpj, prioridade, dias, empresasComVencido }) {
     versao: w.filaDebug.CONFIG.VERSAO_SCHEMA,
     clientes: [
       { url: 'https://x/a', cnpj: 'A', label: 'Cliente A', diasAtraso: 6, prioridadeTier: 1, prioridadeNome: 'Cartório — último dia' },
-      { url: 'https://x/b', cnpj: 'B', label: 'Cliente B', diasAtraso: 3, prioridadeTier: 6, prioridadeNome: 'Atraso inicial (2º–4º dia)' },
+      { url: 'https://x/b', cnpj: 'B', label: 'Cliente B', diasAtraso: 3, prioridadeTier: 9, prioridadeNome: 'Atraso inicial (3º–4º dia)' },
     ],
     indiceAtual: -1,
     totalAtendidos: 0,
@@ -471,7 +529,7 @@ function resultadoFake({ cnpj, prioridade, dias, empresasComVencido }) {
   w.filaDebug.salvarFila(fila);
   const lida = w.filaDebug.obterFila();
   checar('fila montada pelo Módulo 7 é aceita de volta por obterFila (schema bate)', lida !== null, lida);
-  checar('campos de prioridade sobrevivem ao round-trip pelo localStorage', lida && lida.clientes[0].prioridadeTier === 1 && lida.clientes[1].prioridadeNome === 'Atraso inicial (2º–4º dia)');
+  checar('campos de prioridade sobrevivem ao round-trip pelo localStorage', lida && lida.clientes[0].prioridadeTier === 1 && lida.clientes[1].prioridadeNome === 'Atraso inicial (3º–4º dia)');
 })();
 
 // =====================================================================
@@ -485,7 +543,7 @@ const promessa11 = (function () {
     versao: w.filaDebug.CONFIG.VERSAO_SCHEMA,
     clientes: [
       { url: 'https://x/a', cnpj: 'A', label: 'A', diasAtraso: 6, prioridadeTier: 1, prioridadeNome: 'Cartório — último dia' },
-      { url: 'https://x/b', cnpj: 'B', label: 'B', diasAtraso: 3, prioridadeTier: 6, prioridadeNome: 'Atraso inicial (2º–4º dia)' },
+      { url: 'https://x/b', cnpj: 'B', label: 'B', diasAtraso: 3, prioridadeTier: 9, prioridadeNome: 'Atraso inicial (3º–4º dia)' },
     ],
     indiceAtual: 1,
     totalAtendidos: 1,
@@ -502,13 +560,13 @@ const promessa11 = (function () {
       // PEDIDO DO USUÁRIO: toast mais aparente -- borda de destaque
       // colorida por prioridade (atraso inicial = âmbar #B45309, ver
       // CORES_PRIORIDADE) e texto estruturado em rótulo + nome. A cor
-      // continua a mesma de antes da entrada das faixas de promessa --
-      // só o número da faixa mudou (4 -> 6).
+      // continua a mesma de antes das reordenações -- só o número da
+      // faixa mudou (4 -> 6 -> 9).
       const toastPrincipal = toasts.find((el) => el.style.borderLeft);
       checar('toast de troca tem borda de destaque colorida (mais aparente)', !!toastPrincipal, w.document.body.innerHTML);
       // jsdom normaliza cores hex pra rgb() -- #B45309 = rgb(180, 83, 9).
       checar('borda usa a cor certa pro atraso inicial (âmbar)', toastPrincipal && toastPrincipal.style.borderLeft.includes('180, 83, 9'), toastPrincipal && toastPrincipal.style.borderLeft);
-      checar('toast menciona o número da prioridade e o nome da faixa', toastPrincipal && /prioridade 6/i.test(toastPrincipal.textContent) && /atraso inicial/i.test(toastPrincipal.textContent), toastPrincipal && toastPrincipal.textContent);
+      checar('toast menciona o número da prioridade e o nome da faixa', toastPrincipal && /prioridade 9/i.test(toastPrincipal.textContent) && /atraso inicial/i.test(toastPrincipal.textContent), toastPrincipal && toastPrincipal.textContent);
       resolve();
     }, 20);
   });
@@ -672,7 +730,7 @@ const promessa15 = promessa14.then(async function () {
 // =====================================================================
 const promessa16 = promessa15.then(async function () {
   const cnpjUrgente = '20202020/0001-20'; // ULTIMO_DIA + Cartório -> prioridade 1
-  const cnpjMenosUrgente = '30303030/0001-30'; // EM_ATRASO dia 3 -> prioridade 6
+  const cnpjMenosUrgente = '30303030/0001-30'; // EM_ATRASO dia 3 -> prioridade 9 (atraso inicial)
   const html = [
     linhaHtml({ grupoId: 0, cnpj: cnpjUrgente, dias: 6 }),
     linhaHtml({ grupoId: 0, cnpj: cnpjMenosUrgente, dias: 3 }),
@@ -757,7 +815,7 @@ const promessa17 = promessa16.then(async function () {
         simular: () => ({
           fluxo: 'CARTORIO',
           registros: [quebrou
-            // Situação de título que, sozinha, cairia em "demais dias" (P8).
+            // Situação de título que, sozinha, cairia em "demais dias" (P10).
             ? { situacaoKey: 'EM_CARTORIO', diasAtrasoReal: 12, tituloCompleto: '3/1', vencimentoTexto: '01/09/2026' }
             : { situacaoKey: 'EM_ATRASO', diasAtrasoReal: 3, tituloCompleto: '4/1', vencimentoTexto: '01/09/2026' }],
           naoCobrar: [],
@@ -787,8 +845,8 @@ const promessa17 = promessa16.then(async function () {
     filaSalva && JSON.stringify(filaSalva.clientes[0])
   );
   checar(
-    'BUG CORRIGIDO: sem essa regra, EM_CARTORIO 12 dias cairia em "demais dias" (P8) e seria o último',
-    filaSalva && filaSalva.clientes[1].prioridadeTier === 6,
+    'BUG CORRIGIDO: sem essa regra, EM_CARTORIO 12 dias cairia em "demais dias" (P10) e seria o último',
+    filaSalva && filaSalva.clientes[1].prioridadeTier === 9,
     filaSalva && JSON.stringify(filaSalva.clientes[1])
   );
 });

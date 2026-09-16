@@ -7,31 +7,41 @@
  * dias de atraso. Atalho separado (Alt+U) -- o Alt+I original continua
  * exatamente como está, sem nenhuma mudança de comportamento.
  *
- * REGRA DE PRIORIDADE (CONFIRMADA com o usuário), em ordem -- cada cliente
- * entra na PRIMEIRA faixa que se aplicar a ele:
+ * REGRA DE PRIORIDADE (CONFIRMADA com o usuário -- 2ª revisão, reordenada
+ * por completo), em ordem -- cada cliente entra na PRIMEIRA faixa que se
+ * aplicar a ele:
  *   1. Cartório -- último dia (situação ULTIMO_DIA, fluxo Cartório)
  *   2. Cluster "Novo"
- *   3. SCPC -- último dia (situação ULTIMO_DIA, fluxo SCPC)
+ *   3. Segundo dia de atraso (situação EM_ATRASO, dia 2 exato -- contato
+ *      bem cedo, antes do problema crescer)
  *   4. Dia da promessa de pagamento (o cliente combinou pagar HOJE e o
  *      título continua em aberto -- ver DIA_DA_PROMESSA no Módulo 6)
  *   5. Promessa não cumprida (promessa vencida sem pagamento identificado
  *      e ainda sem nenhum contato registrado depois do vencimento -- ver
  *      QUEBRADA/PARCIAL no Módulo 6)
- *   6. Atraso inicial, 2º ao 4º dia (situação EM_ATRASO, dias 2-4 --
- *      dia 1 NÃO conta como dia de cobrança, fica de fora da lista)
+ *   6. SCPC -- último dia (situação ULTIMO_DIA, fluxo SCPC)
  *   7. Aviso final antes da suspensão (situação NEGATIVADO_SCPC, dia 19
  *      exato -- mesmo limiar usado pelo Módulo 4 pra mensagem)
- *   8. Demais dias (tudo que não caiu em nenhuma faixa acima)
+ *   8. Última movimentação há mais de um mês (30 dias corridos -- cliente
+ *      "esquecido", sem nenhum toque recente registrado na conta)
+ *   9. Atraso inicial, 3º ao 4º dia (situação EM_ATRASO, dias 3-4 --
+ *      dia 1 NÃO conta como dia de cobrança, fica de fora da lista; dia 2
+ *      já tem faixa própria acima, ver item 3)
+ *   10. Demais dias (tudo que não caiu em nenhuma faixa acima)
  *
- * POR QUE AS FAIXAS 4 E 5 FICAM AÍ (decisão explicada pro usuário): acima
- * delas ficam só os prazos IRREVERSÍVEIS (cartório, negativação) -- perder
- * um deles custa caro pro cliente. Abaixo delas fica a cobrança de rotina.
- * No meio entram os clientes que JÁ SE COMPROMETERAM: quem prometeu pagar
- * hoje só converte se for lembrado hoje (janela de um dia só), e quem
- * quebrou a promessa é o contato de maior conversão da carteira -- antes
- * eles caíam na faixa 6 ("demais dias") e eram atendidos por último.
- * O dado vem de window.__contextoAdicional.promessa, que o Módulo 6 já
- * calcula na mesma visita em aba de fundo -- custo zero de tempo.
+ * POR QUE AS FAIXAS 4 E 5 FICAM ACIMA DE SCPC-ÚLTIMO-DIA E DO AVISO DE
+ * SUSPENSÃO (decisão explicada pro usuário): são os clientes que JÁ SE
+ * COMPROMETERAM -- quem prometeu pagar hoje só converte se for lembrado
+ * hoje (janela de um dia só), e quem quebrou a promessa é o contato de
+ * maior conversão da carteira. O dado vem de
+ * window.__contextoAdicional.promessa, que o Módulo 6 já calcula na mesma
+ * visita em aba de fundo -- custo zero de tempo.
+ *
+ * "Última movimentação há mais de um mês" (faixa 8) usa o mesmo campo
+ * movimentacaoDataIso já lido da lista (window.CLIENTES) pra excluir quem
+ * mexeu HOJE -- aqui serve o propósito oposto, achar quem está PARADO há
+ * muito tempo (30 dias corridos), pra não deixar conta esquecida se
+ * perder entre as de rotina.
  *
  * EXCLUSÕES (nunca entram na lista, em nenhuma faixa):
  *   - Mais de 19 dias de atraso
@@ -102,8 +112,14 @@
     // Exclusões (confirmadas com o usuário).
     DIAS_ATRASO_MAX: 19,
     DIA_ATRASO_MIN_CONSIDERADO: 2, // dia 1 não é considerado dia de cobrança
-    // Prioridade 4: 2º ao 4º dia de EM_ATRASO.
-    DIAS_PRIORIDADE_ATRASO_INICIAL: [2, 3, 4],
+    // Prioridade 3: dia 2 de EM_ATRASO, sozinho (faixa própria, contato bem cedo).
+    DIA_PRIORIDADE_SEGUNDO_DIA: 2,
+    // Prioridade 9: 3º ao 4º dia de EM_ATRASO (dia 2 já saiu pra faixa própria acima).
+    DIAS_PRIORIDADE_ATRASO_INICIAL: [3, 4],
+    // Prioridade 8: última movimentação há mais desse tanto de dias corridos
+    // (CONFIRMADO com o usuário: 30 dias, mesmo padrão já usado noutro ponto
+    // do sistema -- expiração do retrato de títulos no Módulo 6).
+    DIAS_MOVIMENTACAO_ANTIGA: 30,
     // Prioridade 5 e escolha do título representativo: mesmos limiares do
     // aviso de suspensão de cadastro SCPC usados em todo o resto do sistema
     // -- vêm do Módulo 0 (window.__smartTableUtil), não são mais uma cópia
@@ -120,33 +136,38 @@
   const NOMES_PRIORIDADE = {
     1: 'Cartório — último dia',
     2: 'Cluster Novo',
-    3: 'SCPC — último dia',
+    3: 'Segundo dia',
     4: 'Dia da promessa de pagamento',
     5: 'Promessa não cumprida',
-    6: 'Atraso inicial (2º–4º dia)',
+    6: 'SCPC — último dia',
     7: 'Aviso final antes da suspensão',
-    8: 'Demais dias',
+    8: 'Última movimentação há mais de um mês',
+    9: 'Atraso inicial (3º–4º dia)',
+    10: 'Demais dias',
   };
 
   // Cor de destaque do aviso de troca de prioridade (ver toastTrocaPrioridade
   // abaixo) -- reaproveita tons já usados em outros pontos do sistema pra
   // não introduzir uma paleta nova: vermelho do rail ULTIMO_DIA (Módulo 1)
-  // pras duas faixas de "último dia", verde/vermelho-tijolo dos toasts de
-  // sucesso/erro (Módulo 2) pras duas faixas de promessa, âmbar do botão
-  // "Continuar fila anterior" (Módulo 3) pro atraso inicial, índigo do rail
-  // NEGATIVADO_SCPC (Módulo 1) pro aviso de suspensão, e o cinza neutro do
-  // rail EM_ATRASO pra "demais dias". Cada faixa mantém a MESMA cor de
-  // antes da entrada das faixas 4 e 5 (associação cor-significado
-  // preservada, só os números mudaram).
+  // pras duas faixas de "último dia" (cartório e SCPC -- mesmo significado,
+  // mesma cor, mesmo em posições diferentes da régua), verde/vermelho-tijolo
+  // dos toasts de sucesso/erro (Módulo 2) pras duas faixas de promessa,
+  // âmbar do botão "Continuar fila anterior" (Módulo 3) pro atraso inicial,
+  // índigo do rail NEGATIVADO_SCPC (Módulo 1) pro aviso de suspensão, e o
+  // cinza neutro do rail EM_ATRASO pra "demais dias". Duas cores novas pras
+  // duas faixas que não existiam antes: "segundo dia" (contato bem cedo) e
+  // "última movimentação há mais de um mês" (conta parada/esquecida).
   const CORES_PRIORIDADE = {
     1: '#A3251A',
     2: '#54407C',
-    3: '#A3251A',
+    3: '#0E7490',
     4: '#1B6B4A',
     5: '#8A2A16',
-    6: '#B45309',
+    6: '#A3251A',
     7: '#313A8C',
-    8: '#4E5D6C',
+    8: '#6B4226',
+    9: '#B45309',
+    10: '#4E5D6C',
   };
 
   /* ---------------------------------------------------------------------
@@ -351,6 +372,32 @@
     return dataStr === hojeStr;
   }
 
+  // Converte a parte "AAAA-MM-DD" de movimentacaoDataIso num Date normalizado
+  // (meio-dia, mesma convenção de normalizarData do Módulo 0) -- construído
+  // via new Date(ano, mes-1, dia) e NÃO via new Date("AAAA-MM-DD") de
+  // propósito: essa segunda forma é interpretada como UTC meia-noite pelo
+  // motor JS, podendo virar o dia errado dependendo do fuso do navegador
+  // (mesma pegadinha já evitada em converterDataBr no Módulo 6).
+  function dataDaMovimentacao(movimentacaoDataIso) {
+    if (!movimentacaoDataIso) return null;
+    const dataStr = String(movimentacaoDataIso).split('T')[0];
+    const m = dataStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return normalizarData(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  }
+
+  // Prioridade 8 (pedido do usuário): cliente cuja última movimentação
+  // registrada já passou de CONFIG.DIAS_MOVIMENTACAO_ANTIGA dias corridos --
+  // conta "esquecida", sem nenhum toque recente. hoje já vem normalizado
+  // (normalizarData) de quem chama, pra bater com a mesma meia-noite/
+  // meio-dia usados no resto do sistema.
+  function movimentacaoMaisDeUmMes(movimentacaoDataIso, hoje) {
+    const data = dataDaMovimentacao(movimentacaoDataIso);
+    if (!data || !hoje) return false;
+    const diasCorridos = (hoje.getTime() - data.getTime()) / (24 * 60 * 60 * 1000);
+    return diasCorridos > CONFIG.DIAS_MOVIMENTACAO_ANTIGA;
+  }
+
   // Exclusões que já dá pra decidir só com o que a lista mostra -- não
   // precisa visitar ninguém pra isso.
   function filtrarPorRegrasDaLista(candidatos) {
@@ -417,7 +464,7 @@
   }
 
   // Primeira faixa que se aplicar vence -- por isso a ordem de checagem
-  // aqui segue exatamente a numeração das prioridades (1 a 8).
+  // aqui segue exatamente a numeração das prioridades (1 a 10).
   //
   // contextoPromessa é o window.__contextoAdicional.promessa da aba de
   // fundo (Módulo 6): { tipo: 'DIA_DA_PROMESSA' | 'QUEBRADA' | 'PARCIAL',
@@ -425,27 +472,34 @@
   // quando o Módulo 6 já considerou a promessa resolvida (título pago) ou
   // quando já houve contato depois do vencimento, que é exatamente quando
   // ela deixa de ser o assunto mais urgente do cliente.
-  function determinarPrioridade(escolhido, fluxo, cluster, contextoPromessa) {
+  //
+  // movimentacaoDataIso e hoje são opcionais (testes antigos chamam esta
+  // função sem eles) -- sem os dois, a faixa 8 simplesmente nunca casa,
+  // caindo nas faixas seguintes normalmente (movimentacaoMaisDeUmMes já
+  // trata ausência de qualquer um dos dois como "não aplica").
+  function determinarPrioridade(escolhido, fluxo, cluster, contextoPromessa, movimentacaoDataIso, hoje) {
     const tipoPromessa = contextoPromessa ? contextoPromessa.tipo : null;
 
     if (escolhido.situacaoKey === 'ULTIMO_DIA' && fluxo === 'CARTORIO') return 1;
     if ((cluster || '').trim().toLowerCase() === CONFIG.VALOR_CLUSTER_NOVO) return 2;
-    if (escolhido.situacaoKey === 'ULTIMO_DIA' && fluxo === 'SCPC') return 3;
+    if (escolhido.situacaoKey === 'EM_ATRASO' && escolhido.diasAtrasoReal === CONFIG.DIA_PRIORIDADE_SEGUNDO_DIA) return 3;
     if (tipoPromessa === 'DIA_DA_PROMESSA') return 4;
     if (tipoPromessa === 'QUEBRADA' || tipoPromessa === 'PARCIAL') return 5;
-    if (
-      escolhido.situacaoKey === 'EM_ATRASO' &&
-      CONFIG.DIAS_PRIORIDADE_ATRASO_INICIAL.includes(escolhido.diasAtrasoReal)
-    ) {
-      return 6;
-    }
+    if (escolhido.situacaoKey === 'ULTIMO_DIA' && fluxo === 'SCPC') return 6;
     if (
       escolhido.situacaoKey === 'NEGATIVADO_SCPC' &&
       escolhido.diasAtrasoReal === CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC
     ) {
       return 7;
     }
-    return 8;
+    if (movimentacaoMaisDeUmMes(movimentacaoDataIso, hoje)) return 8;
+    if (
+      escolhido.situacaoKey === 'EM_ATRASO' &&
+      CONFIG.DIAS_PRIORIDADE_ATRASO_INICIAL.includes(escolhido.diasAtrasoReal)
+    ) {
+      return 9;
+    }
+    return 10;
   }
 
   // Visita UM candidato: abre a aba, espera ficar pronta, lê situação +
@@ -514,7 +568,14 @@
       // decisão pronta e cruzada com os títulos ainda em aberto.
       const contextoPromessa = (aba.__contextoAdicional && aba.__contextoAdicional.promessa) || null;
 
-      const prioridade = determinarPrioridade(escolhido, dadosTitulos.fluxo, cliente.cluster, contextoPromessa);
+      const prioridade = determinarPrioridade(
+        escolhido,
+        dadosTitulos.fluxo,
+        cliente.cluster,
+        contextoPromessa,
+        cliente.movimentacaoDataIso,
+        hoje
+      );
 
       // CONFIRMADO com o usuário: se outra empresa do mesmo grupo econômico
       // também tem título vencido, só UMA representante do grupo deve
@@ -843,6 +904,7 @@
     candidatosEnriquecidos,
     filtrarPorRegrasDaLista,
     determinarPrioridade,
+    movimentacaoMaisDeUmMes,
     filtrarPorGrupoEconomico,
     escolherTituloRepresentativo,
   };
