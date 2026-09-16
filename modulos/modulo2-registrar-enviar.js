@@ -19,6 +19,12 @@
 //   - window.abrirWhatsAppCliente()     (script proprio da pagina)
 // Se qualquer uma faltar, o botao avisa e nao quebra o resto da tela.
 //
+// Tambem adiciona, logo abaixo do botao "Atencao" (fora da secao de
+// Promessa, a pedido do usuario), 3 botoes de agendamento rapido: cada um
+// insere uma frase pronta na observacao (reaproveitando o mecanismo nativo
+// de "Frases padrao" quando a frase ja existe la) e seleciona a data de
+// hoje no campo "Data Prometida" da promessa, num clique so.
+//
 (function () {
     'use strict';
 
@@ -285,6 +291,129 @@
     }
 
     // ============================================================
+    // AGENDAMENTO RAPIDO (observacao + data de pagamento = hoje)
+    // ============================================================
+    // PEDIDO DO USUARIO: 3 botoes com frases prontas pra quando o cliente
+    // ja avisou algo sobre o pagamento (comprovante, confirmacao verbal ou
+    // agendamento) -- cada um preenche a observacao com a frase certa E
+    // seleciona a data de hoje no campo "Data Prometida" da promessa, sem
+    // precisar digitar nem abrir o seletor de data manualmente.
+
+    const FRASES_AGENDAMENTO_RAPIDO = [
+        { rotulo: 'Comprovante enviado', frase: 'Cliente enviou comprovante de pagamento.' },
+        { rotulo: 'Cliente informou que pagou', frase: 'Cliente informou que pagou' },
+        { rotulo: 'Pagamento agendado', frase: 'Cliente agendou o pagamento.' }
+    ];
+
+    function dataDeHojeIso() {
+        const hoje = new Date();
+        const ano = hoje.getFullYear();
+        const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+        const dia = String(hoje.getDate()).padStart(2, '0');
+        return ano + '-' + mes + '-' + dia;
+    }
+
+    // Reaproveita o botao nativo de "Frases padrao" quando a frase ja existe
+    // la (confirmado com o usuario: as 3 frases usadas aqui ja existem) --
+    // evita duplicar o comportamento de insercao (separador, formatacao)
+    // que nao e nosso. Comparacao exata em vez de selecionar por atributo
+    // (title) pra nao precisar escapar aspas/caracteres especiais da frase.
+    function encontrarBotaoFraseNativo(frase) {
+        const botoes = document.querySelectorAll('.btn-inserir-frase');
+        for (let i = 0; i < botoes.length; i++) {
+            if (botoes[i].title === frase) return botoes[i];
+        }
+        return null;
+    }
+
+    function inserirFraseNaObservacao(frase) {
+        const botaoNativo = encontrarBotaoFraseNativo(frase);
+        if (botaoNativo) {
+            botaoNativo.click();
+            return;
+        }
+
+        // Fallback defensivo, caso a frase deixe de existir na lista nativa
+        // -- ainda funciona (acrescenta na observacao), so sem o
+        // comportamento exato que a lista nativa teria.
+        console.warn('[registrar-enviar] Frase "' + frase + '" não encontrada nas Frases padrão -- inserindo direto na observação.');
+        const textarea = document.getElementById('contato-resumo');
+        if (!textarea) return;
+        const atual = textarea.value.trim();
+        textarea.value = atual ? atual + '\n' + frase : frase;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function selecionarDataDePagamentoHoje() {
+        const inputData = document.getElementById('input-data-promessa');
+        if (!inputData) return;
+        inputData.value = dataDeHojeIso();
+        // Dispara o onchange nativo (atualizarValorPromessaContato) -- sem
+        // isso, o "Valor calculado" (saldo + juros/multa até a data) fica
+        // desatualizado, porque so recalcula em resposta a esse evento.
+        inputData.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    function aoClicarAgendamentoRapido(frase) {
+        inserirFraseNaObservacao(frase);
+        selecionarDataDePagamentoHoje();
+        toast('Observação preenchida e data de pagamento definida para hoje.', 'success');
+    }
+
+    function criarBotoesAgendamentoRapido() {
+        if (document.getElementById('agendamento-rapido-wrap')) return;
+
+        const btnAtencao = document.getElementById('btn-resultado-ATENCAO');
+        if (!btnAtencao || !btnAtencao.parentElement) return;
+
+        // NOTA: classes Tailwind aqui sao restritas de proposito as que ja
+        // aparecem literalmente em algum lugar do HTML real da pagina
+        // (confirmado via diagnostico ao vivo) -- o build do CRM e
+        // pre-compilado e purgado, e uma classe que nenhum template do
+        // servidor usa simplesmente nao existe no CSS final, sem erro
+        // nenhum (ja aconteceu de verdade neste projeto com "h-64", ver
+        // comentario no HTML de Frases padrao). Por isso "indigo-200"/
+        // "indigo-50"/"indigo-900" (usados em #valores-por-razao-wrap) e o
+        // hover "yellow-400"/"yellow-50" (usado em .resultado-btn,
+        // .canal-btn e no proprio botao Atencao) -- nunca uma cor nova so
+        // porque "combinaria melhor".
+        const wrap = document.createElement('div');
+        wrap.id = 'agendamento-rapido-wrap';
+        wrap.className = 'mt-2 border-t border-gray-100 space-y-2';
+
+        const rotulo = document.createElement('label');
+        rotulo.className = 'block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1';
+        rotulo.textContent = 'Agendar pagamento (observação + data de hoje)';
+        wrap.appendChild(rotulo);
+
+        FRASES_AGENDAMENTO_RAPIDO.forEach(function (item) {
+            const botao = document.createElement('button');
+            botao.type = 'button';
+            botao.className = 'w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-200 ' +
+                              'bg-indigo-50 text-indigo-900 text-xs font-medium text-left transition ' +
+                              'hover:border-yellow-400 hover:bg-yellow-50';
+            botao.title = item.frase + ' (e seleciona a data de hoje)';
+
+            const icone = document.createElement('span');
+            icone.textContent = '📅';
+            icone.className = 'flex-shrink-0';
+
+            const texto = document.createElement('span');
+            texto.textContent = item.rotulo;
+
+            botao.appendChild(icone);
+            botao.appendChild(texto);
+            botao.addEventListener('click', function () {
+                aoClicarAgendamentoRapido(item.frase);
+            });
+
+            wrap.appendChild(botao);
+        });
+
+        btnAtencao.parentElement.insertBefore(wrap, btnAtencao.nextSibling);
+    }
+
+    // ============================================================
     // INSTALACAO DO BOTAO NO MODAL
     // ============================================================
 
@@ -317,6 +446,7 @@
 
         if (document.getElementById('btn-salvar-contato')) {
             criarBotao();
+            criarBotoesAgendamentoRapido();
             return;
         }
 
@@ -328,6 +458,7 @@
                 _observerInstalacao.disconnect();
                 _observerInstalacao = null;
                 criarBotao();
+                criarBotoesAgendamentoRapido();
             }
         });
         _observerInstalacao.observe(document.body, { childList: true, subtree: true });

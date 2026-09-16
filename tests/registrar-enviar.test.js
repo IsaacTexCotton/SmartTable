@@ -10,7 +10,15 @@ const { criarChecador } = require('./helpers/checar');
 
 const { checar, resumo } = criarChecador('registrar-enviar');
 
-const CODIGO = textoDoModulo('modulo2-registrar-enviar.js', '\nwindow.__testarResumoPadronizado = calcularResumoPadronizado;\n');
+const CODIGO = textoDoModulo('modulo2-registrar-enviar.js', `
+window.__testarResumoPadronizado = calcularResumoPadronizado;
+window.__testarAgendamentoRapido = {
+  criarBotoesAgendamentoRapido,
+  aoClicarAgendamentoRapido,
+  dataDeHojeIso,
+  FRASES_AGENDAMENTO_RAPIDO,
+};
+`);
 
 // Mirroring pro global do Node é necessário -- window.eval() por si só não
 // basta pra identificadores livres (`window`, `document`) resolverem
@@ -20,6 +28,10 @@ function mirrorGlobals(dom) {
   global.document = dom.window.document;
   global.location = dom.window.location;
   global.MutationObserver = dom.window.MutationObserver;
+  // jsdom valida dispatchEvent() contra a SUA PRÓPRIA classe Event -- o
+  // Event global do Node (disponível desde o Node 15+) não serve, mesmo
+  // parecendo compatível (mesmo bug já visto com MouseEvent noutro teste).
+  global.Event = dom.window.Event;
   dom.window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
   global.requestAnimationFrame = dom.window.requestAnimationFrame;
 }
@@ -98,6 +110,148 @@ function registro(situacaoKey, diasAtrasoReal) {
   const w = novaJanela([registro('EM_CARTORIO', 10), registro('EM_CARTORIO', 30)]);
   const texto = w.__testarResumoPadronizado();
   checar('com TODOS os títulos em cartório, ainda escolhe o de maior atraso entre eles (defensivo)', texto === 'Enviado cobrança 30º dia.', texto);
+})();
+
+// =====================================================================
+// 9-15. Agendamento rápido (observação + data de hoje) -- PEDIDO DO
+// USUÁRIO: 3 botões logo abaixo do card "Atenção" (fora da seção de
+// Promessa) que inserem uma frase pronta na observação e selecionam a
+// data de hoje no campo "Data Prometida", num clique só.
+// =====================================================================
+function novaJanelaModalContato() {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <div id="modal-contato">
+        <div>
+          <label>Resultado do Contato</label>
+          <div class="grid grid-cols-3 gap-2"></div>
+          <button type="button" id="btn-resultado-ATENCAO">Atenção</button>
+        </div>
+        <div>
+          <div id="frases-padrao-lista">
+            <button type="button" class="btn-inserir-frase" title="Cliente enviou comprovante de pagamento."></button>
+            <button type="button" class="btn-inserir-frase" title="Cliente informou que pagou"></button>
+            <button type="button" class="btn-inserir-frase" title="Cliente agendou o pagamento."></button>
+          </div>
+          <textarea name="resumo" id="contato-resumo"></textarea>
+        </div>
+        <div id="secao-promessa" class="hidden">
+          <input type="date" name="dataPromessa" id="input-data-promessa">
+        </div>
+      </div>
+    </body></html>`,
+    { url: 'https://texhub.texcotton.com.br/crm/clientes/grupo/0?cnpj=AAA' }
+  );
+  mirrorGlobals(dom);
+  dom.window.eval(CODIGO);
+  return dom.window;
+}
+
+function iso(data) {
+  return data.getFullYear() + '-' + String(data.getMonth() + 1).padStart(2, '0') + '-' + String(data.getDate()).padStart(2, '0');
+}
+
+// 9. dataDeHojeIso() bate com a data real, no formato certo pro <input type="date">
+(function () {
+  const w = novaJanelaModalContato();
+  const esperado = iso(new Date());
+  checar('dataDeHojeIso() retorna a data de hoje no formato YYYY-MM-DD', w.__testarAgendamentoRapido.dataDeHojeIso() === esperado, w.__testarAgendamentoRapido.dataDeHojeIso());
+})();
+
+// 10. Os botões são criados logo abaixo do card "Atenção" (fora da seção de promessa)
+(function () {
+  const w = novaJanelaModalContato();
+  w.__testarAgendamentoRapido.criarBotoesAgendamentoRapido();
+  const wrap = w.document.getElementById('agendamento-rapido-wrap');
+  checar('cria o wrap dos botões', !!wrap);
+  checar('inserido logo depois do botão Atenção, no mesmo pai', wrap && wrap.previousElementSibling && wrap.previousElementSibling.id === 'btn-resultado-ATENCAO');
+  checar('fica fora de #secao-promessa (não é descendente dela)', wrap && !w.document.getElementById('secao-promessa').contains(wrap));
+  checar('cria os 3 botões esperados', wrap && wrap.querySelectorAll('button').length === 3, wrap && wrap.innerHTML);
+})();
+
+// 11. Chamar duas vezes não duplica
+(function () {
+  const w = novaJanelaModalContato();
+  w.__testarAgendamentoRapido.criarBotoesAgendamentoRapido();
+  w.__testarAgendamentoRapido.criarBotoesAgendamentoRapido();
+  checar('não duplica ao chamar duas vezes', w.document.querySelectorAll('#agendamento-rapido-wrap').length === 1);
+})();
+
+// 12. Defensivo: sem #btn-resultado-ATENCAO, não lança exceção nem cria nada
+(function () {
+  const dom = new JSDOM('<!doctype html><body><div id="modal-contato"></div></body></html>', { url: 'https://texhub.texcotton.com.br/crm/clientes' });
+  mirrorGlobals(dom);
+  dom.window.eval(CODIGO);
+  let excecao = null;
+  try {
+    dom.window.__testarAgendamentoRapido.criarBotoesAgendamentoRapido();
+  } catch (e) {
+    excecao = e;
+  }
+  checar('sem #btn-resultado-ATENCAO não lança exceção', excecao === null, excecao && excecao.message);
+  checar('sem #btn-resultado-ATENCAO não cria o wrap', dom.window.document.getElementById('agendamento-rapido-wrap') === null);
+})();
+
+// 13. Clicar num item com frase já existente nas "Frases padrão" reaproveita
+// o botão nativo (não insere direto no textarea) e seleciona a data de hoje.
+(function () {
+  const w = novaJanelaModalContato();
+  let cliquesNoNativo = 0;
+  const botaoNativo = w.document.querySelector('.btn-inserir-frase[title="Cliente enviou comprovante de pagamento."]');
+  botaoNativo.addEventListener('click', () => {
+    cliquesNoNativo++;
+    // Simula o comportamento real da página (inserir na observação).
+    w.document.getElementById('contato-resumo').value = botaoNativo.title;
+  });
+
+  let eventoChangeDisparado = false;
+  w.document.getElementById('input-data-promessa').addEventListener('change', () => { eventoChangeDisparado = true; });
+
+  w.__testarAgendamentoRapido.aoClicarAgendamentoRapido('Cliente enviou comprovante de pagamento.');
+
+  checar('reaproveita o botão nativo de frase (1 clique, não insere direto)', cliquesNoNativo === 1, cliquesNoNativo);
+  checar('observação recebeu o texto (via botão nativo)', w.document.getElementById('contato-resumo').value === 'Cliente enviou comprovante de pagamento.');
+  checar('data de pagamento preenchida com hoje', w.document.getElementById('input-data-promessa').value === iso(new Date()));
+  checar('evento "change" disparado no campo de data (pro cálculo nativo de juros/multa rodar)', eventoChangeDisparado === true);
+})();
+
+// 14. Fallback: frase sem botão nativo correspondente insere direto na
+// observação (acrescentando, sem apagar texto já digitado).
+(function () {
+  const w = novaJanelaModalContato();
+  w.document.getElementById('contato-resumo').value = 'Texto já digitado pelo operador.';
+
+  w.__testarAgendamentoRapido.aoClicarAgendamentoRapido('Frase sem correspondência nativa');
+
+  const textoFinal = w.document.getElementById('contato-resumo').value;
+  checar(
+    'fallback acrescenta a frase ao texto já existente, sem apagar',
+    textoFinal === 'Texto já digitado pelo operador.\nFrase sem correspondência nativa',
+    textoFinal
+  );
+  checar('mesmo no fallback, a data de hoje é selecionada', w.document.getElementById('input-data-promessa').value === iso(new Date()));
+})();
+
+// 15. Defensivo: sem #input-data-promessa (seção de promessa nunca chegou
+// a existir), inserir a frase continua funcionando, só sem a data.
+(function () {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <textarea name="resumo" id="contato-resumo"></textarea>
+    </body></html>`,
+    { url: 'https://texhub.texcotton.com.br/crm/clientes' }
+  );
+  mirrorGlobals(dom);
+  dom.window.eval(CODIGO);
+
+  let excecao = null;
+  try {
+    dom.window.__testarAgendamentoRapido.aoClicarAgendamentoRapido('Cliente informou que pagou');
+  } catch (e) {
+    excecao = e;
+  }
+  checar('sem #input-data-promessa não lança exceção', excecao === null, excecao && excecao.message);
+  checar('mesmo sem o campo de data, a observação é preenchida (fallback)', dom.window.document.getElementById('contato-resumo').value === 'Cliente informou que pagou');
 })();
 
 resumo();
