@@ -14,7 +14,9 @@
 //      esta na caixa de observacao.
 //   3. Abre o WhatsApp com a mensagem que estava na caixa de observacao
 //      (a frase padrao que o operador escolheu manualmente) - essa caixa
-//      NAO e alterada por este script.
+//      NAO e alterada por este script. A aba do WhatsApp usa um nome fixo
+//      (NOME_JANELA_WHATSAPP) pra ser REAPROVEITADA a cada cobranca, em
+//      vez de acumular uma aba nova por cliente (pedido do usuario).
 //
 // Depende de duas coisas que ja existem na pagina:
 //   - window.__avisoCobranca.simular()  (modulo de Aviso de Cobranca)
@@ -153,74 +155,53 @@
     }
 
     // ============================================================
-    // ABRIR WHATSAPP E FECHAR A ABA DEPOIS (item pedido pelo usuário)
+    // ABRIR WHATSAPP SEM ACUMULAR ABAS (item pedido pelo usuário)
     // ============================================================
+    // ABORDAGEM ANTERIOR (removida a pedido do usuário -- não funcionava
+    // na prática): tentar fechar a aba via window.close() depois de um
+    // temporizador fixo (1.5s). Não é confiável quando o link dispara o
+    // handoff pro app desktop do WhatsApp -- nesse caminho o Chrome mostra
+    // um diálogo nativo ("Abrir WhatsApp Desktop?") que compete com esse
+    // fechamento por script, e não há como saber de fora quando esse
+    // diálogo foi respondido. O operador relatou a aba continuando aberta
+    // (incomodando ao voltar pro CRM) mesmo depois do tempo de espera.
+    //
+    // ABORDAGEM NOVA: em vez de tentar ADIVINHAR quando fechar a aba, evita
+    // que ela SE ACUMULE. abrirWhatsAppCliente() (função própria da
+    // página, fora dos nossos módulos) sempre chama window.open(url,
+    // '_blank', ...) -- e o alvo '_blank' SEMPRE abre uma aba NOVA a cada
+    // chamada (comportamento padrão e documentado do navegador, não um
+    // bug a corrigir). Interceptamos window.open só durante essa chamada
+    // pra trocar o nome do alvo de '_blank' pra um nome FIXO
+    // (NOME_JANELA_WHATSAPP) -- com nome fixo, o navegador REAPROVEITA a
+    // mesma aba/janela em vez de abrir uma nova a cada cobrança (mesmo
+    // mecanismo por trás de <a target="minha-aba">: nome repetido = mesma
+    // aba, é assim que target funciona desde sempre). Resultado: nunca
+    // mais que 1 aba de WhatsApp por vez, em vez de acumular uma por
+    // cliente cobrado -- e ela é reciclada (navega pro próximo cliente),
+    // não duplicada.
+    //
+    // BÔNUS: como não precisamos mais de uma referência pra fechar a aba
+    // depois, não precisamos tirar "noopener,noreferrer" dos features (a
+    // implementação antiga tirava, de propósito, só pra conseguir essa
+    // referência) -- os features da página passam intactos, mais seguro
+    // por padrão. E como não há mais nenhum temporizador, não há mais
+    // corrida nenhuma com o location.reload() logo depois -- a função é
+    // síncrona.
+    const NOME_JANELA_WHATSAPP = 'smarttable-whatsapp';
 
-    const ATRASO_FECHAR_ABA_WHATSAPP_MS = 1500;
+    function abrirWhatsAppSemAcumularAbas() {
+        const openOriginal = window.open;
 
-    function chamarWhatsAppEFecharAbaAutomaticamente() {
-        // Retorna uma Promise que só resolve DEPOIS da aba fechar (ou depois
-        // de confirmar que não havia aba pra fechar). Isso é essencial:
-        // o location.reload() logo abaixo, no fluxo que chama esta função,
-        // precisa esperar por isso -- senão a página recarrega e mata o
-        // setTimeout do fechamento antes dele disparar (corrida descoberta
-        // em produção: a aba nunca fechava porque o reload sempre vencia).
-        return new Promise((resolve) => {
-            // abrirWhatsAppCliente() (função própria da página, fora dos
-            // nossos módulos) chama window.open(url, '_blank',
-            // 'noopener,noreferrer'). Com "noopener", window.open sempre
-            // retorna null -- não tem como recuperar a aba depois pra
-            // fechar. Trocamos window.open só durante essa chamada
-            // específica, tirando noopener/noreferrer, pra conseguir a
-            // referência -- e restauramos o original logo em seguida,
-            // síncrono, sem deixar a troca "vazando" pro resto da página.
-            //
-            // Troca de segurança consciente, confirmada com o usuário: por
-            // um instante, a aba aberta (sempre wa.me, domínio da própria
-            // Meta/WhatsApp) ganha uma referência de volta pro CRM via
-            // window.opener. Risco considerado baixo.
-            const openOriginal = window.open;
-            let abaCapturada = null;
+        window.open = function (url, _nomeIgnorado, features) {
+            return openOriginal.call(window, url, NOME_JANELA_WHATSAPP, features);
+        };
 
-            window.open = function (url, nome, features) {
-                const featuresSemNoopener = (features || '')
-                    .split(',')
-                    .map((f) => f.trim())
-                    .filter((f) => f && f !== 'noopener' && f !== 'noreferrer')
-                    .join(',');
-                abaCapturada = openOriginal.call(window, url, nome, featuresSemNoopener);
-                return abaCapturada;
-            };
-
-            try {
-                window.abrirWhatsAppCliente();
-            } finally {
-                window.open = openOriginal; // restaura sempre, mesmo se der erro lá dentro
-            }
-
-            if (!abaCapturada) {
-                // abrirWhatsAppCliente() pode ter retornado cedo (mensagem
-                // vazia, telefone inválido) sem chamar window.open -- nesse
-                // caso não existe aba pra fechar, e os avisos da própria
-                // função já explicaram o motivo pro usuário. Nada a esperar.
-                resolve();
-                return;
-            }
-
-            // Atraso pra dar tempo do Chrome entregar a navegação pro app
-            // desktop do WhatsApp antes de fechar a aba. Valor de partida --
-            // ajustar se, na prática, fechar cedo ou tarde demais. Só
-            // resolve a Promise DEPOIS de tentar fechar -- é isso que faz
-            // quem chama esperar por esse tempo antes do reload.
-            setTimeout(() => {
-                try {
-                    abaCapturada.close();
-                } catch (erro) {
-                    console.warn('[registrar-enviar] Não consegui fechar a aba do WhatsApp automaticamente:', erro.message);
-                }
-                resolve();
-            }, ATRASO_FECHAR_ABA_WHATSAPP_MS);
-        });
+        try {
+            window.abrirWhatsAppCliente();
+        } finally {
+            window.open = openOriginal; // restaura sempre, mesmo se der erro lá dentro
+        }
     }
 
     // ============================================================
@@ -285,7 +266,7 @@
             // nao foi alterada, entao a funcao da propria pagina le o texto
             // normalmente.
             if (typeof window.abrirWhatsAppCliente === 'function') {
-                await chamarWhatsAppEFecharAbaAutomaticamente();
+                abrirWhatsAppSemAcumularAbas();
             } else {
                 console.warn('[registrar-enviar] abrirWhatsAppCliente() não encontrada nesta página.');
                 toast('Contato registrado, mas não foi possível abrir o WhatsApp automaticamente.', 'error');

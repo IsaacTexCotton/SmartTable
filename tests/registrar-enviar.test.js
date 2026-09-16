@@ -18,6 +18,10 @@ window.__testarAgendamentoRapido = {
   dataDeHojeIso,
   FRASES_AGENDAMENTO_RAPIDO,
 };
+window.__testarAbrirWhatsApp = {
+  abrirWhatsAppSemAcumularAbas,
+  NOME_JANELA_WHATSAPP,
+};
 `);
 
 // Mirroring pro global do Node é necessário -- window.eval() por si só não
@@ -156,6 +160,117 @@ function registro(situacaoKey, diasAtrasoReal) {
   const w = novaJanela([], { semContatoAnterior: true });
   const texto = w.__testarResumoPadronizado();
   checar('primeiro contato sem títulos ainda registra "Primeiro contato - Tentativa"', texto === 'Primeiro contato - Tentativa', texto);
+})();
+
+// =====================================================================
+// 8c. PEDIDO DO USUÁRIO: aba do WhatsApp não pode mais acumular uma por
+// cobrança -- abrirWhatsAppCliente() (função própria da página) sempre
+// chama window.open(url, '_blank', ...), e '_blank' sempre abre aba nova.
+// Interceptamos window.open só durante essa chamada pra trocar o nome do
+// alvo por um fixo -- nome repetido faz o navegador reaproveitar a mesma
+// aba (mesmo mecanismo de <a target="...">). Substitui a implementação
+// antiga (fechar via timer), que o usuário relatou não funcionar no
+// handoff pro app desktop.
+// =====================================================================
+function novaJanelaWhatsApp() {
+  const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://texhub.texcotton.com.br/crm/clientes/grupo/0?cnpj=AAA' });
+  mirrorGlobals(dom);
+  dom.window.eval(CODIGO);
+  return dom.window;
+}
+
+(function () {
+  const w = novaJanelaWhatsApp();
+  const chamadas = [];
+  w.open = (url, nome, features) => {
+    chamadas.push({ url, nome, features });
+    return { closed: false };
+  };
+  w.abrirWhatsAppCliente = function () {
+    // Mesma chamada real da página: alvo sempre '_blank'.
+    return w.open('https://wa.me/551199999999', '_blank', 'noopener,noreferrer');
+  };
+
+  w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+
+  checar('window.open foi chamado', chamadas.length === 1, JSON.stringify(chamadas));
+  checar(
+    'nome do alvo foi trocado de "_blank" pro nome fixo reutilizável',
+    chamadas[0] && chamadas[0].nome === w.__testarAbrirWhatsApp.NOME_JANELA_WHATSAPP,
+    chamadas[0] && chamadas[0].nome
+  );
+  checar('URL passa intacta', chamadas[0] && chamadas[0].url === 'https://wa.me/551199999999', chamadas[0] && chamadas[0].url);
+  checar(
+    'features passam intactos (noopener,noreferrer preservados -- não precisamos mais de referência pra fechar)',
+    chamadas[0] && chamadas[0].features === 'noopener,noreferrer',
+    chamadas[0] && chamadas[0].features
+  );
+})();
+
+(function () {
+  // PEDIDO DO USUÁRIO, testado diretamente: duas cobranças seguidas usam
+  // o MESMO nome de aba -- é isso que faz o navegador reaproveitar em vez
+  // de acumular.
+  const w = novaJanelaWhatsApp();
+  const nomes = [];
+  w.open = (url, nome) => { nomes.push(nome); return { closed: false }; };
+  w.abrirWhatsAppCliente = function () { return w.open('https://wa.me/1', '_blank', ''); };
+
+  w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+  w.abrirWhatsAppCliente = function () { return w.open('https://wa.me/2', '_blank', ''); };
+  w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+
+  checar('duas chamadas seguidas usam o mesmo nome de aba (reaproveita, não acumula)', nomes.length === 2 && nomes[0] === nomes[1], JSON.stringify(nomes));
+})();
+
+(function () {
+  // window.open é restaurado depois da chamada -- não pode "vazar" a
+  // interceptação pro resto da página.
+  const w = novaJanelaWhatsApp();
+  const openOriginal = w.open;
+  w.abrirWhatsAppCliente = function () { return w.open('https://wa.me/1', '_blank', ''); };
+
+  w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+
+  checar('window.open é restaurado ao original depois da chamada', w.open === openOriginal);
+})();
+
+(function () {
+  // Defensivo: se abrirWhatsAppCliente() lançar (bug da própria página,
+  // fora do nosso controle), window.open ainda é restaurado (finally).
+  const w = novaJanelaWhatsApp();
+  const openOriginal = w.open;
+  w.abrirWhatsAppCliente = function () { throw new Error('falha simulada'); };
+
+  let excecaoPropagada = null;
+  try {
+    w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+  } catch (e) {
+    excecaoPropagada = e;
+  }
+
+  checar('exceção de abrirWhatsAppCliente() propaga (quem chama já trata com try/catch)', excecaoPropagada !== null && excecaoPropagada.message === 'falha simulada');
+  checar('mesmo com exceção, window.open é restaurado ao original', w.open === openOriginal);
+})();
+
+(function () {
+  // Defensivo: abrirWhatsAppCliente() pode retornar cedo (mensagem vazia,
+  // telefone inválido) sem chamar window.open nenhuma vez -- não pode
+  // quebrar.
+  const w = novaJanelaWhatsApp();
+  let chamouOpen = false;
+  w.open = () => { chamouOpen = true; return { closed: false }; };
+  w.abrirWhatsAppCliente = function () { /* retorna sem chamar window.open */ };
+
+  let excecao = null;
+  try {
+    w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+  } catch (e) {
+    excecao = e;
+  }
+
+  checar('abrirWhatsAppCliente() sem chamar window.open não lança exceção', excecao === null, excecao && excecao.message);
+  checar('window.open realmente não foi chamado nesse caso', chamouOpen === false);
 })();
 
 // =====================================================================
