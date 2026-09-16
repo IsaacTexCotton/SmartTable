@@ -721,6 +721,13 @@
     // tabela).
     if (ctx.houveTituloPagoDesdeUltimaVisita) return false;
 
+    // MELHORIA (confirmada pelo usuário): se o contato de ontem já foi,
+    // ele próprio, um recontato (o relatório provavelmente já tinha sido
+    // omitido ontem também -- ver recontatoConsecutivo no Módulo 6), hoje
+    // não repete a omissão por 2+ dias seguidos -- volta a enviar o
+    // relatório atualizado, mesmo sem título novo.
+    if (ctx.contatoRecente.recontatoConsecutivo) return false;
+
     const dataUltimoContato = ctx.contatoRecente.data;
     // CORREÇÃO (bug real, confirmado pelo usuário): comparação era ">" --
     // um título só entra em "registros" a partir de 1 dia de atraso (ver

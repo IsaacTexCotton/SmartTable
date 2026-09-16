@@ -55,7 +55,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.58';
+  const VERSAO_SMARTTABLE = '1.0.59';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -334,11 +334,28 @@
     // anterior pula um fim de semana e "ontem" fica incorreto; nesses casos
     // o Módulo 4 usa diaSemanaTexto (ex.: "sexta-feira") em vez de "ontem".
     const ontemCalendario = adicionarDias(hoje, -1);
+
+    // MELHORIA (confirmada pelo usuário): se o contato de ontem (dia útil
+    // anterior) já foi, ele próprio, precedido por outro contato no dia
+    // útil anterior a ele -- ou seja, ontem já era um recontato -- o
+    // relatório provavelmente já tinha sido omitido ontem também (ver
+    // deveOmitirRelatorio no Módulo 4). Hoje não repete essa omissão por
+    // 2+ dias seguidos: volta a enviar o relatório atualizado, mesmo sem
+    // título novo.
+    let recontatoConsecutivo = false;
+    try {
+      const diaAntesDoAnterior = diaUtilAnterior(diaAnterior);
+      recontatoConsecutivo = lerTodosContatos().some((c) => mesmaData(c.data, diaAntesDoAnterior));
+    } catch (erro) {
+      recontatoConsecutivo = false;
+    }
+
     return {
       data: contato.data,
       dataTexto: formatarDataBr(contato.data),
       ehOntemLiteral: mesmaData(contato.data, ontemCalendario),
       diaSemanaTexto: nomeDiaSemana(contato.data),
+      recontatoConsecutivo,
     };
   }
 
@@ -568,6 +585,7 @@
     lerContatoMaisRecente,
     lerTodosContatos,
     calcularContextoPromessa,
+    calcularContextoContato,
     calcularContatoAntigo,
     CHAVE_SNAPSHOT_TITULOS,
     DIAS_EXPIRACAO_SNAPSHOT_TITULOS,

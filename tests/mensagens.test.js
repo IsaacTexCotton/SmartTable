@@ -672,6 +672,68 @@ scpcDias.forEach((dias) => {
   }
 }
 
+// --- MELHORIA (pedido do usuário): recontato sem título novo, mas ONTEM
+// já foi, ele próprio, um recontato (recontatoConsecutivo=true, vindo do
+// Módulo 6) -- não repete a omissão do relatório por 2+ dias seguidos.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = { registros: [registro('EM_ATRASO', { vencimentoTexto: '01/09/2026', diasAtrasoReal: 13 })], fluxo: 'CARTORIO' };
+  window.__contextoAdicional = ctxBase({
+    contatoRecente: Object.assign({}, contatoRecenteOntem, { recontatoConsecutivo: true }),
+  });
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/Segue o relatório/.test(msg)) {
+    achados.push({
+      cenario: 'MELHORIA: ontem já era recontato (recontatoConsecutivo=true) -- relatório deve voltar a ser enviado hoje',
+      problemas: ['Relatório continua omitido mesmo com 2+ dias seguidos de recontato sem título novo.'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Regressão: mesmo cenário, mas recontatoConsecutivo=false (só o
+// primeiro recontato) -- continua omitindo o relatório, comportamento
+// original preservado.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = { registros: [registro('EM_ATRASO', { vencimentoTexto: '01/09/2026', diasAtrasoReal: 13 })], fluxo: 'CARTORIO' };
+  window.__contextoAdicional = ctxBase({
+    contatoRecente: Object.assign({}, contatoRecenteOntem, { recontatoConsecutivo: false }),
+  });
+  const msg = montar(dados);
+  total++;
+  if (!msg || /Segue o relatório/.test(msg)) {
+    achados.push({
+      cenario: 'REGRESSÃO: primeiro recontato (recontatoConsecutivo=false) continua omitindo o relatório',
+      problemas: ['Relatório não deveria ser reenviado no primeiro recontato sem título novo.'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Regressão: recontatoConsecutivo=true, mas título pago desde a última
+// visita -- já entra pelo caminho houveTituloPagoDesdeUltimaVisita, então
+// o relatório também é enviado (comportamento já esperado, sem conflito).
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = { registros: [registro('EM_ATRASO', { vencimentoTexto: '01/09/2026', diasAtrasoReal: 13 })], fluxo: 'CARTORIO' };
+  window.__contextoAdicional = ctxBase({
+    contatoRecente: Object.assign({}, contatoRecenteOntem, { recontatoConsecutivo: true }),
+    houveTituloPagoDesdeUltimaVisita: true,
+    titulosPagosDesdeUltimaVisita: ['90099/1'],
+  });
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/Segue o relatório/.test(msg) || !/Recebemos a baixa/i.test(msg)) {
+    achados.push({
+      cenario: 'REGRESSÃO: recontatoConsecutivo=true + título pago -- relatório enviado e agradecimento presente juntos',
+      problemas: ['Esperava relatório enviado E agradecimento de pagamento juntos, sem conflito entre as duas melhorias.'],
+      mensagem: msg,
+    });
+  }
+}
+
 console.log(`[mensagens] ${total - achados.length}/${total} cenários passaram (${achados.length} achado(s)).`);
 achados.forEach((a, i) => {
   console.log(`  FALHA ${i + 1}: ${a.cenario}`);
