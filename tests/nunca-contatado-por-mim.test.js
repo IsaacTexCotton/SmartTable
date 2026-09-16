@@ -21,8 +21,24 @@ function contatoItem(usuario, dataTexto) {
   return `<div class="contato-item" data-data="${dataTexto || '15/09/2026 10:00'}" data-efetivo="true" data-usuario="${usuario}"></div>`;
 }
 
-function abrirPagina(itensContato) {
-  const bodyHtml = '<div id="content-promessas"></div><div id="content-contatos">' + itensContato.join('') + '</div>';
+// Réplica do header real do CRM (confirmado ao vivo): o botão
+// #user-menu-btn com o código do usuário logado num <div> folha dentro.
+function headerUsuario(codigo) {
+  if (!codigo) return '';
+  return `<div class="relative" id="user-menu-wrap">
+    <button id="user-menu-btn" type="button" onclick="toggleUserMenu()">
+      <div id="header-avatar"><span id="header-avatar-initials" class="hidden">IS</span></div>
+      <div class="hidden md:block text-right leading-tight max-w-[200px] min-w-0">
+        <div class="text-sm font-semibold text-gray-900 truncate">${codigo}</div>
+      </div>
+    </button>
+  </div>`;
+}
+
+function abrirPagina(itensContato, usuarioLogado) {
+  const bodyHtml =
+    headerUsuario(usuarioLogado === undefined ? EU : usuarioLogado) +
+    '<div id="content-promessas"></div><div id="content-contatos">' + itensContato.join('') + '</div>';
   return novaJanela({
     url: 'https://texhub.texcotton.com.br/crm/clientes/grupo/0?cnpj=AAA',
     bodyHtml,
@@ -98,6 +114,46 @@ function calcular(w) {
   const ctx = w.__contextoAdicional;
   checar('window.__contextoAdicional expõe nuncaContatadoPorMim', ctx && ctx.nuncaContatadoPorMim === true, ctx && JSON.stringify({ nuncaContatadoPorMim: ctx.nuncaContatadoPorMim, semContatoAnterior: ctx.semContatoAnterior }));
   checar('semContatoAnterior continua false quando há contato de outra pessoa', ctx && ctx.semContatoAnterior === false);
+})();
+
+// =====================================================================
+// 9+. Usuário logado lido da PÁGINA (#user-menu-btn), não de um valor
+// fixo no código -- âncora confirmada ao vivo, presente tanto na lista
+// quanto na página de cliente.
+// =====================================================================
+(function () {
+  const w = abrirPagina([contatoItem(OUTRA)], EU);
+  checar('lerUsuarioLogado lê o código do header do CRM', w.__contextoAdicionalDebug.lerUsuarioLogado() === EU, w.__contextoAdicionalDebug.lerUsuarioLogado());
+})();
+
+(function () {
+  // Sem o header na página (variante de tela inesperada), cai no valor
+  // fixo do CONFIG em vez de quebrar.
+  const w = abrirPagina([contatoItem(OUTRA)], null);
+  checar('sem #user-menu-btn, lerUsuarioLogado devolve null', w.__contextoAdicionalDebug.lerUsuarioLogado() === null);
+  checar('sem header, obterUsuarioNegociador cai no fallback do CONFIG', w.__contextoAdicionalDebug.obterUsuarioNegociador() === EU);
+})();
+
+(function () {
+  // O QUE MOTIVOU A MUDANÇA: logado como OUTRA pessoa, a régua passa a
+  // seguir quem está logado de verdade. Contatos da Bianca deixam de
+  // contar como "de outra pessoa" -- são dela mesma.
+  const w = abrirPagina([contatoItem(OUTRA)], OUTRA);
+  checar('logado como outra pessoa -> obterUsuarioNegociador segue o logado', w.__contextoAdicionalDebug.obterUsuarioNegociador() === OUTRA);
+  checar('logado como Bianca + contato da Bianca -> nuncaContatadoPorMim=false', calcular(w) === false);
+})();
+
+(function () {
+  // Mesmo cenário invertido: logado como Bianca, contato só do Isaac ->
+  // pra ela é primeiro contato.
+  const w = abrirPagina([contatoItem(EU)], OUTRA);
+  checar('logado como Bianca + contato só do Isaac -> nuncaContatadoPorMim=true', calcular(w) === true);
+})();
+
+(function () {
+  // Caixa do header normalizada também (mesmo motivo do data-usuario).
+  const w = abrirPagina([contatoItem(OUTRA)], 'isaac.03876');
+  checar('código do header em minúsculas é normalizado', w.__contextoAdicionalDebug.lerUsuarioLogado() === EU);
 })();
 
 resumo();

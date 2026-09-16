@@ -55,7 +55,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.1.1';
+  const VERSAO_SMARTTABLE = '1.2.0';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -108,17 +108,29 @@
     // os contatos são anteriores -- checar só o mais recente já cobre isso),
     // recebe uma linha de apresentação extra na mensagem (ver contatoAntigo).
     DATA_CORTE_CONTATO_ANTIGO: { ano: 2026, mes: 8, dia: 10 }, // 10/08/2026
-    // CONFIRMADO com o usuário: código do negociador dono desta carteira, do
-    // jeito que o CRM grava em data-usuario de cada .contato-item (formato
-    // confirmado ao vivo: "ISAAC.03876", "BIANCA.03665"). Cliente que já foi
-    // contatado por OUTRA pessoa mas nunca por este usuário também recebe a
-    // linha de apresentação (ver nuncaContatadoPorMim) -- é o primeiro
-    // contato DELE com o cliente, mesmo que o cliente já conheça a empresa.
+    // Código do negociador dono desta carteira, no formato que o CRM grava
+    // em data-usuario de cada .contato-item (confirmado ao vivo:
+    // "ISAAC.03876", "BIANCA.03665"). Cliente já contatado por OUTRA pessoa
+    // mas nunca por este usuário recebe a linha de apresentação (ver
+    // nuncaContatadoPorMim) -- é o primeiro contato DELE com o cliente,
+    // mesmo que o cliente já conheça a empresa.
     //
-    // SE TROCAR DE NEGOCIADOR, são DOIS lugares: este código aqui e o texto
-    // da apresentação em obterLinhaApresentacao() (Módulo 4), que cita o
-    // nome por extenso ("Sou o Isaac do financeiro da Tex Cotton...").
+    // Este valor é só o FALLBACK: o usuário logado é lido da própria página
+    // (ver lerUsuarioLogado) e só cai aqui se a leitura falhar. Serve também
+    // de referência pra avisar quando quem está logado não é quem o texto da
+    // apresentação diz ser.
+    //
+    // SE TROCAR DE NEGOCIADOR, o que realmente importa é o texto da
+    // apresentação em obterLinhaApresentacao() (Módulo 4), que cita o nome
+    // por extenso ("Sou o Isaac do financeiro da Tex Cotton...") -- esse
+    // continua fixo e precisa ser editado à mão.
     USUARIO_NEGOCIADOR: 'ISAAC.03876',
+    // Âncora do usuário logado no header do CRM -- confirmado ao vivo que
+    // existe tanto na lista quanto na página de cliente, e que tem id
+    // próprio (nada de classe Tailwind, que já nos traiu neste projeto).
+    SELETOR_BOTAO_USUARIO: '#user-menu-btn',
+    // Formato do código do usuário dentro desse botão ("ISAAC.03876").
+    REGEX_CODIGO_USUARIO: /^[A-Za-zÀ-ÿ0-9_-]+\.\d+$/,
   };
 
   /* ---------------------------------------------------------------------
@@ -533,8 +545,47 @@
     return maisRecente.data.getTime() < dataCorte.getTime();
   }
 
+  // Lê o código do usuário LOGADO direto do header do CRM, em vez de
+  // confiar num valor fixo no código. Confirmado ao vivo: o botão
+  // #user-menu-btn existe na lista E na página de cliente, e contém um
+  // <div> folha com o código ("ISAAC.03876") -- só um elemento da página
+  // bate o padrão NOME.NUMERO, então não há ambiguidade.
+  // Devolve null se não achar (aí quem chama usa o fallback do CONFIG).
+  function lerUsuarioLogado() {
+    const botao = document.querySelector(CONFIG_CONTEXTO.SELETOR_BOTAO_USUARIO);
+    if (!botao) return null;
+    const codigo = Array.from(botao.querySelectorAll('div'))
+      .filter((el) => el.children.length === 0)
+      .map((el) => (el.textContent || '').trim())
+      .find((texto) => CONFIG_CONTEXTO.REGEX_CODIGO_USUARIO.test(texto));
+    return codigo ? codigo.toUpperCase() : null;
+  }
+
+  // Quem conta como "eu" na comparação com o data-usuario dos contatos:
+  // o usuário logado de verdade, com o valor fixo do CONFIG como fallback.
+  //
+  // Avisa (uma vez por carga de página) quando os dois divergem: o texto da
+  // apresentação é fixo ("Sou o Isaac..."), então logar como outra pessoa
+  // faria a mensagem se apresentar com o nome errado -- vale aparecer no
+  // console em vez de passar em silêncio.
+  let jaAvisouDivergenciaDeUsuario = false;
+  function obterUsuarioNegociador() {
+    const fixo = CONFIG_CONTEXTO.USUARIO_NEGOCIADOR.trim().toUpperCase();
+    const logado = lerUsuarioLogado();
+    if (!logado) return fixo;
+    if (logado !== fixo && !jaAvisouDivergenciaDeUsuario) {
+      jaAvisouDivergenciaDeUsuario = true;
+      console.warn(
+        `[Contexto Adicional] Usuário logado ("${logado}") é diferente do configurado ("${fixo}"). ` +
+        'A régua de "nunca contatado por mim" vai seguir o usuário logado, mas o texto da linha de ' +
+        'apresentação (Módulo 4) continua fixo com o nome do negociador configurado -- ajuste lá se for o caso.'
+      );
+    }
+    return logado;
+  }
+
   // PEDIDO DO USUÁRIO: cliente que JÁ tem contato registrado, mas nenhum
-  // deles feito por ele (CONFIG_CONTEXTO.USUARIO_NEGOCIADOR) -- do ponto de
+  // deles feito por ele (o usuário logado, ver obterUsuarioNegociador) -- do ponto de
   // vista do cliente a empresa já falou com ele, mas do ponto de vista do
   // negociador é o primeiro contato dele com aquele cliente, então cabe se
   // apresentar. Cliente com ZERO contatos não entra aqui de propósito: esse
@@ -549,7 +600,7 @@
     const contatos = lerTodosContatos();
     if (contatos.length === 0) return false;
     // Os dois lados normalizados em maiúsculas (ver lerTodosContatos).
-    const eu = CONFIG_CONTEXTO.USUARIO_NEGOCIADOR.trim().toUpperCase();
+    const eu = obterUsuarioNegociador();
     return !contatos.some((c) => c.usuario === eu);
   }
 
@@ -650,6 +701,8 @@
     calcularContextoContato,
     calcularContatoAntigo,
     calcularNuncaContatadoPorMim,
+    lerUsuarioLogado,
+    obterUsuarioNegociador,
     CHAVE_SNAPSHOT_TITULOS,
     DIAS_EXPIRACAO_SNAPSHOT_TITULOS,
     lerSnapshotsTitulos,
