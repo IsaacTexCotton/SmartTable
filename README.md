@@ -88,7 +88,10 @@ decisões, armadilhas e itens em aberto.
    econômico também tem título vencido.
 6. `modulo6-contexto-adicional.js` — lê Promessas e Contatos ao carregar a
    página do cliente, expõe `window.__contextoAdicional` para o Alt+A
-   (mensagem personalizada) consultar sem custo extra.
+   (mensagem personalizada) consultar sem custo extra. Também identifica o
+   negociador logado (`#user-menu-btn`) pra saber se ELE já falou com aquele
+   cliente e pra assinar a mensagem com o nome certo — nada de nome fixo no
+   código.
 7. `modulo7-fila-prioridade.js` — monta uma fila de atendimento ordenada por
    uma régua de prioridade de negócio (Alt+U), visitando cada candidato em
    aba de fundo pra classificar a situação real do título e a promessa de

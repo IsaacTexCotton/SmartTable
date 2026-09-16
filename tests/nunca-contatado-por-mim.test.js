@@ -1,7 +1,8 @@
 // Testes de calcularNuncaContatadoPorMim (Módulo 6) -- PEDIDO DO USUÁRIO:
 // cliente que JÁ foi contatado por outro negociador, mas nunca por este
 // (CONFIG_CONTEXTO.USUARIO_NEGOCIADOR), recebe a linha de apresentação
-// "Sou o Isaac do financeiro da Tex Cotton" na mensagem do Alt+A.
+// "Sou <nome> do financeiro da Tex Cotton" na mensagem do Alt+A, com o
+// nome vindo do negociador logado.
 //
 // O campo data-usuario de cada .contato-item foi CONFIRMADO ao vivo no HTML
 // real do CRM (valores como "ISAAC.03876" e "BIANCA.03665") -- não é
@@ -148,6 +149,46 @@ function calcular(w) {
   // pra ela é primeiro contato.
   const w = abrirPagina([contatoItem(EU)], OUTRA);
   checar('logado como Bianca + contato só do Isaac -> nuncaContatadoPorMim=true', calcular(w) === true);
+})();
+
+// =====================================================================
+// PEDIDO DO USUÁRIO: o NOME que aparece na mensagem também sai do
+// negociador logado -- CONFIRMADO que a parte antes do ponto no código
+// do CRM é o primeiro nome da pessoa.
+// =====================================================================
+(function () {
+  const w = abrirPagina([], EU);
+  const nome = w.__contextoAdicionalDebug.nomeDoNegociador;
+
+  checar('"ISAAC.03876" -> "Isaac"', nome('ISAAC.03876') === 'Isaac', nome('ISAAC.03876'));
+  checar('"BIANCA.03665" -> "Bianca"', nome('BIANCA.03665') === 'Bianca', nome('BIANCA.03665'));
+  checar('minúsculas são capitalizadas', nome('isaac.03876') === 'Isaac', nome('isaac.03876'));
+  checar('espaços em volta não atrapalham', nome('  BIANCA.03665  ') === 'Bianca', nome('  BIANCA.03665  '));
+  checar('nome com acento é preservado', nome('MÔNICA.01234') === 'Mônica', nome('MÔNICA.01234'));
+
+  // Fora do formato confirmado (NOME.NUMERO) não inventa nome nenhum --
+  // quem chama cai no padrão em vez de mandar mensagem com nome errado.
+  checar('formato inesperado -> string vazia', nome('SEM_PONTO') === '', nome('SEM_PONTO'));
+  checar('null -> string vazia', nome(null) === '');
+  checar('undefined -> string vazia', nome(undefined) === '');
+})();
+
+(function () {
+  // O nome entra no contexto pro Módulo 4 montar a frase.
+  const w = abrirPagina([contatoItem(OUTRA)], OUTRA);
+  checar('logado como Bianca -> ctx.nomeNegociador = "Bianca"', w.__contextoAdicional.nomeNegociador === 'Bianca', w.__contextoAdicional.nomeNegociador);
+})();
+
+(function () {
+  const w = abrirPagina([contatoItem(OUTRA)], EU);
+  checar('logado como Isaac -> ctx.nomeNegociador = "Isaac"', w.__contextoAdicional.nomeNegociador === 'Isaac', w.__contextoAdicional.nomeNegociador);
+})();
+
+(function () {
+  // Sem header, o nome vem do fallback do CONFIG -- mesma mensagem de
+  // sempre, nada quebra.
+  const w = abrirPagina([contatoItem(OUTRA)], null);
+  checar('sem header -> ctx.nomeNegociador cai no fallback ("Isaac")', w.__contextoAdicional.nomeNegociador === 'Isaac', w.__contextoAdicional.nomeNegociador);
 })();
 
 (function () {

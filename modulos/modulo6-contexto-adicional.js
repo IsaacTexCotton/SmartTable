@@ -55,7 +55,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.2.0';
+  const VERSAO_SMARTTABLE = '1.3.0';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -117,13 +117,12 @@
     //
     // Este valor é só o FALLBACK: o usuário logado é lido da própria página
     // (ver lerUsuarioLogado) e só cai aqui se a leitura falhar. Serve também
-    // de referência pra avisar quando quem está logado não é quem o texto da
-    // apresentação diz ser.
+    // de referência pra avisar no console quando a sessão logada não é a de
+    // sempre.
     //
-    // SE TROCAR DE NEGOCIADOR, o que realmente importa é o texto da
-    // apresentação em obterLinhaApresentacao() (Módulo 4), que cita o nome
-    // por extenso ("Sou o Isaac do financeiro da Tex Cotton...") -- esse
-    // continua fixo e precisa ser editado à mão.
+    // NÃO precisa ser trocado ao mudar de negociador: tanto a régua quanto o
+    // nome que aparece na mensagem ("Sou Isaac do financeiro...", ver
+    // nomeDoNegociador) saem do usuário logado de verdade.
     USUARIO_NEGOCIADOR: 'ISAAC.03876',
     // Âncora do usuário logado no header do CRM -- confirmado ao vivo que
     // existe tanto na lista quanto na página de cliente, e que tem id
@@ -561,13 +560,28 @@
     return codigo ? codigo.toUpperCase() : null;
   }
 
+  /**
+   * Primeiro nome do negociador a partir do código do CRM.
+   * CONFIRMADO com o usuário: a parte antes do ponto é o nome da pessoa
+   * ("ISAAC.03876" -> "Isaac", "BIANCA.03665" -> "Bianca").
+   * @param {string|null|undefined} codigo Código no formato NOME.NUMERO.
+   * @returns {string} Nome capitalizado, ou '' se o código não bater o formato.
+   */
+  function nomeDoNegociador(codigo) {
+    const texto = (codigo ?? '').trim();
+    if (!CONFIG_CONTEXTO.REGEX_CODIGO_USUARIO.test(texto)) return '';
+    const nome = texto.split('.')[0];
+    if (!nome) return '';
+    return nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase();
+  }
+
   // Quem conta como "eu" na comparação com o data-usuario dos contatos:
-  // o usuário logado de verdade, com o valor fixo do CONFIG como fallback.
+  // o usuário logado de verdade, com o valor do CONFIG como fallback só
+  // quando a leitura do header falha (ver lerUsuarioLogado).
   //
-  // Avisa (uma vez por carga de página) quando os dois divergem: o texto da
-  // apresentação é fixo ("Sou o Isaac..."), então logar como outra pessoa
-  // faria a mensagem se apresentar com o nome errado -- vale aparecer no
-  // console em vez de passar em silêncio.
+  // Avisa (uma vez por carga de página) quando os dois divergem -- não é
+  // erro (a régua E o nome na mensagem seguem o logado), mas é bom saber
+  // que a sessão não é a de sempre antes de sair mandando mensagem.
   let jaAvisouDivergenciaDeUsuario = false;
   function obterUsuarioNegociador() {
     const fixo = CONFIG_CONTEXTO.USUARIO_NEGOCIADOR.trim().toUpperCase();
@@ -577,8 +591,8 @@
       jaAvisouDivergenciaDeUsuario = true;
       console.warn(
         `[Contexto Adicional] Usuário logado ("${logado}") é diferente do configurado ("${fixo}"). ` +
-        'A régua de "nunca contatado por mim" vai seguir o usuário logado, mas o texto da linha de ' +
-        'apresentação (Módulo 4) continua fixo com o nome do negociador configurado -- ajuste lá se for o caso.'
+        `As mensagens vão se apresentar como "${nomeDoNegociador(logado)}" e a régua de "nunca contatado ` +
+        'por mim" vai seguir esse usuário -- confira se é essa a sessão que você quer usar.'
       );
     }
     return logado;
@@ -629,6 +643,9 @@
       semContatoAnterior: totalContatos === 0,
       contatoAntigo: calcularContatoAntigo(totalContatos),
       nuncaContatadoPorMim: calcularNuncaContatadoPorMim(totalContatos),
+      // Primeiro nome de quem está logado, pra mensagem do Alt+A se
+      // apresentar com o nome certo em vez de um nome fixo no código.
+      nomeNegociador: nomeDoNegociador(obterUsuarioNegociador()),
       calcularTitulosPendentes,
     };
   }
@@ -642,7 +659,7 @@
       console.log('[Contexto Adicional] Calculado:', window.__contextoAdicional);
     } catch (erro) {
       console.warn('[Contexto Adicional] Falha ao calcular -- Alt+A segue funcionando sem essas linhas extras:', erro.message);
-      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, nuncaContatadoPorMim: false, calcularTitulosPendentes };
+      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, nuncaContatadoPorMim: false, nomeNegociador: nomeDoNegociador(CONFIG_CONTEXTO.USUARIO_NEGOCIADOR), calcularTitulosPendentes };
     }
   }
 
@@ -670,7 +687,7 @@
         console.warn(
           '[Contexto Adicional] Containers de Promessas/Contatos não encontrados nesta página -- normal fora da tela de cliente.'
         );
-        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, nuncaContatadoPorMim: false, calcularTitulosPendentes };
+        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, nuncaContatadoPorMim: false, nomeNegociador: nomeDoNegociador(CONFIG_CONTEXTO.USUARIO_NEGOCIADOR), calcularTitulosPendentes };
       }
     }, 5000);
   }
@@ -703,6 +720,7 @@
     calcularNuncaContatadoPorMim,
     lerUsuarioLogado,
     obterUsuarioNegociador,
+    nomeDoNegociador,
     CHAVE_SNAPSHOT_TITULOS,
     DIAS_EXPIRACAO_SNAPSHOT_TITULOS,
     lerSnapshotsTitulos,

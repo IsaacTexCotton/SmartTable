@@ -681,15 +681,30 @@
   //   - nuncaContatadoPorMim (PEDIDO DO USUÁRIO): o cliente já foi contatado
   //     por OUTRO negociador, mas nunca por este -- do lado dele é a
   //     primeira vez que esta pessoa fala com ele, então cabe se apresentar.
+
+  // Nome usado quando o Módulo 6 não está carregado (a mensagem continua
+  // saindo, só sem saber quem está logado). Com ele carregado, o nome vem
+  // de ctx.nomeNegociador, derivado do usuário logado no CRM.
+  const NOME_NEGOCIADOR_PADRAO = 'Isaac';
+
+  // PEDIDO DO USUÁRIO: o nome sai do negociador logado, não mais fixo no
+  // código -- CONFIRMADO que a parte antes do ponto no código do CRM é o
+  // primeiro nome ("BIANCA.03665" -> "Bianca").
   //
-  // SE TROCAR DE NEGOCIADOR, são DOIS lugares: o nome por extenso aqui
-  // embaixo e o código do usuário em CONFIG_CONTEXTO.USUARIO_NEGOCIADOR
-  // (Módulo 6), que é quem decide o nuncaContatadoPorMim.
+  // Sem artigo antes do nome ("Sou Isaac", não "Sou o Isaac") de propósito:
+  // o artigo depende do gênero da pessoa, que o código não tem como saber a
+  // partir do nome -- "Sou o Bianca" sairia errado. Sem artigo funciona pra
+  // qualquer nome.
+  function montarApresentacao() {
+    const nome = window.__contextoAdicional?.nomeNegociador || NOME_NEGOCIADOR_PADRAO;
+    return `Sou ${nome} do financeiro da Tex Cotton referente as marcas Animê, Bimbi, Youccie, Authoria e Momi`;
+  }
+
   function obterLinhaApresentacao() {
     const ctx = window.__contextoAdicional;
     if (!ctx) return '';
     if (!ctx.contatoAntigo && !ctx.nuncaContatadoPorMim) return '';
-    return 'Sou o Isaac do financeiro da Tex Cotton referente as marcas Animê, Bimbi, Youccie, Authoria e Momi';
+    return montarApresentacao();
   }
 
   // CONFIRMADO com o usuário (substituiu a linha "Notamos que a empresa
@@ -877,7 +892,7 @@
       const textoPrimeiroContato = [
         '{{saudacao}}',
         '',
-        'Sou o Isaac do financeiro da Tex Cotton referente as marcas Animê, Bimbi, Youccie, Authoria e Momi',
+        montarApresentacao(),
         'Este é o contato responsável pela razão social {{cliente_nome}}?',
       ].join('\n');
       return substituirVariaveisDaFrase(textoPrimeiroContato, dados);

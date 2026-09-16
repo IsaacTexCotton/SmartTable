@@ -47,6 +47,8 @@ function ctxBase(overrides) {
     semContatoAnterior: false,
     contatoAntigo: false,
     nuncaContatadoPorMim: false,
+    // Nome do negociador logado (Módulo 6 deriva do código do CRM).
+    nomeNegociador: 'Isaac',
     calcularTitulosPendentes: (t) => t,
   }, overrides || {});
 }
@@ -100,7 +102,7 @@ function checarIncongruencias(msg, cenario) {
   // BUG REAL (achado na revisão de código): se apresentar como primeira vez
   // E dizer "retomando o contato de X" na mesma mensagem é contraditório --
   // acontecia quando OUTRO negociador falou ontem e este nunca falou.
-  if (/Sou o Isaac do financeiro/.test(msg) && /Retomando o contato de/.test(msg)) {
+  if (/Sou [A-Za-zÀ-ÿ]+ do financeiro/.test(msg) && /Retomando o contato de/.test(msg)) {
     problemas.push('Se apresenta como primeiro contato E diz "Retomando o contato de..." na mesma mensagem.');
   }
 
@@ -773,8 +775,8 @@ scpcDias.forEach((dias) => {
 // (contatoAntigo e nuncaContatadoPorMim), nunca duplicada quando os dois
 // valem ao mesmo tempo, e continua fora quando nenhum dos dois vale.
 {
-  const APRESENTACAO = 'Sou o Isaac do financeiro da Tex Cotton';
-  const contarApresentacoes = (msg) => (msg.match(/Sou o Isaac do financeiro da Tex Cotton/g) || []).length;
+  const APRESENTACAO = "Sou <nome> do financeiro da Tex Cotton";
+  const contarApresentacoes = (msg) => (msg.match(/Sou [A-Za-zÀ-ÿ]+ do financeiro da Tex Cotton/g) || []).length;
 
   const casos = [
     { descricao: 'nuncaContatadoPorMim=true -> linha de apresentação presente', ctx: { nuncaContatadoPorMim: true }, esperado: 1 },
@@ -802,13 +804,47 @@ scpcDias.forEach((dias) => {
     }
   });
 
+  // PEDIDO DO USUÁRIO: o nome na apresentação segue o negociador logado,
+  // não um nome fixo no código. Sem artigo antes do nome de propósito --
+  // "Sou o Bianca" sairia errado e o código não tem como saber o gênero.
+  [
+    { nome: 'Isaac', esperado: 'Sou Isaac do financeiro da Tex Cotton' },
+    { nome: 'Bianca', esperado: 'Sou Bianca do financeiro da Tex Cotton' },
+  ].forEach(({ nome, esperado }) => {
+    window.__alertaGrupo = { empresasComVencido: [] };
+    window.__contextoAdicional = ctxBase({ nuncaContatadoPorMim: true, nomeNegociador: nome });
+    const msgNome = montar({ registros: [registro('EM_ATRASO')], fluxo: 'CARTORIO' });
+    total++;
+    if (!msgNome || !msgNome.includes(esperado)) {
+      achados.push({
+        cenario: `apresentação usa o nome do negociador logado ("${nome}")`,
+        problemas: [`Esperava "${esperado}" na mensagem.`],
+        mensagem: msgNome,
+      });
+    }
+  });
+
+  // Mesma coisa na mensagem de PRIMEIRO CONTATO (cliente sem nenhum
+  // registro), que tem texto próprio e também se apresenta.
+  window.__alertaGrupo = { empresasComVencido: [] };
+  window.__contextoAdicional = ctxBase({ semContatoAnterior: true, nomeNegociador: 'Bianca' });
+  const msgPrimeiro = montar({ registros: [registro('EM_ATRASO')], fluxo: 'CARTORIO' });
+  total++;
+  if (!msgPrimeiro || !msgPrimeiro.includes('Sou Bianca do financeiro da Tex Cotton')) {
+    achados.push({
+      cenario: 'mensagem de primeiro contato também usa o nome do negociador logado',
+      problemas: ['Esperava "Sou Bianca do financeiro da Tex Cotton" na mensagem de primeiro contato.'],
+      mensagem: msgPrimeiro,
+    });
+  }
+
   // BUG REAL (achado na revisão de código): com a apresentação na mensagem,
   // "Retomando o contato de ontem" (de OUTRA pessoa) não pode aparecer.
   window.__alertaGrupo = { empresasComVencido: [] };
   window.__contextoAdicional = ctxBase({ nuncaContatadoPorMim: true, contatoRecente: contatoRecenteOntem });
   const msgCombo = montar({ registros: [registro('EM_ATRASO')], fluxo: 'CARTORIO' });
   total++;
-  if (!msgCombo || !/Sou o Isaac do financeiro/.test(msgCombo) || /Retomando o contato de/.test(msgCombo)) {
+  if (!msgCombo || !/Sou [A-Za-zÀ-ÿ]+ do financeiro/.test(msgCombo) || /Retomando o contato de/.test(msgCombo)) {
     achados.push({
       cenario: 'BUG REAL: outro negociador falou ontem + eu nunca falei -- apresentação sim, "retomando o contato" não',
       problemas: ['Esperava a apresentação SEM a linha "Retomando o contato de..." na mesma mensagem.'],
