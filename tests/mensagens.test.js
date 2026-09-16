@@ -415,6 +415,72 @@ scpcDias.forEach((dias) => {
   }
 }
 
+// --- BUG REAL (relatado pelo usuário): cliente com título em ULTIMO_DIA
+// (escolhido como representante) MAIS outro título já em EM_CARTORIO --
+// a mensagem só falava do primeiro, nunca explicava por que existem linhas
+// amarelas no relatório também.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = {
+    registros: [
+      registro('EM_CARTORIO', { tituloCompleto: 'CART/1', vencimentoTexto: '01/07/2026', diasAtrasoReal: 40 }),
+      registro('ULTIMO_DIA', { tituloCompleto: 'ULT/1', vencimentoTexto: '09/09/2026', diasAtrasoReal: 6 }),
+    ],
+    fluxo: 'CARTORIO',
+  };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/grifado em amarelo/i.test(msg) || !/j[áa] est[áa] em cart[óo]rio/i.test(msg)) {
+    achados.push({
+      cenario: 'BUG REAL: ULTIMO_DIA escolhido como representante + outro título já EM_CARTORIO',
+      problemas: ['Mensagem não menciona os títulos já em cartório (amarelo) além do título escolhido (ULTIMO_DIA).'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Mesmo bug, mas com NEGATIVADO_SCPC dia 19 (janela de aviso) como
+// escolhido, coexistindo com outro título já EM_CARTORIO.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = {
+    registros: [
+      registro('EM_CARTORIO', { tituloCompleto: 'CART/1', vencimentoTexto: '01/06/2026', diasAtrasoReal: 60 }),
+      registro('NEGATIVADO_SCPC', { tituloCompleto: 'SCPC/1', vencimentoTexto: '20/08/2026', diasAtrasoReal: 19 }),
+    ],
+    fluxo: 'SCPC',
+  };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/grifado em amarelo/i.test(msg)) {
+    achados.push({
+      cenario: 'BUG REAL: NEGATIVADO_SCPC dia 19 escolhido + outro título já EM_CARTORIO',
+      problemas: ['Mensagem não menciona os títulos já em cartório (amarelo) além do título escolhido (SCPC dia 19).'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Regressão: quando EM_CARTORIO já É a situação escolhida (sem
+// ULTIMO_DIA/SCPC concorrendo), a linha principal continua igual -- não
+// deve duplicar "também".
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = { registros: [registro('EM_CARTORIO', { diasAtrasoReal: 40 })], fluxo: 'CARTORIO' };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  if (!msg || /também/i.test(msg)) {
+    achados.push({
+      cenario: 'REGRESSÃO: só EM_CARTORIO (sem outra situação concorrendo) não deve dizer "também"',
+      problemas: ['Mensagem deveria usar só a linha principal de EM_CARTORIO, sem a linha adicional.'],
+      mensagem: msg,
+    });
+  }
+}
+
 console.log(`[mensagens] ${total - achados.length}/${total} cenários passaram (${achados.length} achado(s)).`);
 achados.forEach((a, i) => {
   console.log(`  FALHA ${i + 1}: ${a.cenario}`);

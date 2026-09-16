@@ -513,6 +513,35 @@
     }
   }
 
+  // BUG REAL (relatado pelo usuário): cliente com títulos em MAIS de uma
+  // situação ao mesmo tempo (ex.: um em ULTIMO_DIA + outro já EM_CARTORIO)
+  // recebia uma mensagem que só falava do título escolhido como
+  // representante (ULTIMO_DIA sempre vence -- ver escolherTituloRepresentativo
+  // no Módulo 0) -- os títulos já em cartório apareciam grifados em amarelo
+  // no relatório, mas a mensagem nunca explicava esse destaque, porque
+  // obterLinhaContexto só descreve UMA situação por vez. Esta função cobre
+  // o caso em que EM_CARTORIO não é a situação escolhida mas ainda assim
+  // está presente entre os títulos do cliente -- complementa linhaContexto
+  // em vez de substituí-la (ver montarMensagemPersonalizada).
+  function obterLinhaEmCartorioAdicional(escolhido, dados, omitirRelatorio) {
+    if (escolhido.situacaoKey === 'EM_CARTORIO') return ''; // já coberto pela linha principal
+
+    const emCartorio = dados.registros.filter((r) => r.situacaoKey === 'EM_CARTORIO');
+    if (emCartorio.length === 0) return '';
+
+    if (omitirRelatorio) {
+      const datas = obterDatasVencimentoPorSituacao(dados, 'EM_CARTORIO');
+      const datasTexto = datas.join(', ');
+      return datas.length > 1
+        ? `Os títulos vencidos em ${datasTexto} também já estão em cartório -- o pagamento do restante ainda é possível via boleto.`
+        : `O título vencido em ${datasTexto} também já está em cartório -- o pagamento do restante ainda é possível via boleto.`;
+    }
+
+    return emCartorio.length > 1
+      ? 'Os títulos grifados em amarelo no relatório abaixo também já estão em cartório -- o pagamento do restante ainda é possível via boleto.'
+      : 'O título grifado em amarelo no relatório abaixo também já está em cartório -- o pagamento do restante ainda é possível via boleto.';
+  }
+
   // CONFIRMADO com o usuário: a pergunta final não deve ser sempre a
   // mesma ("podemos agendar...") -- perto do encaminhamento (último dia)
   // ou já negativado/em cartório, o CTA pode ser mais específico e
@@ -751,6 +780,12 @@
       return null;
     }
 
+    // Complementa (não substitui) linhaContexto quando o cliente tem
+    // títulos já em EM_CARTORIO além do título escolhido como representante
+    // -- ver obterLinhaEmCartorioAdicional acima.
+    const linhaCartorioAdicional = obterLinhaEmCartorioAdicional(escolhido, dados, omitirRelatorio);
+    const linhaSituacao = [linhaContexto, linhaCartorioAdicional].filter((l) => l).join(' ');
+
     const linhaApresentacao = obterLinhaApresentacaoContatoAntigo();
     const linhaAgradecimentoPagamento = obterLinhaAgradecimentoPagamento();
     const linhaContatoRecente = obterLinhaContatoRecente();
@@ -781,7 +816,7 @@
     // só QUEBRADA embute isso (linhaPromessa termina em "Já foi
     // realizado?..."). Em qualquer outro caso, sempre inclui a pergunta
     // final -- inclusive quando o relatório é omitido.
-    const jaTemPerguntaOuPedido = /\?/.test(linhaContexto) || /\?/.test(linhaPromessa);
+    const jaTemPerguntaOuPedido = /\?/.test(linhaSituacao) || /\?/.test(linhaPromessa);
     const incluirPerguntaFinal = !jaTemPerguntaOuPedido;
 
     // CORRIGIDO (achado real via bateria de cobrança digna): pode acontecer
@@ -795,7 +830,7 @@
     // saber do que se trata. Mantém o relatório mesmo com
     // omitirRelatorio=true nesse caso específico -- é a única âncora que
     // sobra pra dar contexto à pergunta.
-    const semNenhumaAncora = !blocoContexto && !linhaContexto;
+    const semNenhumaAncora = !blocoContexto && !linhaSituacao;
     const incluirRelatorio = !omitirRelatorio || semNenhumaAncora;
 
     // Cada item aqui vira um parágrafo da mensagem (separado por linha em
@@ -803,7 +838,7 @@
     const blocos = ['{{saudacao}}'];
     if (blocoContexto) blocos.push(blocoContexto);
     if (incluirRelatorio) blocos.push(linhaRelatorio);
-    if (linhaContexto) blocos.push(linhaContexto);
+    if (linhaSituacao) blocos.push(linhaSituacao);
     if (incluirPerguntaFinal) blocos.push(obterPerguntaFinal(escolhido));
 
     return substituirVariaveisDaFrase(blocos.join('\n\n'), dados);
