@@ -72,7 +72,22 @@
             const emAvisoSuspensaoScpc = registros.filter(
                 r => r.situacaoKey === 'NEGATIVADO_SCPC' && r.diasAtrasoReal >= 16 && r.diasAtrasoReal <= 19
             );
-            escolhido = emAvisoSuspensaoScpc.length > 0 ? maiorAtraso(emAvisoSuspensaoScpc) : maiorAtraso(registros);
+            if (emAvisoSuspensaoScpc.length > 0) {
+                escolhido = maiorAtraso(emAvisoSuspensaoScpc);
+            } else {
+                // CORRIGIDO (bug real, relatado pelo usuário): título já
+                // EM_CARTORIO saiu da cobrança amigável -- a prioridade de
+                // pagamento é sempre um título que AINDA NÃO foi pra
+                // cartório, mesmo que ele tenha menos dias de atraso do que
+                // o título em cartório. Sem essa regra, um título em
+                // cartório há 45 dias vencia um título em atraso inicial há
+                // apenas 3 dias só por ter mais dias, fazendo a nota do CRM
+                // (e a mensagem do Módulo 4, que espelha esta lógica de
+                // propósito) citar o título errado. Só cai pra um título em
+                // cartório se literalmente não sobrar nenhum outro.
+                const naoCartorio = registros.filter(r => r.situacaoKey !== 'EM_CARTORIO');
+                escolhido = naoCartorio.length > 0 ? maiorAtraso(naoCartorio) : maiorAtraso(registros);
+            }
         }
 
         return 'Enviado cobrança ' + escolhido.diasAtrasoReal + 'º dia.';

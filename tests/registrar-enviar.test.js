@@ -65,11 +65,39 @@ function registro(situacaoKey, diasAtrasoReal) {
   checar(`janela de aviso SCPC (dia ${dias}) vence sobre EM_CARTORIO 45 dias`, texto === `Enviado cobrança ${dias}º dia.`, texto);
 });
 
-// 5. Fora da janela (dia 25) -- volta a valer "maior atraso real"
+// 5. Fora da janela (dia 25) -- entre os que sobraram, título fora de
+//    cartório (NEGATIVADO_SCPC) vence o título em cartório, mesmo com
+//    menos dias -- ver checagens 6-8 abaixo pra regra completa.
 (function () {
   const w = novaJanela([registro('EM_CARTORIO', 45), registro('NEGATIVADO_SCPC', 25)]);
   const texto = w.__testarResumoPadronizado();
-  checar('fora da janela de aviso SCPC, vence o maior atraso real (45)', texto === 'Enviado cobrança 45º dia.', texto);
+  checar('fora da janela de aviso SCPC, título fora de cartório (25) vence o de cartório (45)', texto === 'Enviado cobrança 25º dia.', texto);
+})();
+
+// 6. BUG REAL (relatado pelo usuário): título já EM_CARTORIO tem MUITO
+//    mais dias que outro título ainda evitável -- a nota do CRM (e a
+//    mensagem real enviada, que precisa bater com ela) tem que citar o
+//    título fora de cartório, não o que já foi pra lá.
+(function () {
+  const w = novaJanela([registro('EM_CARTORIO', 45), registro('EM_ATRASO', 3)]);
+  const texto = w.__testarResumoPadronizado();
+  checar('EM_CARTORIO com muito mais dias (45) NÃO vence título fora de cartório com poucos dias (3)', texto === 'Enviado cobrança 3º dia.', texto);
+})();
+
+// 7. Mesmo bug com PRAZO_FINAL em vez de EM_ATRASO
+(function () {
+  const w = novaJanela([registro('EM_CARTORIO', 45), registro('PRAZO_FINAL', 8)]);
+  const texto = w.__testarResumoPadronizado();
+  checar('EM_CARTORIO com muito mais dias (45) NÃO vence PRAZO_FINAL fora de cartório (8)', texto === 'Enviado cobrança 8º dia.', texto);
+})();
+
+// 8. Defensivo: com TODOS os títulos em cartório, ainda escolhe um válido
+//    (caso raro -- um cliente assim nem deveria chegar até aqui, ver
+//    avisarSeNaoCobrar no Módulo 1)
+(function () {
+  const w = novaJanela([registro('EM_CARTORIO', 10), registro('EM_CARTORIO', 30)]);
+  const texto = w.__testarResumoPadronizado();
+  checar('com TODOS os títulos em cartório, ainda escolhe o de maior atraso entre eles (defensivo)', texto === 'Enviado cobrança 30º dia.', texto);
 })();
 
 resumo();

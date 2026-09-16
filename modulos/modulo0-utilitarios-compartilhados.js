@@ -128,6 +128,22 @@
     );
     if (emAvisoSuspensaoScpc.length > 0) return maiorAtrasoEntre(emAvisoSuspensaoScpc);
 
+    // CONFIRMADO com o usuário: título já EM_CARTORIO saiu da cobrança
+    // amigável -- a prioridade de pagamento (e por isso o pedido/CTA da
+    // mensagem) é sempre um título que AINDA NÃO foi pra cartório, mesmo
+    // que ele tenha menos dias de atraso que o título em cartório. BUG
+    // REAL (relatado pelo usuário): antes, "maior atraso real" comparava
+    // todos os títulos juntos -- um título em cartório há 45 dias vencia
+    // um título em atraso inicial há 3 dias só por ter mais dias,
+    // escolhendo o título errado (o que já foi pra cartório, não o que
+    // ainda dá pra evitar) e deixando o título realmente prioritário sem
+    // nenhuma menção na mensagem. Só cai pra um título em cartório se
+    // literalmente não sobrar nenhum outro -- caso raro na prática, já que
+    // um cliente com TODOS os títulos em cartório nem chega até aqui (ver
+    // avisarSeNaoCobrar no Módulo 1).
+    const naoCartorio = dados.registros.filter((r) => r.situacaoKey !== 'EM_CARTORIO');
+    if (naoCartorio.length > 0) return maiorAtrasoEntre(naoCartorio);
+
     return maiorAtrasoEntre(dados.registros);
   }
 

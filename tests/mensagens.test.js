@@ -523,6 +523,77 @@ scpcDias.forEach((dias) => {
   }
 }
 
+// --- BUG REAL (relatado pelo usuário): título já EM_CARTORIO tem MUITO
+// mais dias de atraso que outro título ainda evitável -- a prioridade de
+// pagamento (e por isso o CTA da mensagem) tem que mirar o título FORA de
+// cartório, não o que já foi pra lá só por ter mais dias.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = {
+    registros: [
+      registro('EM_CARTORIO', { tituloCompleto: 'CART/1', vencimentoTexto: '01/07/2026', diasAtrasoReal: 45 }),
+      registro('EM_ATRASO', { tituloCompleto: 'AT/1', vencimentoTexto: '12/09/2026', diasAtrasoReal: 3 }),
+    ],
+    fluxo: 'CARTORIO',
+  };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  // CTA de EM_CARTORIO ("confirmar a baixa da restrição") não pode
+  // aparecer aqui -- o título escolhido tem que ser o EM_ATRASO (CTA
+  // genérico "Podemos agendar..."), mas a informação de cartório ainda
+  // precisa aparecer como nota complementar.
+  if (!msg || /confirmar a baixa da restrição/i.test(msg) || !/também já está em cartório/i.test(msg)) {
+    achados.push({
+      cenario: 'BUG REAL: EM_CARTORIO com muito mais dias não pode virar o CTA quando há título fora de cartório',
+      problemas: ['CTA deveria ser sobre o título fora de cartório (ainda evitável), com o cartório só como nota complementar.'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Mesmo bug, mas o título fora de cartório é NEGATIVADO_SCPC (fora da
+// janela de aviso) em vez de EM_ATRASO -- também deve vencer o EM_CARTORIO
+// mais atrasado.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = {
+    registros: [
+      registro('EM_CARTORIO', { tituloCompleto: 'CART/1', vencimentoTexto: '01/07/2026', diasAtrasoReal: 45 }),
+      registro('NEGATIVADO_SCPC', { tituloCompleto: 'SCPC/1', vencimentoTexto: '20/07/2026', diasAtrasoReal: 25 }),
+    ],
+    fluxo: 'SCPC',
+  };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/regularização dos débitos negativados/i.test(msg) || !/também já está em cartório/i.test(msg)) {
+    achados.push({
+      cenario: 'BUG REAL: EM_CARTORIO com mais dias não pode vencer NEGATIVADO_SCPC fora de cartório na escolha do representante',
+      problemas: ['CTA/linha principal deveria ser sobre o título NEGATIVADO_SCPC (fora de cartório), com o cartório como nota complementar.'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Regressão: quando TODOS os títulos já estão em cartório, o cliente
+// nem chega até aqui de verdade (naoCobrar no Módulo 1) -- mas, se
+// chegasse, a escolha ainda precisa funcionar sem travar (defensivo).
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = { registros: [registro('EM_CARTORIO', { diasAtrasoReal: 10 }), registro('EM_CARTORIO', { tituloCompleto: 'CART/2', diasAtrasoReal: 30 })], fluxo: 'CARTORIO' };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/já estão em cartório/i.test(msg)) {
+    achados.push({
+      cenario: 'REGRESSÃO: com TODOS os títulos em cartório (caso defensivo), ainda gera mensagem válida sobre cartório',
+      problemas: ['Mensagem deveria continuar funcionando normalmente com a linha principal de EM_CARTORIO.'],
+      mensagem: msg,
+    });
+  }
+}
+
 // --- VERIFICAR_POSICAO (não deve gerar mensagem)
 {
   window.__alertaGrupo = { empresasComVencido: [] };

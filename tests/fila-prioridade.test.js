@@ -190,10 +190,45 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
   });
   checar('ULTIMO_DIA sempre vence, mesmo com outro em cartório há mais tempo', comUltimoDia.situacaoKey === 'ULTIMO_DIA', JSON.stringify(comUltimoDia));
 
+  // CONFIRMADO com o usuário: título já EM_CARTORIO saiu da cobrança
+  // amigável -- entre o que sobra, título fora de cartório sempre tem
+  // prioridade de pagamento sobre título em cartório, mesmo com menos
+  // dias de atraso. Por isso PRAZO_FINAL(6) vence EM_CARTORIO(30) aqui,
+  // mesmo o cartório tendo muito mais dias.
   const semUltimoDia = escolher({
     registros: [registro('EM_ATRASO', 3), registro('EM_CARTORIO', 30), registro('PRAZO_FINAL', 6)],
   });
-  checar('sem ULTIMO_DIA, escolhe o de maior atraso real', semUltimoDia.diasAtrasoReal === 30, JSON.stringify(semUltimoDia));
+  checar(
+    'sem ULTIMO_DIA, escolhe o de maior atraso real ENTRE OS FORA DE CARTÓRIO (PRAZO_FINAL 6, não EM_CARTORIO 30)',
+    semUltimoDia.situacaoKey === 'PRAZO_FINAL' && semUltimoDia.diasAtrasoReal === 6,
+    JSON.stringify(semUltimoDia)
+  );
+
+  // BUG REAL (relatado pelo usuário): antes, EM_CARTORIO competia em pé de
+  // igualdade com títulos fora de cartório só pelo número de dias --
+  // título em cartório há 45 dias vencia um título em atraso inicial há
+  // apenas 3 dias, quando a prioridade de pagamento (e por isso o pedido
+  // da mensagem) deveria mirar o que ainda dá pra evitar.
+  const cartorioComMuitoMaisDias = escolher({
+    registros: [registro('EM_CARTORIO', 45), registro('EM_ATRASO', 3)],
+  });
+  checar(
+    'EM_CARTORIO com MUITO mais dias (45) NÃO vence título fora de cartório com poucos dias (3)',
+    cartorioComMuitoMaisDias.situacaoKey === 'EM_ATRASO' && cartorioComMuitoMaisDias.diasAtrasoReal === 3,
+    JSON.stringify(cartorioComMuitoMaisDias)
+  );
+
+  // Defensivo: se TODOS os títulos já estão em cartório (caso raro -- um
+  // cliente assim nem deveria chegar até aqui, ver avisarSeNaoCobrar no
+  // Módulo 1), ainda escolhe um título válido em vez de travar.
+  const tudoEmCartorio = escolher({
+    registros: [registro('EM_CARTORIO', 10), registro('EM_CARTORIO', 30)],
+  });
+  checar(
+    'com TODOS os títulos em cartório, ainda escolhe o de maior atraso entre eles (defensivo)',
+    tudoEmCartorio.situacaoKey === 'EM_CARTORIO' && tudoEmCartorio.diasAtrasoReal === 30,
+    JSON.stringify(tudoEmCartorio)
+  );
 
   [16, 17, 18, 19].forEach((dias) => {
     const comAvisoScpc = escolher({
@@ -215,12 +250,16 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
     JSON.stringify(ultimoDiaVsAvisoScpc)
   );
 
+  // Fora da janela de aviso SCPC (dia 25), o critério cai pro "maior atraso
+  // real entre os fora de cartório" -- NEGATIVADO_SCPC (25, fora de
+  // cartório) vence EM_CARTORIO (45), mesmo tendo menos dias, pela mesma
+  // regra de prioridade de pagamento confirmada pelo usuário.
   const foraDaJanela = escolher({
     registros: [registro('EM_CARTORIO', 45), registro('NEGATIVADO_SCPC', 25)],
   });
   checar(
-    'fora da janela de aviso SCPC (dia 25), volta a valer o maior atraso real (EM_CARTORIO 45)',
-    foraDaJanela.situacaoKey === 'EM_CARTORIO' && foraDaJanela.diasAtrasoReal === 45,
+    'fora da janela de aviso SCPC (dia 25), NEGATIVADO_SCPC (fora de cartório) vence EM_CARTORIO (45, em cartório)',
+    foraDaJanela.situacaoKey === 'NEGATIVADO_SCPC' && foraDaJanela.diasAtrasoReal === 25,
     JSON.stringify(foraDaJanela)
   );
 })();
@@ -236,6 +275,27 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
   checar(
     'cliente com SCPC dia 19 + EM_CARTORIO 45 dias cai na prioridade 5 (não na 6)',
     prioridade === 5,
+    `prioridade=${prioridade}, escolhido=${JSON.stringify(escolhido)}`
+  );
+})();
+
+// Consequência esperada da regra de prioridade de pagamento (confirmada
+// pelo usuário) na Fila por Prioridade: cliente com um título velho em
+// EM_CARTORIO (45 dias) MAIS um título fresco em EM_ATRASO (3 dias, ainda
+// evitável) agora cai na prioridade 4 (atraso inicial), não na 6 -- porque
+// escolherTituloRepresentativo passa a escolher o título fora de cartório
+// como representante, e é ele que decide a prioridade.
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const escolher = w.filaPrioridadeDebug.escolherTituloRepresentativo;
+  const dp = w.filaPrioridadeDebug.determinarPrioridade;
+
+  const dados = { registros: [registro('EM_CARTORIO', 45), registro('EM_ATRASO', 3)] };
+  const escolhido = escolher(dados);
+  const prioridade = dp(escolhido, 'CARTORIO', 'Normal');
+  checar(
+    'cliente com EM_CARTORIO 45 dias + EM_ATRASO 3 dias cai na prioridade 4 (não na 6)',
+    prioridade === 4,
     `prioridade=${prioridade}, escolhido=${JSON.stringify(escolhido)}`
   );
 })();
