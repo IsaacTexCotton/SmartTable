@@ -354,10 +354,24 @@
         inputData.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
+    // BUG REAL (relatado pelo usuário): os botões preenchiam a observação e
+    // a data, mas a seção de promessa (com a lista de títulos pra marcar)
+    // só aparece depois de selecionar "Promessa de Pagamento" como
+    // resultado do contato -- sem isso, o campo de data ficava preenchido
+    // só que escondido, e não dava pra selecionar título nenhum. Clica no
+    // botão nativo de resultado (mesmo que um clique manual do operador
+    // faria) pra abrir a seção antes de preencher o resto.
+    function selecionarResultadoPromessaDePagamento() {
+        const botaoResultado = document.getElementById('btn-resultado-PROMESSA_PAGAMENTO');
+        if (!botaoResultado) return;
+        botaoResultado.click();
+    }
+
     function aoClicarAgendamentoRapido(frase) {
+        selecionarResultadoPromessaDePagamento();
         inserirFraseNaObservacao(frase);
         selecionarDataDePagamentoHoje();
-        toast('Observação preenchida e data de pagamento definida para hoje.', 'success');
+        toast('Promessa de Pagamento selecionada, observação preenchida e data definida para hoje.', 'success');
     }
 
     function criarBotoesAgendamentoRapido() {

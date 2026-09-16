@@ -124,7 +124,9 @@ function novaJanelaModalContato() {
       <div id="modal-contato">
         <div>
           <label>Resultado do Contato</label>
-          <div class="grid grid-cols-3 gap-2"></div>
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" id="btn-resultado-PROMESSA_PAGAMENTO">Promessa de Pagamento</button>
+          </div>
           <button type="button" id="btn-resultado-ATENCAO">Atenção</button>
         </div>
         <div>
@@ -193,7 +195,10 @@ function iso(data) {
 })();
 
 // 13. Clicar num item com frase já existente nas "Frases padrão" reaproveita
-// o botão nativo (não insere direto no textarea) e seleciona a data de hoje.
+// o botão nativo (não insere direto no textarea), seleciona "Promessa de
+// Pagamento" como resultado (BUG REAL relatado pelo usuário: sem isso, a
+// seção com a lista de títulos pra marcar nunca aparecia) e seleciona a
+// data de hoje.
 (function () {
   const w = novaJanelaModalContato();
   let cliquesNoNativo = 0;
@@ -204,15 +209,48 @@ function iso(data) {
     w.document.getElementById('contato-resumo').value = botaoNativo.title;
   });
 
+  let cliquesNoResultadoPromessa = 0;
+  const botaoResultadoPromessa = w.document.getElementById('btn-resultado-PROMESSA_PAGAMENTO');
+  botaoResultadoPromessa.addEventListener('click', () => {
+    cliquesNoResultadoPromessa++;
+    // Simula o comportamento real da página (revela a seção de promessa).
+    w.document.getElementById('secao-promessa').classList.remove('hidden');
+  });
+
   let eventoChangeDisparado = false;
   w.document.getElementById('input-data-promessa').addEventListener('change', () => { eventoChangeDisparado = true; });
 
   w.__testarAgendamentoRapido.aoClicarAgendamentoRapido('Cliente enviou comprovante de pagamento.');
 
+  checar('seleciona "Promessa de Pagamento" como resultado (1 clique no botão nativo)', cliquesNoResultadoPromessa === 1, cliquesNoResultadoPromessa);
+  checar('BUG REAL CORRIGIDO: seção de promessa (lista de títulos) fica visível', !w.document.getElementById('secao-promessa').classList.contains('hidden'));
   checar('reaproveita o botão nativo de frase (1 clique, não insere direto)', cliquesNoNativo === 1, cliquesNoNativo);
   checar('observação recebeu o texto (via botão nativo)', w.document.getElementById('contato-resumo').value === 'Cliente enviou comprovante de pagamento.');
   checar('data de pagamento preenchida com hoje', w.document.getElementById('input-data-promessa').value === iso(new Date()));
   checar('evento "change" disparado no campo de data (pro cálculo nativo de juros/multa rodar)', eventoChangeDisparado === true);
+})();
+
+// 13b. Defensivo: sem #btn-resultado-PROMESSA_PAGAMENTO na página, não
+// lança exceção -- só não seleciona o resultado (o resto continua funcionando).
+(function () {
+  const dom = new JSDOM(
+    `<!doctype html><body>
+      <textarea name="resumo" id="contato-resumo"></textarea>
+      <input type="date" name="dataPromessa" id="input-data-promessa">
+    </body></html>`,
+    { url: 'https://texhub.texcotton.com.br/crm/clientes' }
+  );
+  mirrorGlobals(dom);
+  dom.window.eval(CODIGO);
+
+  let excecao = null;
+  try {
+    dom.window.__testarAgendamentoRapido.aoClicarAgendamentoRapido('Cliente agendou o pagamento.');
+  } catch (e) {
+    excecao = e;
+  }
+  checar('sem #btn-resultado-PROMESSA_PAGAMENTO não lança exceção', excecao === null, excecao && excecao.message);
+  checar('mesmo assim, observação e data continuam sendo preenchidas', dom.window.document.getElementById('contato-resumo').value === 'Cliente agendou o pagamento.' && dom.window.document.getElementById('input-data-promessa').value === iso(new Date()));
 })();
 
 // 14. Fallback: frase sem botão nativo correspondente insere direto na
