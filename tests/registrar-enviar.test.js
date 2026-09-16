@@ -19,8 +19,8 @@ window.__testarAgendamentoRapido = {
   FRASES_AGENDAMENTO_RAPIDO,
 };
 window.__testarAbrirWhatsApp = {
-  abrirWhatsAppSemAcumularAbas,
-  NOME_JANELA_WHATSAPP,
+  abrirWhatsAppSemNovaAba,
+  construirUrlProtocoloWhatsApp,
 };
 `);
 
@@ -36,6 +36,9 @@ function mirrorGlobals(dom) {
   // Event global do Node (disponível desde o Node 15+) não serve, mesmo
   // parecendo compatível (mesmo bug já visto com MouseEvent noutro teste).
   global.Event = dom.window.Event;
+  // abrirWhatsAppSemNovaAba usa `new URL(...)` -- mesmo motivo do Event
+  // acima, precisa ser a classe URL do jsdom, não a do Node.
+  global.URL = dom.window.URL;
   dom.window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
   global.requestAnimationFrame = dom.window.requestAnimationFrame;
 }
@@ -163,14 +166,16 @@ function registro(situacaoKey, diasAtrasoReal) {
 })();
 
 // =====================================================================
-// 8c. PEDIDO DO USUÁRIO: aba do WhatsApp não pode mais acumular uma por
-// cobrança -- abrirWhatsAppCliente() (função própria da página) sempre
-// chama window.open(url, '_blank', ...), e '_blank' sempre abre aba nova.
-// Interceptamos window.open só durante essa chamada pra trocar o nome do
-// alvo por um fixo -- nome repetido faz o navegador reaproveitar a mesma
-// aba (mesmo mecanismo de <a target="...">). Substitui a implementação
-// antiga (fechar via timer), que o usuário relatou não funcionar no
-// handoff pro app desktop.
+// 8c. PEDIDO DO USUÁRIO (2ª tentativa -- a 1ª, reaproveitar a aba por
+// nome, resolvia "acumular" mas não o problema de verdade: mesmo
+// reaproveitada, a aba sempre rouba o foco, então o Alt-Tab ainda caía
+// nela em vez de voltar pro CRM). abrirWhatsAppCliente() (função própria
+// da página) sempre chama window.open(url, '_blank', ...) com a URL do
+// wa.me pronta. Interceptamos essa chamada e, em vez de abrir QUALQUER
+// aba, navegamos a própria aba do CRM pro protocolo do WhatsApp Desktop
+// (whatsapp://send?phone=...&text=...) -- confirmado AO VIVO com o
+// usuário que isso não navega a página (não é http/https), só entrega
+// pro sistema operacional abrir o app.
 // =====================================================================
 function novaJanelaWhatsApp() {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'https://texhub.texcotton.com.br/crm/clientes/grupo/0?cnpj=AAA' });
@@ -179,48 +184,62 @@ function novaJanelaWhatsApp() {
   return dom.window;
 }
 
+// Mesma construção de URL que a abrirWhatsAppCliente() real faz
+// (confirmada com o usuário): https://wa.me/<telefone>?text=<mensagem>.
+function urlWaMe(telefone, mensagem) {
+  return 'https://wa.me/' + telefone + '?text=' + encodeURIComponent(mensagem);
+}
+
+// construirUrlProtocoloWhatsApp é uma função pura (URL do wa.me -> URL do
+// protocolo do WhatsApp Desktop) -- testada isoladamente, sem depender da
+// navegação de verdade acontecer. jsdom não implementa navegação pra
+// protocolos não-http(s) (nem deveria: no navegador real, confirmado com
+// o usuário, a própria aba TAMBÉM não muda de local.href quando não há
+// pra onde navegar -- é só um "handoff" pro sistema operacional). Por
+// isso os testes abaixo checam a URL CONSTRUÍDA, não location.href.
 (function () {
   const w = novaJanelaWhatsApp();
-  const chamadas = [];
-  w.open = (url, nome, features) => {
-    chamadas.push({ url, nome, features });
-    return { closed: false };
-  };
-  w.abrirWhatsAppCliente = function () {
-    // Mesma chamada real da página: alvo sempre '_blank'.
-    return w.open('https://wa.me/551199999999', '_blank', 'noopener,noreferrer');
-  };
+  const resultado = w.__testarAbrirWhatsApp.construirUrlProtocoloWhatsApp(urlWaMe('5511999999999', 'Olá, tudo bem?'));
 
-  w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
-
-  checar('window.open foi chamado', chamadas.length === 1, JSON.stringify(chamadas));
   checar(
-    'nome do alvo foi trocado de "_blank" pro nome fixo reutilizável',
-    chamadas[0] && chamadas[0].nome === w.__testarAbrirWhatsApp.NOME_JANELA_WHATSAPP,
-    chamadas[0] && chamadas[0].nome
-  );
-  checar('URL passa intacta', chamadas[0] && chamadas[0].url === 'https://wa.me/551199999999', chamadas[0] && chamadas[0].url);
-  checar(
-    'features passam intactos (noopener,noreferrer preservados -- não precisamos mais de referência pra fechar)',
-    chamadas[0] && chamadas[0].features === 'noopener,noreferrer',
-    chamadas[0] && chamadas[0].features
+    'PEDIDO DO USUÁRIO: URL do protocolo do WhatsApp Desktop montada certa a partir da URL do wa.me',
+    resultado === 'whatsapp://send?phone=5511999999999&text=' + encodeURIComponent('Olá, tudo bem?'),
+    resultado
   );
 })();
 
 (function () {
-  // PEDIDO DO USUÁRIO, testado diretamente: duas cobranças seguidas usam
-  // o MESMO nome de aba -- é isso que faz o navegador reaproveitar em vez
-  // de acumular.
+  // Telefone com caracteres especiais na mensagem (espaço, acento, "&",
+  // quebra de linha) sobrevive ao ciclo decodificar/recodificar.
   const w = novaJanelaWhatsApp();
-  const nomes = [];
-  w.open = (url, nome) => { nomes.push(nome); return { closed: false }; };
-  w.abrirWhatsAppCliente = function () { return w.open('https://wa.me/1', '_blank', ''); };
+  const mensagem = 'Oi! Tudo bem?\nSeu título de R$ 100,00 & juros venceu.';
+  const resultado = w.__testarAbrirWhatsApp.construirUrlProtocoloWhatsApp(urlWaMe('5511988887777', mensagem));
 
-  w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
-  w.abrirWhatsAppCliente = function () { return w.open('https://wa.me/2', '_blank', ''); };
-  w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+  checar(
+    'mensagem com caracteres especiais chega intacta no protocolo do WhatsApp',
+    resultado === 'whatsapp://send?phone=5511988887777&text=' + encodeURIComponent(mensagem),
+    resultado
+  );
+})();
 
-  checar('duas chamadas seguidas usam o mesmo nome de aba (reaproveita, não acumula)', nomes.length === 2 && nomes[0] === nomes[1], JSON.stringify(nomes));
+(function () {
+  // Confirma que abrirWhatsAppSemNovaAba() de fato ATRIBUI o resultado a
+  // window.location.href (o efeito colateral em si) -- não dá pra
+  // verificar o valor final por causa da limitação de navegação do jsdom
+  // citada acima, mas dá pra confirmar que NENHUMA aba nova foi criada
+  // (window.open nunca chega a abrir de verdade -- é substituído durante
+  // a chamada).
+  const w = novaJanelaWhatsApp();
+  let abriuAbaDeVerdade = false;
+  const openOriginal = w.open;
+  w.open = function (...args) { abriuAbaDeVerdade = true; return openOriginal.apply(this, args); };
+  w.abrirWhatsAppCliente = function () {
+    return w.open(urlWaMe('5511999999999', 'oi'), '_blank', 'noopener,noreferrer');
+  };
+
+  w.__testarAbrirWhatsApp.abrirWhatsAppSemNovaAba();
+
+  checar('PEDIDO DO USUÁRIO: nenhuma aba nova é aberta de verdade', abriuAbaDeVerdade === false);
 })();
 
 (function () {
@@ -228,9 +247,9 @@ function novaJanelaWhatsApp() {
   // interceptação pro resto da página.
   const w = novaJanelaWhatsApp();
   const openOriginal = w.open;
-  w.abrirWhatsAppCliente = function () { return w.open('https://wa.me/1', '_blank', ''); };
+  w.abrirWhatsAppCliente = function () { return w.open(urlWaMe('5511999999999', 'oi'), '_blank', ''); };
 
-  w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+  w.__testarAbrirWhatsApp.abrirWhatsAppSemNovaAba();
 
   checar('window.open é restaurado ao original depois da chamada', w.open === openOriginal);
 })();
@@ -244,7 +263,7 @@ function novaJanelaWhatsApp() {
 
   let excecaoPropagada = null;
   try {
-    w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+    w.__testarAbrirWhatsApp.abrirWhatsAppSemNovaAba();
   } catch (e) {
     excecaoPropagada = e;
   }
@@ -256,21 +275,23 @@ function novaJanelaWhatsApp() {
 (function () {
   // Defensivo: abrirWhatsAppCliente() pode retornar cedo (mensagem vazia,
   // telefone inválido) sem chamar window.open nenhuma vez -- não pode
-  // quebrar.
+  // quebrar, e a aba não deve navegar pra lugar nenhum nesse caso.
   const w = novaJanelaWhatsApp();
+  const hrefAntes = w.location.href;
   let chamouOpen = false;
   w.open = () => { chamouOpen = true; return { closed: false }; };
-  w.abrirWhatsAppCliente = function () { /* retorna sem chamar window.open */ };
+  w.abrirWhatsAppCliente = function () { /* retorna sem chamar window.open (ex.: mensagem vazia) */ };
 
   let excecao = null;
   try {
-    w.__testarAbrirWhatsApp.abrirWhatsAppSemAcumularAbas();
+    w.__testarAbrirWhatsApp.abrirWhatsAppSemNovaAba();
   } catch (e) {
     excecao = e;
   }
 
   checar('abrirWhatsAppCliente() sem chamar window.open não lança exceção', excecao === null, excecao && excecao.message);
   checar('window.open realmente não foi chamado nesse caso', chamouOpen === false);
+  checar('aba não navega pra lugar nenhum quando abrirWhatsAppCliente() não chama window.open', w.location.href === hrefAntes, w.location.href);
 })();
 
 // =====================================================================

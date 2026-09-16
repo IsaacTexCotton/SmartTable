@@ -14,9 +14,10 @@
 //      esta na caixa de observacao.
 //   3. Abre o WhatsApp com a mensagem que estava na caixa de observacao
 //      (a frase padrao que o operador escolheu manualmente) - essa caixa
-//      NAO e alterada por este script. A aba do WhatsApp usa um nome fixo
-//      (NOME_JANELA_WHATSAPP) pra ser REAPROVEITADA a cada cobranca, em
-//      vez de acumular uma aba nova por cliente (pedido do usuario).
+//      NAO e alterada por este script. NENHUMA aba nova e aberta -- em vez
+//      disso navega a propria aba do CRM pro protocolo do WhatsApp Desktop
+//      (whatsapp://send?...), que nao troca de pagina (pedido do usuario:
+//      Alt-Tab nao pode mais cair numa aba de WhatsApp).
 //
 // Depende de duas coisas que ja existem na pagina:
 //   - window.__avisoCobranca.simular()  (modulo de Aviso de Cobranca)
@@ -155,46 +156,54 @@
     }
 
     // ============================================================
-    // ABRIR WHATSAPP SEM ACUMULAR ABAS (item pedido pelo usuário)
+    // ABRIR WHATSAPP SEM NOVA ABA (item pedido pelo usuário)
     // ============================================================
-    // ABORDAGEM ANTERIOR (removida a pedido do usuário -- não funcionava
-    // na prática): tentar fechar a aba via window.close() depois de um
-    // temporizador fixo (1.5s). Não é confiável quando o link dispara o
-    // handoff pro app desktop do WhatsApp -- nesse caminho o Chrome mostra
-    // um diálogo nativo ("Abrir WhatsApp Desktop?") que compete com esse
-    // fechamento por script, e não há como saber de fora quando esse
-    // diálogo foi respondido. O operador relatou a aba continuando aberta
-    // (incomodando ao voltar pro CRM) mesmo depois do tempo de espera.
+    // DUAS TENTATIVAS ANTERIORES (removidas, o usuário confirmou que
+    // nenhuma resolvia o problema real):
+    //   1. Fechar a aba via window.close() num temporizador fixo (1.5s) --
+    //      não confiável quando o link dispara o handoff pro app desktop
+    //      (diálogo nativo do Chrome compete com o fechamento por script).
+    //   2. Reaproveitar a aba com um nome fixo de alvo -- resolvia
+    //      "acumular abas", mas não o problema de verdade: mesmo
+    //      reaproveitada, a aba SEMPRE rouba o foco ao abrir (comportamento
+    //      do navegador -- não tem como um site pedir "abra em segundo
+    //      plano", o Chrome bloqueia isso de propósito). O pedido real do
+    //      usuário era outro: ao apertar Alt-Tab depois de mandar a
+    //      mensagem no app, ele caía nessa aba, não na guia do CRM.
     //
-    // ABORDAGEM NOVA: em vez de tentar ADIVINHAR quando fechar a aba, evita
-    // que ela SE ACUMULE. abrirWhatsAppCliente() (função própria da
-    // página, fora dos nossos módulos) sempre chama window.open(url,
-    // '_blank', ...) -- e o alvo '_blank' SEMPRE abre uma aba NOVA a cada
-    // chamada (comportamento padrão e documentado do navegador, não um
-    // bug a corrigir). Interceptamos window.open só durante essa chamada
-    // pra trocar o nome do alvo de '_blank' pra um nome FIXO
-    // (NOME_JANELA_WHATSAPP) -- com nome fixo, o navegador REAPROVEITA a
-    // mesma aba/janela em vez de abrir uma nova a cada cobrança (mesmo
-    // mecanismo por trás de <a target="minha-aba">: nome repetido = mesma
-    // aba, é assim que target funciona desde sempre). Resultado: nunca
-    // mais que 1 aba de WhatsApp por vez, em vez de acumular uma por
-    // cliente cobrado -- e ela é reciclada (navega pro próximo cliente),
-    // não duplicada.
+    // ABORDAGEM NOVA (a URL do protocolo foi testada e confirmada AO VIVO
+    // pelo usuário antes de implementar -- ver conversa): em vez de abrir
+    // QUALQUER aba, navega a própria aba do CRM direto pro protocolo do
+    // WhatsApp Desktop (whatsapp://send?phone=...&text=...). Como não é um
+    // endereço http(s), o navegador não troca de página -- só entrega pro
+    // sistema operacional abrir o app, e a aba do CRM continua exatamente
+    // onde estava. Sem aba nova, não existe nada pro Alt-Tab "errar".
     //
-    // BÔNUS: como não precisamos mais de uma referência pra fechar a aba
-    // depois, não precisamos tirar "noopener,noreferrer" dos features (a
-    // implementação antiga tirava, de propósito, só pra conseguir essa
-    // referência) -- os features da página passam intactos, mais seguro
-    // por padrão. E como não há mais nenhum temporizador, não há mais
-    // corrida nenhuma com o location.reload() logo depois -- a função é
-    // síncrona.
-    const NOME_JANELA_WHATSAPP = 'smarttable-whatsapp';
+    // window.abrirWhatsAppCliente() (função própria da página, fora dos
+    // nossos módulos) já faz toda a validação e montagem do telefone
+    // (responsável -> celular -> telefone do cadastro, prefixo 55, mínimo
+    // de dígitos) antes de chamar window.open(url, '_blank', ...) com a
+    // URL do wa.me pronta (https://wa.me/<telefone>?text=<mensagem>).
+    // Interceptamos só essa chamada final pra reaproveitar o telefone/
+    // mensagem já validados, sem duplicar essa lógica -- se as regras de
+    // validação mudarem na página, continuamos sincronizados sem precisar
+    // mexer aqui.
+    // Separado de abrirWhatsAppSemNovaAba só pra ser testável isoladamente
+    // (função pura -- dada a URL do wa.me, devolve a URL do protocolo do
+    // WhatsApp Desktop) sem precisar simular a navegação de verdade.
+    function construirUrlProtocoloWhatsApp(urlWaMe) {
+        const urlAnalisada = new URL(urlWaMe, window.location.href);
+        const telefone = urlAnalisada.pathname.replace(/^\/+/, '');
+        const mensagem = urlAnalisada.searchParams.get('text') || '';
+        return 'whatsapp://send?phone=' + telefone + '&text=' + encodeURIComponent(mensagem);
+    }
 
-    function abrirWhatsAppSemAcumularAbas() {
+    function abrirWhatsAppSemNovaAba() {
         const openOriginal = window.open;
 
-        window.open = function (url, _nomeIgnorado, features) {
-            return openOriginal.call(window, url, NOME_JANELA_WHATSAPP, features);
+        window.open = function (url) {
+            window.location.href = construirUrlProtocoloWhatsApp(url);
+            return null; // valor de retorno não é usado por abrirWhatsAppCliente()
         };
 
         try {
@@ -266,7 +275,7 @@
             // nao foi alterada, entao a funcao da propria pagina le o texto
             // normalmente.
             if (typeof window.abrirWhatsAppCliente === 'function') {
-                abrirWhatsAppSemAcumularAbas();
+                abrirWhatsAppSemNovaAba();
             } else {
                 console.warn('[registrar-enviar] abrirWhatsAppCliente() não encontrada nesta página.');
                 toast('Contato registrado, mas não foi possível abrir o WhatsApp automaticamente.', 'error');
