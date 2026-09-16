@@ -12,11 +12,26 @@
  *   1. Cartório -- último dia (situação ULTIMO_DIA, fluxo Cartório)
  *   2. Cluster "Novo"
  *   3. SCPC -- último dia (situação ULTIMO_DIA, fluxo SCPC)
- *   4. Atraso inicial, 2º ao 4º dia (situação EM_ATRASO, dias 2-4 --
+ *   4. Dia da promessa de pagamento (o cliente combinou pagar HOJE e o
+ *      título continua em aberto -- ver DIA_DA_PROMESSA no Módulo 6)
+ *   5. Promessa não cumprida (promessa vencida sem pagamento identificado
+ *      e ainda sem nenhum contato registrado depois do vencimento -- ver
+ *      QUEBRADA/PARCIAL no Módulo 6)
+ *   6. Atraso inicial, 2º ao 4º dia (situação EM_ATRASO, dias 2-4 --
  *      dia 1 NÃO conta como dia de cobrança, fica de fora da lista)
- *   5. Aviso final antes da suspensão (situação NEGATIVADO_SCPC, dia 19
+ *   7. Aviso final antes da suspensão (situação NEGATIVADO_SCPC, dia 19
  *      exato -- mesmo limiar usado pelo Módulo 4 pra mensagem)
- *   6. Demais dias (tudo que não caiu em nenhuma faixa acima)
+ *   8. Demais dias (tudo que não caiu em nenhuma faixa acima)
+ *
+ * POR QUE AS FAIXAS 4 E 5 FICAM AÍ (decisão explicada pro usuário): acima
+ * delas ficam só os prazos IRREVERSÍVEIS (cartório, negativação) -- perder
+ * um deles custa caro pro cliente. Abaixo delas fica a cobrança de rotina.
+ * No meio entram os clientes que JÁ SE COMPROMETERAM: quem prometeu pagar
+ * hoje só converte se for lembrado hoje (janela de um dia só), e quem
+ * quebrou a promessa é o contato de maior conversão da carteira -- antes
+ * eles caíam na faixa 6 ("demais dias") e eram atendidos por último.
+ * O dado vem de window.__contextoAdicional.promessa, que o Módulo 6 já
+ * calcula na mesma visita em aba de fundo -- custo zero de tempo.
  *
  * EXCLUSÕES (nunca entram na lista, em nenhuma faixa):
  *   - Mais de 19 dias de atraso
@@ -106,25 +121,32 @@
     1: 'Cartório — último dia',
     2: 'Cluster Novo',
     3: 'SCPC — último dia',
-    4: 'Atraso inicial (2º–4º dia)',
-    5: 'Aviso final antes da suspensão',
-    6: 'Demais dias',
+    4: 'Dia da promessa de pagamento',
+    5: 'Promessa não cumprida',
+    6: 'Atraso inicial (2º–4º dia)',
+    7: 'Aviso final antes da suspensão',
+    8: 'Demais dias',
   };
 
   // Cor de destaque do aviso de troca de prioridade (ver toastTrocaPrioridade
   // abaixo) -- reaproveita tons já usados em outros pontos do sistema pra
   // não introduzir uma paleta nova: vermelho do rail ULTIMO_DIA (Módulo 1)
-  // pras duas faixas de "último dia", âmbar do botão "Continuar fila
-  // anterior" (Módulo 3) pro atraso inicial, índigo do rail NEGATIVADO_SCPC
-  // (Módulo 1) pro aviso de suspensão, e o cinza neutro do rail EM_ATRASO
-  // pra "demais dias".
+  // pras duas faixas de "último dia", verde/vermelho-tijolo dos toasts de
+  // sucesso/erro (Módulo 2) pras duas faixas de promessa, âmbar do botão
+  // "Continuar fila anterior" (Módulo 3) pro atraso inicial, índigo do rail
+  // NEGATIVADO_SCPC (Módulo 1) pro aviso de suspensão, e o cinza neutro do
+  // rail EM_ATRASO pra "demais dias". Cada faixa mantém a MESMA cor de
+  // antes da entrada das faixas 4 e 5 (associação cor-significado
+  // preservada, só os números mudaram).
   const CORES_PRIORIDADE = {
     1: '#A3251A',
     2: '#54407C',
     3: '#A3251A',
-    4: '#B45309',
-    5: '#313A8C',
-    6: '#4E5D6C',
+    4: '#1B6B4A',
+    5: '#8A2A16',
+    6: '#B45309',
+    7: '#313A8C',
+    8: '#4E5D6C',
   };
 
   /* ---------------------------------------------------------------------
@@ -395,24 +417,35 @@
   }
 
   // Primeira faixa que se aplicar vence -- por isso a ordem de checagem
-  // aqui segue exatamente a numeração das prioridades (1 a 6).
-  function determinarPrioridade(escolhido, fluxo, cluster) {
+  // aqui segue exatamente a numeração das prioridades (1 a 8).
+  //
+  // contextoPromessa é o window.__contextoAdicional.promessa da aba de
+  // fundo (Módulo 6): { tipo: 'DIA_DA_PROMESSA' | 'QUEBRADA' | 'PARCIAL',
+  // promessa } ou null. Vem null quando não há promessa ativa -- inclusive
+  // quando o Módulo 6 já considerou a promessa resolvida (título pago) ou
+  // quando já houve contato depois do vencimento, que é exatamente quando
+  // ela deixa de ser o assunto mais urgente do cliente.
+  function determinarPrioridade(escolhido, fluxo, cluster, contextoPromessa) {
+    const tipoPromessa = contextoPromessa ? contextoPromessa.tipo : null;
+
     if (escolhido.situacaoKey === 'ULTIMO_DIA' && fluxo === 'CARTORIO') return 1;
     if ((cluster || '').trim().toLowerCase() === CONFIG.VALOR_CLUSTER_NOVO) return 2;
     if (escolhido.situacaoKey === 'ULTIMO_DIA' && fluxo === 'SCPC') return 3;
+    if (tipoPromessa === 'DIA_DA_PROMESSA') return 4;
+    if (tipoPromessa === 'QUEBRADA' || tipoPromessa === 'PARCIAL') return 5;
     if (
       escolhido.situacaoKey === 'EM_ATRASO' &&
       CONFIG.DIAS_PRIORIDADE_ATRASO_INICIAL.includes(escolhido.diasAtrasoReal)
     ) {
-      return 4;
+      return 6;
     }
     if (
       escolhido.situacaoKey === 'NEGATIVADO_SCPC' &&
       escolhido.diasAtrasoReal === CONFIG.DIA_ULTIMO_DIA_SUSPENSAO_SCPC
     ) {
-      return 5;
+      return 7;
     }
-    return 6;
+    return 8;
   }
 
   // Visita UM candidato: abre a aba, espera ficar pronta, lê situação +
@@ -474,7 +507,14 @@
         return { cliente, excluidoPorPromessaFutura: true };
       }
 
-      const prioridade = determinarPrioridade(escolhido, dadosTitulos.fluxo, cliente.cluster);
+      // Promessa ATIVA calculada pelo Módulo 6 nesta mesma aba de fundo
+      // (já esperada por esperarAbaPronta) -- é o que decide as faixas 4 e
+      // 5 da régua. Diferente de `promessas` acima (leitura crua, usada só
+      // pra excluir quem tem promessa com data futura), aqui já vem a
+      // decisão pronta e cruzada com os títulos ainda em aberto.
+      const contextoPromessa = (aba.__contextoAdicional && aba.__contextoAdicional.promessa) || null;
+
+      const prioridade = determinarPrioridade(escolhido, dadosTitulos.fluxo, cliente.cluster, contextoPromessa);
 
       // CONFIRMADO com o usuário: se outra empresa do mesmo grupo econômico
       // também tem título vencido, só UMA representante do grupo deve

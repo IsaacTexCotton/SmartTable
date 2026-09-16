@@ -66,7 +66,9 @@ decisões, armadilhas e itens em aberto.
    (mensagem personalizada) consultar sem custo extra.
 7. `modulo7-fila-prioridade.js` — monta uma fila de atendimento ordenada por
    uma régua de prioridade de negócio (Alt+U), visitando cada candidato em
-   aba de fundo pra classificar a situação real do título.
+   aba de fundo pra classificar a situação real do título e a promessa de
+   pagamento ativa (quem prometeu pagar hoje ou quebrou a promessa sobe na
+   fila), e deduplicando por grupo econômico.
 
 Ver `contexto-v7.md` para fatos técnicos confirmados, armadilhas já
 encontradas e itens em aberto — não redescobrir do zero.

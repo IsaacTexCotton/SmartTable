@@ -158,20 +158,59 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
 
   checar('P1: ULTIMO_DIA + Cartório', dp(registro('ULTIMO_DIA', 6), 'CARTORIO', 'Normal') === 1);
   checar('P2: Cluster Novo (mesmo em EM_ATRASO comum)', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Novo') === 2);
-  checar('P2 vence sobre P3/P4 quando aplicável simultaneamente', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Novo') === 2, 'deveria ser 2, não 3, pois P2 vem antes de P3 na checagem');
+  checar('P2 vence sobre P3/P6 quando aplicável simultaneamente', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Novo') === 2, 'deveria ser 2, não 3, pois P2 vem antes de P3 na checagem');
   checar('P1 vence sobre P2 quando os dois se aplicam (Cartório+Novo)', dp(registro('ULTIMO_DIA', 6), 'CARTORIO', 'Novo') === 1, 'P1 é checado primeiro, deve vencer');
   checar('P3: ULTIMO_DIA + SCPC (sem cluster Novo)', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Normal') === 3);
-  checar('P4: EM_ATRASO dia 2', dp(registro('EM_ATRASO', 2), 'CARTORIO', 'Normal') === 4);
-  checar('P4: EM_ATRASO dia 3', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 4);
-  checar('P4: EM_ATRASO dia 4', dp(registro('EM_ATRASO', 4), 'CARTORIO', 'Normal') === 4);
-  checar('P4 vale pros dois fluxos ("de ambos")', dp(registro('EM_ATRASO', 3), 'SCPC', 'Normal') === 4);
-  checar('EM_ATRASO dia 5 NÃO é P4 (cai no resto -> P6)', dp(registro('EM_ATRASO', 5), 'CARTORIO', 'Normal') === 6);
-  checar('P5: NEGATIVADO_SCPC dia 19 exato', dp(registro('NEGATIVADO_SCPC', 19), 'SCPC', 'Normal') === 5);
-  checar('NEGATIVADO_SCPC dia 18 NÃO é P5 (cai no resto -> P6)', dp(registro('NEGATIVADO_SCPC', 18), 'SCPC', 'Normal') === 6);
-  checar('NEGATIVADO_SCPC dia 10 NÃO é P5 (cai no resto -> P6)', dp(registro('NEGATIVADO_SCPC', 10), 'SCPC', 'Normal') === 6);
-  checar('P6: EM_CARTORIO no meio do caminho (nenhuma faixa específica)', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal') === 6);
-  checar('P6: PRAZO_FINAL', dp(registro('PRAZO_FINAL', 6), 'CARTORIO', 'Normal') === 6);
+  checar('P6: EM_ATRASO dia 2', dp(registro('EM_ATRASO', 2), 'CARTORIO', 'Normal') === 6);
+  checar('P6: EM_ATRASO dia 3', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 6);
+  checar('P6: EM_ATRASO dia 4', dp(registro('EM_ATRASO', 4), 'CARTORIO', 'Normal') === 6);
+  checar('P6 vale pros dois fluxos ("de ambos")', dp(registro('EM_ATRASO', 3), 'SCPC', 'Normal') === 6);
+  checar('EM_ATRASO dia 5 NÃO é atraso inicial (cai no resto -> P8)', dp(registro('EM_ATRASO', 5), 'CARTORIO', 'Normal') === 8);
+  checar('P7: NEGATIVADO_SCPC dia 19 exato', dp(registro('NEGATIVADO_SCPC', 19), 'SCPC', 'Normal') === 7);
+  checar('NEGATIVADO_SCPC dia 18 NÃO é P7 (cai no resto -> P8)', dp(registro('NEGATIVADO_SCPC', 18), 'SCPC', 'Normal') === 8);
+  checar('NEGATIVADO_SCPC dia 10 NÃO é P7 (cai no resto -> P8)', dp(registro('NEGATIVADO_SCPC', 10), 'SCPC', 'Normal') === 8);
+  checar('P8: EM_CARTORIO no meio do caminho (nenhuma faixa específica)', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal') === 8);
+  checar('P8: PRAZO_FINAL', dp(registro('PRAZO_FINAL', 6), 'CARTORIO', 'Normal') === 8);
   checar('cluster com espaços/maiúsculas ainda reconhece "Novo"', dp(registro('EM_ATRASO', 3), 'CARTORIO', '  NOVO  ') === 2);
+})();
+
+// =====================================================================
+// 6b. NOVO (pedido do usuário): promessa entra na régua de prioridade.
+// Antes, quem prometeu pagar HOJE ou quebrou a promessa caía em "demais
+// dias" (última faixa) e era atendido por último -- justamente os
+// contatos de maior conversão da carteira.
+// =====================================================================
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const dp = w.filaPrioridadeDebug.determinarPrioridade;
+  const promessa = (tipo) => ({ tipo, promessa: { titulos: ['90001/1'] } });
+
+  checar('P4: prometeu pagar hoje (DIA_DA_PROMESSA)', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', promessa('DIA_DA_PROMESSA')) === 4);
+  checar('P5: promessa quebrada (QUEBRADA)', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', promessa('QUEBRADA')) === 5);
+  checar('P5: promessa parcial (PARCIAL) entra na mesma faixa de "não cumprida"', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', promessa('PARCIAL')) === 5);
+
+  checar(
+    'BUG CORRIGIDO: quem quebrou a promessa NÃO cai mais em "demais dias" (P8)',
+    dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal', promessa('QUEBRADA')) !== 8
+  );
+  checar(
+    'promessa vence sobre atraso inicial (P4/P5 antes de P6)',
+    dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal', promessa('DIA_DA_PROMESSA')) === 4
+  );
+  checar(
+    'promessa vence sobre aviso final de suspensão (P5 antes de P7)',
+    dp(registro('NEGATIVADO_SCPC', 19), 'SCPC', 'Normal', promessa('QUEBRADA')) === 5
+  );
+
+  // Prazos irreversíveis continuam acima das promessas.
+  checar('P1 (cartório último dia) continua vencendo promessa', dp(registro('ULTIMO_DIA', 6), 'CARTORIO', 'Normal', promessa('DIA_DA_PROMESSA')) === 1);
+  checar('P2 (cluster Novo) continua vencendo promessa', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Novo', promessa('QUEBRADA')) === 2);
+  checar('P3 (SCPC último dia) continua vencendo promessa', dp(registro('ULTIMO_DIA', 6), 'SCPC', 'Normal', promessa('QUEBRADA')) === 3);
+
+  // Sem contexto de promessa (null/undefined) nada muda em relação a antes.
+  checar('sem promessa (null) -> régua normal', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal', null) === 6);
+  checar('sem promessa (argumento omitido) -> régua normal', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 6);
+  checar('tipo de promessa desconhecido não cria faixa nova', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal', promessa('QUALQUER_OUTRA')) === 6);
 })();
 
 // =====================================================================
@@ -273,8 +312,8 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
   const escolhido = escolher(dados);
   const prioridade = dp(escolhido, 'SCPC', 'Normal');
   checar(
-    'cliente com SCPC dia 19 + EM_CARTORIO 45 dias cai na prioridade 5 (não na 6)',
-    prioridade === 5,
+    'cliente com SCPC dia 19 + EM_CARTORIO 45 dias cai no aviso final de suspensão (P7), não em "demais dias"',
+    prioridade === 7,
     `prioridade=${prioridade}, escolhido=${JSON.stringify(escolhido)}`
   );
 })();
@@ -282,7 +321,7 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
 // Consequência esperada da regra de prioridade de pagamento (confirmada
 // pelo usuário) na Fila por Prioridade: cliente com um título velho em
 // EM_CARTORIO (45 dias) MAIS um título fresco em EM_ATRASO (3 dias, ainda
-// evitável) agora cai na prioridade 4 (atraso inicial), não na 6 -- porque
+// evitável) agora cai no atraso inicial (P6), não em "demais dias" -- porque
 // escolherTituloRepresentativo passa a escolher o título fora de cartório
 // como representante, e é ele que decide a prioridade.
 (function () {
@@ -294,8 +333,8 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
   const escolhido = escolher(dados);
   const prioridade = dp(escolhido, 'CARTORIO', 'Normal');
   checar(
-    'cliente com EM_CARTORIO 45 dias + EM_ATRASO 3 dias cai na prioridade 4 (não na 6)',
-    prioridade === 4,
+    'cliente com EM_CARTORIO 45 dias + EM_ATRASO 3 dias cai no atraso inicial (P6), não em "demais dias" (P8)',
+    prioridade === 6,
     `prioridade=${prioridade}, escolhido=${JSON.stringify(escolhido)}`
   );
 })();
@@ -422,7 +461,7 @@ function resultadoFake({ cnpj, prioridade, dias, empresasComVencido }) {
     versao: w.filaDebug.CONFIG.VERSAO_SCHEMA,
     clientes: [
       { url: 'https://x/a', cnpj: 'A', label: 'Cliente A', diasAtraso: 6, prioridadeTier: 1, prioridadeNome: 'Cartório — último dia' },
-      { url: 'https://x/b', cnpj: 'B', label: 'Cliente B', diasAtraso: 3, prioridadeTier: 4, prioridadeNome: 'Atraso inicial (2º–4º dia)' },
+      { url: 'https://x/b', cnpj: 'B', label: 'Cliente B', diasAtraso: 3, prioridadeTier: 6, prioridadeNome: 'Atraso inicial (2º–4º dia)' },
     ],
     indiceAtual: -1,
     totalAtendidos: 0,
@@ -446,7 +485,7 @@ const promessa11 = (function () {
     versao: w.filaDebug.CONFIG.VERSAO_SCHEMA,
     clientes: [
       { url: 'https://x/a', cnpj: 'A', label: 'A', diasAtraso: 6, prioridadeTier: 1, prioridadeNome: 'Cartório — último dia' },
-      { url: 'https://x/b', cnpj: 'B', label: 'B', diasAtraso: 3, prioridadeTier: 4, prioridadeNome: 'Atraso inicial (2º–4º dia)' },
+      { url: 'https://x/b', cnpj: 'B', label: 'B', diasAtraso: 3, prioridadeTier: 6, prioridadeNome: 'Atraso inicial (2º–4º dia)' },
     ],
     indiceAtual: 1,
     totalAtendidos: 1,
@@ -461,13 +500,15 @@ const promessa11 = (function () {
       checar('toast de troca de prioridade aparece ao entrar em faixa diferente', toasts.length > 0, w.document.body.innerHTML);
 
       // PEDIDO DO USUÁRIO: toast mais aparente -- borda de destaque
-      // colorida por prioridade (tier 4 = âmbar #B45309, ver
-      // CORES_PRIORIDADE) e texto estruturado em rótulo + nome.
+      // colorida por prioridade (atraso inicial = âmbar #B45309, ver
+      // CORES_PRIORIDADE) e texto estruturado em rótulo + nome. A cor
+      // continua a mesma de antes da entrada das faixas de promessa --
+      // só o número da faixa mudou (4 -> 6).
       const toastPrincipal = toasts.find((el) => el.style.borderLeft);
       checar('toast de troca tem borda de destaque colorida (mais aparente)', !!toastPrincipal, w.document.body.innerHTML);
       // jsdom normaliza cores hex pra rgb() -- #B45309 = rgb(180, 83, 9).
-      checar('borda usa a cor certa pra prioridade 4 (âmbar)', toastPrincipal && toastPrincipal.style.borderLeft.includes('180, 83, 9'), toastPrincipal && toastPrincipal.style.borderLeft);
-      checar('toast menciona o número da prioridade e o nome da faixa', toastPrincipal && /prioridade 4/i.test(toastPrincipal.textContent) && /atraso inicial/i.test(toastPrincipal.textContent), toastPrincipal && toastPrincipal.textContent);
+      checar('borda usa a cor certa pro atraso inicial (âmbar)', toastPrincipal && toastPrincipal.style.borderLeft.includes('180, 83, 9'), toastPrincipal && toastPrincipal.style.borderLeft);
+      checar('toast menciona o número da prioridade e o nome da faixa', toastPrincipal && /prioridade 6/i.test(toastPrincipal.textContent) && /atraso inicial/i.test(toastPrincipal.textContent), toastPrincipal && toastPrincipal.textContent);
       resolve();
     }, 20);
   });
@@ -631,7 +672,7 @@ const promessa15 = promessa14.then(async function () {
 // =====================================================================
 const promessa16 = promessa15.then(async function () {
   const cnpjUrgente = '20202020/0001-20'; // ULTIMO_DIA + Cartório -> prioridade 1
-  const cnpjMenosUrgente = '30303030/0001-30'; // EM_ATRASO dia 3 -> prioridade 4
+  const cnpjMenosUrgente = '30303030/0001-30'; // EM_ATRASO dia 3 -> prioridade 6
   const html = [
     linhaHtml({ grupoId: 0, cnpj: cnpjUrgente, dias: 6 }),
     linhaHtml({ grupoId: 0, cnpj: cnpjMenosUrgente, dias: 3 }),
@@ -687,4 +728,69 @@ const promessa16 = promessa15.then(async function () {
   checar('resumo final menciona a exclusão por grupo econômico', toastResumo, w.document.body.innerHTML);
 });
 
-promessa16.then(resumo);
+// =====================================================================
+// 17. INTEGRAÇÃO PONTA A PONTA (pedido do usuário): quem quebrou a
+// promessa sobe pra faixa 5 e é atendido ANTES de quem está só em atraso
+// inicial -- antes os dois caíam em faixas onde a promessa não pesava
+// nada (o quebrado ia parar em "demais dias", último da fila).
+// =====================================================================
+const promessa17 = promessa16.then(async function () {
+  const cnpjPromessaQuebrada = '40404040/0001-40';
+  const cnpjAtrasoInicial = '50505050/0001-50';
+  const html = [
+    linhaHtml({ grupoId: 0, cnpj: cnpjPromessaQuebrada, dias: 12 }),
+    linhaHtml({ grupoId: 0, cnpj: cnpjAtrasoInicial, dias: 3 }),
+  ].join('');
+  const clientesArray = [
+    clienteJson({ cnpj: cnpjPromessaQuebrada, cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000', diasAtraso: 12 }),
+    clienteJson({ cnpj: cnpjAtrasoInicial, cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000', diasAtraso: 3 }),
+  ];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', `<table><tbody>${html}</tbody></table>`, clientesArray);
+
+  w.open = (url) => {
+    const cnpjNaUrl = decodeURIComponent(url.split('cnpj=')[1] || '');
+    const quebrou = cnpjNaUrl === cnpjPromessaQuebrada;
+    return {
+      closed: false,
+      close() { this.closed = true; },
+      __avisoCobranca: {
+        simular: () => ({
+          fluxo: 'CARTORIO',
+          registros: [quebrou
+            // Situação de título que, sozinha, cairia em "demais dias" (P8).
+            ? { situacaoKey: 'EM_CARTORIO', diasAtrasoReal: 12, tituloCompleto: '3/1', vencimentoTexto: '01/09/2026' }
+            : { situacaoKey: 'EM_ATRASO', diasAtrasoReal: 3, tituloCompleto: '4/1', vencimentoTexto: '01/09/2026' }],
+          naoCobrar: [],
+        }),
+      },
+      // O Módulo 6 da aba de fundo já entrega a promessa ativa pronta.
+      __contextoAdicional: quebrou
+        ? { promessa: { tipo: 'QUEBRADA', promessa: { titulos: ['3/1'], dataPrometidaTexto: '10/09/2026' } } }
+        : { promessa: null },
+      __contextoAdicionalDebug: { lerPromessas: () => [] },
+      __alertaGrupo: { empresasComVencido: [] },
+    };
+  };
+
+  await w.filaPrioridadeDebug.iniciar();
+
+  const filaSalva = w.filaDebug.obterFila();
+  checar('os dois clientes entram na fila', filaSalva !== null && filaSalva.clientes.length === 2, filaSalva && JSON.stringify(filaSalva.clientes));
+  checar(
+    'PEDIDO DO USUÁRIO: quem quebrou a promessa vem PRIMEIRO na fila',
+    filaSalva && filaSalva.clientes[0].cnpj === cnpjPromessaQuebrada,
+    filaSalva && JSON.stringify(filaSalva.clientes.map((c) => ({ cnpj: c.cnpj, tier: c.prioridadeTier })))
+  );
+  checar(
+    'promessa quebrada recebe a faixa 5 com o nome certo',
+    filaSalva && filaSalva.clientes[0].prioridadeTier === 5 && filaSalva.clientes[0].prioridadeNome === 'Promessa não cumprida',
+    filaSalva && JSON.stringify(filaSalva.clientes[0])
+  );
+  checar(
+    'BUG CORRIGIDO: sem essa regra, EM_CARTORIO 12 dias cairia em "demais dias" (P8) e seria o último',
+    filaSalva && filaSalva.clientes[1].prioridadeTier === 6,
+    filaSalva && JSON.stringify(filaSalva.clientes[1])
+  );
+});
+
+promessa17.then(resumo);
