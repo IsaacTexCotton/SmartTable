@@ -51,7 +51,6 @@
   // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
   // deste arquivo no @require do wrapper.
   const {
-    esperar,
     escolherTituloRepresentativo,
     DIAS_AVISO_SUSPENSAO_SCPC_MIN,
     DIAS_AVISO_SUSPENSAO_SCPC_MAX,
@@ -80,19 +79,22 @@
     ATRASO_ATENDIMENTO_RAPIDO_MS: 150,
     // Alt+A com outra(s) razão(ões) do grupo com saldo vencido: tempo
     // máximo (ms) esperando o botão de relatório aparecer em cada aba de
-    // fundo depois de aberta, intervalo (ms) entre tentativas, e tempo (ms)
-    // de espera depois de clicar nele antes de fechar a aba (dá tempo da
-    // geração do relatório -- imagem/clipboard/download -- terminar).
+    // fundo depois de aberta, e intervalo (ms) entre tentativas de polling
+    // (reaproveitado também pra esperar o relatório TERMINAR de gerar --
+    // ver TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS).
     TIMEOUT_CARREGAMENTO_OUTRA_RAZAO_MS: 8000,
     INTERVALO_POLL_OUTRA_RAZAO_MS: 200,
-    // CONFIRMADO com o usuário (bug real): 2000ms não era suficiente --
-    // a captura da tela (html2canvas em escala 2x) + conversão pra
-    // blob + download é assíncrona e pode ainda estar rodando quando a
-    // aba fechava, interrompendo o download antes de terminar (o
-    // console já tinha dito "gerado" porque isso só confirma que o
-    // clique aconteceu, não que o download terminou). Aumentado com
-    // folga.
-    ATRASO_FECHAR_ABA_OUTRA_RAZAO_MS: 4500,
+    // MELHORIA (pedido do usuário): antes, esperava um tempo FIXO depois
+    // de clicar em "Gerar Relatório" (folga generosa pro pior caso --
+    // captura de tela + conversão pra blob + clipboard.write + download,
+    // tudo assíncrono -- CONFIRMADO com o usuário: 2000ms não era
+    // suficiente, por isso a folga). Agora espera o SINAL real de que
+    // terminou (o próprio botão só reabilita depois que tudo -- inclusive
+    // a cópia pra área de transferência -- já aconteceu, ver
+    // esperarRelatorioProntoNaJanela), então o caso comum fica bem mais
+    // rápido que a folga fixa de antes. Este valor é só o TETO de
+    // segurança, pro caso raro do botão nunca reabilitar.
+    TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS: 10000,
     // Trechos de texto (minúsculo) usados pra achar os botões que ainda
     // não têm uma função global conhecida. AJUSTAR SE NÃO FUNCIONAR.
     TEXTO_BOTAO_RELATORIO: 'relatório',
@@ -193,6 +195,42 @@
         setTimeout(tentar, intervaloMs);
       })();
     });
+  }
+
+  // Generaliza esperarElementoVisivelPorTextoNaJanela pra qualquer condição
+  // (não só "elemento existe") -- usada pra esperar um SINAL real de que
+  // uma operação assíncrona em OUTRA janela terminou, em vez de uma espera
+  // fixa arbitrária (ver esperarRelatorioProntoNaJanela abaixo). Resolve
+  // true quando a condição bate, false se a aba fechar ou o tempo esgotar.
+  function esperarCondicaoNaJanela(condicao, janela, timeoutMs, intervaloMs) {
+    return new Promise((resolve) => {
+      const prazoFinal = Date.now() + timeoutMs;
+      (function tentar() {
+        if (janela.closed) return resolve(false);
+        let pronto = false;
+        try {
+          pronto = !!condicao();
+        } catch (erro) {
+          return resolve(false);
+        }
+        if (pronto) return resolve(true);
+        if (Date.now() >= prazoFinal) return resolve(false);
+        setTimeout(tentar, intervaloMs);
+      })();
+    });
+  }
+
+  // PEDIDO DO USUÁRIO: em vez de esperar um tempo fixo (que precisava de
+  // folga generosa pra cobrir o pior caso -- captura de tela + conversão
+  // pra blob + clipboard.write + download, tudo assíncrono), espera o
+  // SINAL real de que terminou. aoClicar() do Módulo 1 é assíncrono e o
+  // finally dele só reabilita o botão DEPOIS que a Promise inteira resolve
+  // -- captura, cópia pra área de transferência e download já aconteceram.
+  // Usa o próprio botão (referência já obtida) em vez de buscar de novo
+  // por texto, porque o texto dele muda pra "Gerando..." durante a
+  // operação.
+  function esperarRelatorioProntoNaJanela(botao, janela, timeoutMs, intervaloMs) {
+    return esperarCondicaoNaJanela(() => botao.disabled === false, janela, timeoutMs, intervaloMs);
   }
 
   function dispararEventoDeMouse(elemento, tipo) {
@@ -384,8 +422,19 @@
         );
         if (botao) {
           simularCliqueCompleto(botao);
-          console.log(`[Atalhos] Relatório gerado em aba de fundo para "${empresa.razaoSocial}".`);
-          await esperar(CONFIG_ATALHOS.ATRASO_FECHAR_ABA_OUTRA_RAZAO_MS);
+          const terminou = await esperarRelatorioProntoNaJanela(
+            botao,
+            aba,
+            CONFIG_ATALHOS.TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS,
+            CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS
+          );
+          if (terminou) {
+            console.log(`[Atalhos] Relatório gerado em aba de fundo para "${empresa.razaoSocial}".`);
+          } else {
+            console.warn(
+              `[Atalhos] Não confirmei que o relatório de "${empresa.razaoSocial}" terminou de gerar a tempo -- fechando mesmo assim.`
+            );
+          }
         } else {
           console.warn(
             `[Atalhos] Não encontrei o botão de relatório em "${empresa.razaoSocial}" a tempo (aba fechada ou demorou demais) -- fechando mesmo assim.`
@@ -1592,5 +1641,7 @@
   window.__atalhosDebug = {
     montarMensagemPersonalizada,
     deveOmitirRelatorio,
+    gerarRelatoriosDasOutrasRazoes,
+    esperarRelatorioProntoNaJanela,
   };
 })();
