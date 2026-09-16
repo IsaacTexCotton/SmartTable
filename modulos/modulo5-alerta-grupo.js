@@ -121,17 +121,51 @@
   /* ---------------------------------------------------------------------
    * 3. BANNER DE AVISO
    * --------------------------------------------------------------------- */
+  function obterElementoHeaderFixo() {
+    const header = document.querySelector('header');
+    if (!header) return null;
+    const estilo = window.getComputedStyle(header);
+    return (estilo.position === 'fixed' || estilo.position === 'sticky') ? header : null;
+  }
+
   function obterAlturaHeaderFixo() {
     // Mede a altura real do <header> da página (se existir e for fixo),
     // pra posicionar o aviso logo abaixo dele, sem tampar nada e sem
     // precisar adivinhar um valor fixo em pixels.
-    const header = document.querySelector('header');
-    if (!header) return 0;
-    const estilo = window.getComputedStyle(header);
-    if (estilo.position === 'fixed' || estilo.position === 'sticky') {
-      return header.getBoundingClientRect().height;
+    const header = obterElementoHeaderFixo();
+    return header ? header.getBoundingClientRect().height : 0;
+  }
+
+  // BUG REAL (relatado pelo usuário): o banner às vezes ficava por cima do
+  // header do CRM. A medição em si bate certo quando testada isoladamente
+  // (confirmado: position fixed, 80px de altura) -- o problema é de
+  // TIMING: se o layout do header ainda não tiver assentado no instante
+  // exato em que o banner é criado, o valor capturado fica desatualizado.
+  // Reajusta o offset pouco depois de inserir (dá tempo do layout
+  // assentar) e observa o header com ResizeObserver pra continuar
+  // correto se a altura dele mudar depois (ex.: header responsivo).
+  function manterBannerAlinhadoAoHeader(banner) {
+    function reajustar() {
+      banner.style.top = obterAlturaHeaderFixo() + 'px';
     }
-    return 0;
+    reajustar();
+    requestAnimationFrame(reajustar);
+    setTimeout(reajustar, 300);
+
+    const header = obterElementoHeaderFixo();
+    if (header && typeof ResizeObserver === 'function') {
+      const observerHeader = new ResizeObserver(reajustar);
+      observerHeader.observe(header);
+      // Desliga sozinho quando o banner sai da tela (fechado ou trocou de
+      // página) -- sem isso, o observer ficaria vivo pra sempre.
+      const paradaObserver = new MutationObserver(() => {
+        if (!document.body.contains(banner)) {
+          observerHeader.disconnect();
+          paradaObserver.disconnect();
+        }
+      });
+      paradaObserver.observe(document.body, { childList: true, subtree: true });
+    }
   }
 
   function criarBanner(empresas) {
@@ -151,7 +185,16 @@
       fontFamily: 'system-ui, -apple-system, sans-serif',
       fontSize: '14px',
       lineHeight: '1.4',
-      zIndex: 999996,
+      // BUG REAL (relatado pelo usuário): o banner ficava por cima de
+      // modais do CRM (ex.: "Registrar Contato"), cortando o modal ao
+      // meio -- confirmado via diagnóstico ao vivo que o backdrop do
+      // modal (#modal-contato) usa z-index: 50 (convenção Tailwind
+      // "z-50", provavelmente compartilhada por outros modais do app).
+      // z-index bem abaixo disso garante que qualquer modal desse padrão
+      // sempre renderiza por cima do nosso banner -- ele passa a ficar
+      // escondido atrás do esmaecimento do modal, igual ao resto da
+      // página, em vez de furar por cima.
+      zIndex: 30,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -193,6 +236,7 @@
     banner.appendChild(texto);
     banner.appendChild(btnFechar);
     document.body.appendChild(banner);
+    manterBannerAlinhadoAoHeader(banner);
   }
 
   /* ---------------------------------------------------------------------
@@ -330,4 +374,13 @@
   } else {
     iniciar();
   }
+
+  // Hook de depuração/teste (mesmo padrão do window.filaDebug no Módulo 3
+  // e window.__atalhosDebug no Módulo 4) -- expõe o banner direto, sem
+  // precisar simular a leitura da tabela de grupo inteira.
+  window.__alertaGrupoDebug = {
+    criarBanner,
+    obterAlturaHeaderFixo,
+    verificarOutrasEmpresasComVencido,
+  };
 })();
