@@ -104,6 +104,22 @@
     6: 'Demais dias',
   };
 
+  // Cor de destaque do aviso de troca de prioridade (ver toastTrocaPrioridade
+  // abaixo) -- reaproveita tons já usados em outros pontos do sistema pra
+  // não introduzir uma paleta nova: vermelho do rail ULTIMO_DIA (Módulo 1)
+  // pras duas faixas de "último dia", âmbar do botão "Continuar fila
+  // anterior" (Módulo 3) pro atraso inicial, índigo do rail NEGATIVADO_SCPC
+  // (Módulo 1) pro aviso de suspensão, e o cinza neutro do rail EM_ATRASO
+  // pra "demais dias".
+  const CORES_PRIORIDADE = {
+    1: '#A3251A',
+    2: '#54407C',
+    3: '#A3251A',
+    4: '#B45309',
+    5: '#313A8C',
+    6: '#4E5D6C',
+  };
+
   /* ---------------------------------------------------------------------
    * 2. ESTADO
    * --------------------------------------------------------------------- */
@@ -142,6 +158,69 @@
       indicadorEl.remove();
       indicadorEl = null;
     }
+  }
+
+  // PEDIDO DO USUÁRIO: aviso de troca de prioridade mais aparente, sem
+  // destoar do resto do app -- mesma base visual do toast genérico (fundo
+  // escuro, cantos arredondados, mesma fonte, mesma posição), só que com
+  // borda de destaque colorida por prioridade (ver CORES_PRIORIDADE),
+  // texto em duas linhas (rótulo pequeno + nome em negrito, maior que o
+  // toast normal) e uma leve animação de entrada -- deixa mais chamativo
+  // sem virar um elemento estranho ao resto da interface.
+  function toastTrocaPrioridade(prefixo, prioridadeTier, prioridadeNome, duracaoMs) {
+    duracaoMs = duracaoMs || 5000;
+    const cor = CORES_PRIORIDADE[prioridadeTier] || '#16232F';
+
+    const el = document.createElement('div');
+    Object.assign(el.style, {
+      position: 'fixed',
+      bottom: '24px',
+      right: '24px',
+      background: '#16232F',
+      color: '#fff',
+      padding: '14px 20px 14px 16px',
+      borderRadius: '8px',
+      borderLeft: '5px solid ' + cor,
+      boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      zIndex: 999999,
+      maxWidth: '360px',
+      opacity: '0',
+      transform: 'translateY(6px)',
+      transition: 'opacity .25s ease, transform .25s ease',
+      pointerEvents: 'none',
+    });
+
+    const rotulo = document.createElement('div');
+    rotulo.textContent = (prefixo + ' ' + prioridadeTier).toUpperCase();
+    Object.assign(rotulo.style, {
+      fontSize: '11px',
+      fontWeight: '700',
+      letterSpacing: '.05em',
+      color: cor,
+      marginBottom: '4px',
+    });
+
+    const nome = document.createElement('div');
+    nome.textContent = prioridadeNome;
+    Object.assign(nome.style, {
+      fontSize: '15px',
+      fontWeight: '600',
+      lineHeight: '1.3',
+    });
+
+    el.appendChild(rotulo);
+    el.appendChild(nome);
+    document.body.appendChild(el);
+
+    requestAnimationFrame(() => {
+      el.style.opacity = '1';
+      el.style.transform = 'translateY(0)';
+    });
+    setTimeout(() => {
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 300);
+    }, duracaoMs);
   }
 
   /* ---------------------------------------------------------------------
@@ -580,13 +659,13 @@
     if (!atual || atual.prioridadeTier == null) return; // não é uma fila por prioridade
 
     if (fila.indiceAtual === 0) {
-      toast(`Prioridade ${atual.prioridadeTier}: ${atual.prioridadeNome}`, 4000);
+      toastTrocaPrioridade('Prioridade', atual.prioridadeTier, atual.prioridadeNome);
       return;
     }
 
     const anterior = fila.clientes[fila.indiceAtual - 1];
     if (anterior && anterior.prioridadeTier !== atual.prioridadeTier) {
-      toast(`Entrando na prioridade ${atual.prioridadeTier}: ${atual.prioridadeNome}`, 4500);
+      toastTrocaPrioridade('Entrando na prioridade', atual.prioridadeTier, atual.prioridadeNome);
     }
   }
 

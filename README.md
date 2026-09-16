@@ -86,7 +86,7 @@ npm test
 
 Cada `tests/*.test.js` cobre um módulo (fila de atendimento, mensagens do
 Alt+A, fila por prioridade, snapshot de pagamento, contato recente,
-resumo do "Registrar e
+aviso de não cobrar, resumo do "Registrar e
 Enviar"). Rode `npm test` antes de subir qualquer mudança em `modulos/` —
 esses testes já pegaram bugs reais nesta base de código (ex.: o bug crítico
 de `normalizarData` corrigido no Módulo 0).

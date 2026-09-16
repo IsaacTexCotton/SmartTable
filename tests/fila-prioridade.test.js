@@ -363,6 +363,15 @@ const promessa11 = (function () {
     setTimeout(() => {
       const toasts = Array.from(w.document.body.querySelectorAll('div')).filter((el) => /prioridade/i.test(el.textContent || ''));
       checar('toast de troca de prioridade aparece ao entrar em faixa diferente', toasts.length > 0, w.document.body.innerHTML);
+
+      // PEDIDO DO USUÁRIO: toast mais aparente -- borda de destaque
+      // colorida por prioridade (tier 4 = âmbar #B45309, ver
+      // CORES_PRIORIDADE) e texto estruturado em rótulo + nome.
+      const toastPrincipal = toasts.find((el) => el.style.borderLeft);
+      checar('toast de troca tem borda de destaque colorida (mais aparente)', !!toastPrincipal, w.document.body.innerHTML);
+      // jsdom normaliza cores hex pra rgb() -- #B45309 = rgb(180, 83, 9).
+      checar('borda usa a cor certa pra prioridade 4 (âmbar)', toastPrincipal && toastPrincipal.style.borderLeft.includes('180, 83, 9'), toastPrincipal && toastPrincipal.style.borderLeft);
+      checar('toast menciona o número da prioridade e o nome da faixa', toastPrincipal && /prioridade 4/i.test(toastPrincipal.textContent) && /atraso inicial/i.test(toastPrincipal.textContent), toastPrincipal && toastPrincipal.textContent);
       resolve();
     }, 20);
   });

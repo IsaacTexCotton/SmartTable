@@ -1763,6 +1763,11 @@
     // Banner fixo, SEM botão de fechar -- de propósito. O bug que motivou
     // isso foi justamente cobrar por falta de atenção; um aviso que dá pra
     // fechar e esquecer não protege contra isso.
+    //
+    // PEDIDO DO USUÁRIO (prévia visual aprovada antes de aplicar): mesma
+    // urgência (vermelho, sem botão de fechar), mas com hierarquia melhor
+    // -- selo com ícone, título curto em destaque, detalhe secundário --
+    // em vez de uma única frase corrida em negrito.
     function avisarSeNaoCobrar() {
         if (document.getElementById('aviso-nao-cobrar-banner')) return; // já existe, não duplica
 
@@ -1783,22 +1788,70 @@
             left: '0',
             right: '0',
             zIndex: 999998,
-            background: '#FEE2E2',
-            borderBottom: '3px solid #DC2626',
-            color: '#7F1D1D',
-            padding: '14px 20px',
+            background: 'linear-gradient(180deg, #2A1414 0%, #1F0F0F 100%)',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '14px',
+            padding: '14px 22px',
             fontFamily: '-apple-system, Segoe UI, Arial, sans-serif',
-            fontSize: '14px',
-            fontWeight: '700',
-            textAlign: 'center',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
         });
 
-        const titulosTexto = dados.naoCobrar.map((r) => `${r.tituloCompleto} (${r.posicao})`).join(', ');
-        banner.textContent =
-            '🚫 ATENÇÃO: este cliente tem título(s) que NÃO devem ser cobrados (' +
-            titulosTexto +
-            ') -- não entre em contato de cobrança sobre ele(s).';
+        const selo = document.createElement('div');
+        Object.assign(selo.style, {
+            flexShrink: '0',
+            width: '36px',
+            height: '36px',
+            borderRadius: '10px',
+            background: '#DC2626',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 0 0 4px rgba(220,38,38,0.18)',
+        });
+        // Ícone estático (sem dado dinâmico interpolado) -- seguro usar
+        // innerHTML aqui, diferente do texto dos títulos abaixo (nomes de
+        // posição vêm do CRM e continuam usando nós de texto).
+        selo.innerHTML =
+            '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" ' +
+            'stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>' +
+            '<line x1="6.5" y1="6.5" x2="17.5" y2="17.5"/></svg>';
+
+        const corpo = document.createElement('div');
+        corpo.style.lineHeight = '1.35';
+
+        const titulo = document.createElement('div');
+        titulo.textContent = 'Não cobrar este cliente';
+        Object.assign(titulo.style, {
+            fontSize: '13px',
+            fontWeight: '700',
+            letterSpacing: '.04em',
+            color: '#FCA5A5',
+            textTransform: 'uppercase',
+            marginBottom: '2px',
+        });
+
+        // Nós de texto reais, sem innerHTML -- mesmo padrão de segurança já
+        // usado no Módulo 5 (item A1): tituloCompleto/posicao vêm do CRM.
+        const detalhe = document.createElement('div');
+        detalhe.style.fontSize = '14px';
+        detalhe.style.color = '#F1E4E4';
+        detalhe.append('Título(s) ');
+        dados.naoCobrar.forEach((r, i) => {
+            if (i > 0) detalhe.append(', ');
+            const destaque = document.createElement('b');
+            destaque.style.color = '#fff';
+            destaque.style.fontWeight = '600';
+            destaque.textContent = `${r.tituloCompleto} (${r.posicao})`;
+            detalhe.appendChild(destaque);
+        });
+        detalhe.append(' -- não entre em contato de cobrança sobre ele(s).');
+
+        corpo.appendChild(titulo);
+        corpo.appendChild(detalhe);
+        banner.appendChild(selo);
+        banner.appendChild(corpo);
 
         document.body.appendChild(banner);
     }
