@@ -72,6 +72,11 @@ const promessaTipos = [
 const contatoRecenteOpcoes = [null, contatoRecenteOntem];
 const grupoOpcoes = [false, true];
 const houveTituloPagoOpcoes = [false, true];
+// Vira dimensão da matriz (achado da revisão de código): como bloco
+// isolado, essa flag só era testada com contatoRecente=null -- foi
+// exatamente a combinação NÃO testada (outro negociador falou ontem +
+// eu nunca falei) que produziu mensagem contraditória em produção.
+const nuncaContatadoPorMimOpcoes = [false, true];
 
 let total = 0;
 const achados = [];
@@ -90,6 +95,13 @@ function checarIncongruencias(msg, cenario) {
     if (/Notamos que o pagamento combinado/.test(msg) || /Identificamos o pagamento parcial/.test(msg) || /hoje é o dia combinado/.test(msg)) {
       problemas.push('Diz "ainda não obtivemos retorno" JUNTO com linguagem de promessa/pagamento na mesma mensagem.');
     }
+  }
+
+  // BUG REAL (achado na revisão de código): se apresentar como primeira vez
+  // E dizer "retomando o contato de X" na mesma mensagem é contraditório --
+  // acontecia quando OUTRO negociador falou ontem e este nunca falou.
+  if (/Sou o Isaac do financeiro/.test(msg) && /Retomando o contato de/.test(msg)) {
+    problemas.push('Se apresenta como primeiro contato E diz "Retomando o contato de..." na mesma mensagem.');
   }
 
   const mencionaRelatorioAbaixo = /no relatório abaixo/.test(msg);
@@ -167,29 +179,32 @@ situacoesBase.forEach((sit) => {
     promessaTipos.forEach((promessa) => {
       grupoOpcoes.forEach((temGrupo) => {
         houveTituloPagoOpcoes.forEach((houveTituloPago) => {
-          window.__alertaGrupo = temGrupo
-            ? { empresasComVencido: [{ cnpj: '2', razaoSocial: 'OUTRA RAZAO', vencido: 'R$ 500,00', url: 'https://x' }] }
-            : { empresasComVencido: [] };
+          nuncaContatadoPorMimOpcoes.forEach((nuncaContatadoPorMim) => {
+            window.__alertaGrupo = temGrupo
+              ? { empresasComVencido: [{ cnpj: '2', razaoSocial: 'OUTRA RAZAO', vencido: 'R$ 500,00', url: 'https://x' }] }
+              : { empresasComVencido: [] };
 
-          const registros = [registro(sit)];
-          const dados = { registros, fluxo: 'CARTORIO' };
-          window.__contextoAdicional = ctxBase({
-            promessa,
-            contatoRecente,
-            houvePromessaNoUltimoContato: false,
-            houveTituloPagoDesdeUltimaVisita: houveTituloPago,
-            titulosPagosDesdeUltimaVisita: houveTituloPago ? ['90099/1'] : [],
-          });
+            const registros = [registro(sit)];
+            const dados = { registros, fluxo: 'CARTORIO' };
+            window.__contextoAdicional = ctxBase({
+              promessa,
+              contatoRecente,
+              houvePromessaNoUltimoContato: false,
+              houveTituloPagoDesdeUltimaVisita: houveTituloPago,
+              titulosPagosDesdeUltimaVisita: houveTituloPago ? ['90099/1'] : [],
+              nuncaContatadoPorMim,
+            });
 
-          rodarCenario({
-            descricao: `sit=${sit} contatoRecente=${!!contatoRecente} promessa=${promessa ? promessa.tipo : 'null'} grupo=${temGrupo} titPago=${houveTituloPago}`,
-            dados,
-            situacaoEscolhida: sit,
-            houvePromessaNoUltimoContato: false,
-            temPromessaAtiva: !!promessa,
-            semContatoAnterior: false,
-            houveTituloPago,
-            contatoRecenteAtivo: !!contatoRecente,
+            rodarCenario({
+              descricao: `sit=${sit} contatoRecente=${!!contatoRecente} promessa=${promessa ? promessa.tipo : 'null'} grupo=${temGrupo} titPago=${houveTituloPago} nuncaContatadoPorMim=${nuncaContatadoPorMim}`,
+              dados,
+              situacaoEscolhida: sit,
+              houvePromessaNoUltimoContato: false,
+              temPromessaAtiva: !!promessa,
+              semContatoAnterior: false,
+              houveTituloPago,
+              contatoRecenteAtivo: !!contatoRecente,
+            });
           });
         });
       });
@@ -766,6 +781,9 @@ scpcDias.forEach((dias) => {
     { descricao: 'contatoAntigo=true -> linha de apresentação presente (sem regressão)', ctx: { contatoAntigo: true }, esperado: 1 },
     { descricao: 'os dois motivos juntos -> apresentação aparece UMA vez só', ctx: { contatoAntigo: true, nuncaContatadoPorMim: true }, esperado: 1 },
     { descricao: 'nenhum dos dois -> sem linha de apresentação', ctx: {}, esperado: 0 },
+    // BUG REAL (achado na revisão de código): outro negociador falou ontem,
+    // eu nunca falei -- a apresentação sai, mas sem "retomando o contato".
+    { descricao: 'outro negociador falou ontem + eu nunca falei -> apresentação sai', ctx: { nuncaContatadoPorMim: true, contatoRecente: contatoRecenteOntem }, esperado: 1 },
   ];
 
   casos.forEach((caso) => {
@@ -783,6 +801,20 @@ scpcDias.forEach((dias) => {
       });
     }
   });
+
+  // BUG REAL (achado na revisão de código): com a apresentação na mensagem,
+  // "Retomando o contato de ontem" (de OUTRA pessoa) não pode aparecer.
+  window.__alertaGrupo = { empresasComVencido: [] };
+  window.__contextoAdicional = ctxBase({ nuncaContatadoPorMim: true, contatoRecente: contatoRecenteOntem });
+  const msgCombo = montar({ registros: [registro('EM_ATRASO')], fluxo: 'CARTORIO' });
+  total++;
+  if (!msgCombo || !/Sou o Isaac do financeiro/.test(msgCombo) || /Retomando o contato de/.test(msgCombo)) {
+    achados.push({
+      cenario: 'BUG REAL: outro negociador falou ontem + eu nunca falei -- apresentação sim, "retomando o contato" não',
+      problemas: ['Esperava a apresentação SEM a linha "Retomando o contato de..." na mesma mensagem.'],
+      mensagem: msgCombo,
+    });
+  }
 }
 
 console.log(`[mensagens] ${total - achados.length}/${total} cenários passaram (${achados.length} achado(s)).`);

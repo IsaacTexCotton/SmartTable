@@ -75,6 +75,15 @@ function calcular(w) {
   checar('data-usuario com espaços em volta ainda é reconhecido como meu (false)', calcular(w) === false);
 })();
 
+// 6b. ACHADO NA REVISÃO DE CÓDIGO: caixa diferente no código do usuário não
+// pode fazer a comparação falhar em silêncio (o efeito seria eu me
+// apresentar pra todo mundo, inclusive quem eu já conheço). Os dois lados
+// são normalizados em maiúsculas, igual ao status da promessa.
+(function () {
+  const w = abrirPagina([`<div class="contato-item" data-data="15/09/2026 10:00" data-efetivo="true" data-usuario="isaac.03876"></div>`]);
+  checar('data-usuario em minúsculas ainda é reconhecido como meu (false)', calcular(w) === false);
+})();
+
 // 7. Contato NÃO efetivo (tentativa sem resposta) meu ainda conta como
 // contato meu -- eu já me apresentei naquela tentativa, mesmo sem retorno.
 (function () {

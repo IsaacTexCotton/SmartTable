@@ -55,7 +55,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.1.0';
+  const VERSAO_SMARTTABLE = '1.1.1';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -114,6 +114,10 @@
     // contatado por OUTRA pessoa mas nunca por este usuário também recebe a
     // linha de apresentação (ver nuncaContatadoPorMim) -- é o primeiro
     // contato DELE com o cliente, mesmo que o cliente já conheça a empresa.
+    //
+    // SE TROCAR DE NEGOCIADOR, são DOIS lugares: este código aqui e o texto
+    // da apresentação em obterLinhaApresentacao() (Módulo 4), que cita o
+    // nome por extenso ("Sou o Isaac do financeiro da Tex Cotton...").
     USUARIO_NEGOCIADOR: 'ISAAC.03876',
   };
 
@@ -265,8 +269,11 @@
         data: converterDataBr(item.dataset.data),
         efetivo: item.dataset.efetivo === 'true',
         // Quem registrou o contato ("ISAAC.03876", "BIANCA.03665") --
-        // confirmado ao vivo no HTML real (data-usuario).
-        usuario: (item.dataset.usuario || '').trim(),
+        // confirmado ao vivo no HTML real (data-usuario). Normalizado em
+        // maiúsculas igual ao status da promessa logo acima: se o CRM um dia
+        // mudar a caixa do código, a comparação com USUARIO_NEGOCIADOR
+        // falharia em silêncio e eu me apresentaria pra todo mundo.
+        usuario: (item.dataset.usuario || '').trim().toUpperCase(),
       }))
       .filter((c) => c.data);
   }
@@ -541,7 +548,9 @@
     if (totalContatos === 0) return false;
     const contatos = lerTodosContatos();
     if (contatos.length === 0) return false;
-    return !contatos.some((c) => c.usuario === CONFIG_CONTEXTO.USUARIO_NEGOCIADOR);
+    // Os dois lados normalizados em maiúsculas (ver lerTodosContatos).
+    const eu = CONFIG_CONTEXTO.USUARIO_NEGOCIADOR.trim().toUpperCase();
+    return !contatos.some((c) => c.usuario === eu);
   }
 
   // CONFIRMADO com o usuário (bug real): se existe uma promessa datada

@@ -681,6 +681,10 @@
   //   - nuncaContatadoPorMim (PEDIDO DO USUÁRIO): o cliente já foi contatado
   //     por OUTRO negociador, mas nunca por este -- do lado dele é a
   //     primeira vez que esta pessoa fala com ele, então cabe se apresentar.
+  //
+  // SE TROCAR DE NEGOCIADOR, são DOIS lugares: o nome por extenso aqui
+  // embaixo e o código do usuário em CONFIG_CONTEXTO.USUARIO_NEGOCIADOR
+  // (Módulo 6), que é quem decide o nuncaContatadoPorMim.
   function obterLinhaApresentacao() {
     const ctx = window.__contextoAdicional;
     if (!ctx) return '';
@@ -717,6 +721,21 @@
     // "ainda não obtivemos retorno" bem ao lado de um agradecimento de
     // pagamento seria contraditório na mesma mensagem.
     if (ctx.promessa || ctx.houvePromessaNoUltimoContato || ctx.houveTituloPagoDesdeUltimaVisita) return '';
+
+    // BUG REAL (achado na revisão de código, CONFIRMADO com o usuário):
+    // quando OUTRO negociador falou com o cliente ontem e eu nunca falei, a
+    // mensagem saía se apresentando ("Sou o Isaac do financeiro...") E
+    // dizendo "Retomando o contato de ontem" ao mesmo tempo -- me apresento
+    // como se fosse a primeira vez e cobro continuidade de uma conversa que
+    // não foi minha, na mesma mensagem. Decisão do usuário: nesse caso vale
+    // a apresentação, e o contato de ontem (de outra pessoa) não é citado.
+    //
+    // Isso NÃO acontecia antes de nuncaContatadoPorMim existir porque
+    // contatoAntigo (contato mais recente ANTES da data de corte) e
+    // contatoRecente (contato mais recente ONTEM) são mutuamente
+    // exclusivos por construção -- a flag nova é ortogonal à data, então
+    // precisa desta exclusão explícita.
+    if (ctx.nuncaContatadoPorMim) return '';
 
     // REVERTIDO (confirmado com o usuário): a variação de 3 níveis puxava
     // datas velhas demais, sem relação com a cobrança atual -- volta a
