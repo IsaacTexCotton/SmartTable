@@ -301,6 +301,102 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
 })();
 
 // =====================================================================
+// 7b. filtrarPorGrupoEconomico -- PEDIDO DO USUÁRIO: "um cliente já foi
+// contatado em outra razão do mesmo grupo... é válido inserir na lista do
+// Alt+U apenas um do grupo social. Quando haver mais de um no grupo social
+// com títulos em aberto, não inserir o restante na lista". Fonte de
+// verdade é window.__alertaGrupo (lido pelo Módulo 5 na aba "Grupo" de
+// verdade) -- NÃO o grupoId da lista, confirmado ao vivo que é outro campo
+// sem relação com grupo econômico.
+// =====================================================================
+function empresaGrupo(cnpj, overrides) {
+  return Object.assign({ cnpj, razaoSocial: 'X', vencido: 'R$ 1,00', url: 'https://x' }, overrides || {});
+}
+
+function resultadoFake({ cnpj, prioridade, dias, empresasComVencido }) {
+  return {
+    cliente: { cnpj, url: `https://x/${cnpj}`, label: cnpj },
+    escolhido: { diasAtrasoReal: dias },
+    fluxo: 'CARTORIO',
+    prioridade,
+    empresasComVencido: empresasComVencido || [],
+  };
+}
+
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const filtrar = w.filaPrioridadeDebug.filtrarPorGrupoEconomico;
+
+  // Referência cruzada simétrica -- A lista B como vencido e B lista A.
+  const a = resultadoFake({ cnpj: '11111111/0001-11', prioridade: 4, dias: 3, empresasComVencido: [empresaGrupo('22222222/0001-22')] });
+  const b = resultadoFake({ cnpj: '22222222/0001-22', prioridade: 1, dias: 6, empresasComVencido: [empresaGrupo('11111111/0001-11')] });
+  const { sobreviventes, excluidosPorGrupo } = filtrar([a, b]);
+  checar('cluster de 2 do mesmo grupo -- só 1 sobrevive', sobreviventes.length === 1, JSON.stringify(sobreviventes));
+  checar('sobrevivente é o mais urgente (prioridade 1, não 4)', sobreviventes[0].cliente.cnpj === '22222222/0001-22', JSON.stringify(sobreviventes));
+  checar('contador de excluídos por grupo bate (1)', excluidosPorGrupo === 1, excluidosPorGrupo);
+})();
+
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const filtrar = w.filaPrioridadeDebug.filtrarPorGrupoEconomico;
+
+  // Referência ASSIMÉTRICA -- só A lista B (B não lista A de volta, ex.:
+  // tabela "Clientes do grupo" não veio simétrica) -- ainda assim precisa
+  // agrupar, já que a informação existe de UM dos lados.
+  const a = resultadoFake({ cnpj: '33333333/0001-33', prioridade: 6, dias: 8, empresasComVencido: [empresaGrupo('44444444/0001-44')] });
+  const b = resultadoFake({ cnpj: '44444444/0001-44', prioridade: 6, dias: 15, empresasComVencido: [] });
+  const { sobreviventes } = filtrar([a, b]);
+  checar('referência assimétrica ainda agrupa (1 sobrevivente)', sobreviventes.length === 1, JSON.stringify(sobreviventes));
+  checar('empate de prioridade -- desempata por mais dias de atraso (44444444, 15 dias)', sobreviventes[0].cliente.cnpj === '44444444/0001-44', JSON.stringify(sobreviventes));
+})();
+
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const filtrar = w.filaPrioridadeDebug.filtrarPorGrupoEconomico;
+
+  // Sem nenhuma referência cruzada -- candidatos não relacionados, ambos
+  // sobrevivem (o bug que quase foi implementado por engano: agrupar por
+  // um campo que NÃO é grupo econômico teria juntado gente sem relação).
+  const a = resultadoFake({ cnpj: '55555555/0001-55', prioridade: 4, dias: 3 });
+  const b = resultadoFake({ cnpj: '66666666/0001-66', prioridade: 4, dias: 3 });
+  const { sobreviventes, excluidosPorGrupo } = filtrar([a, b]);
+  checar('candidatos sem relação de grupo -- os dois sobrevivem', sobreviventes.length === 2, JSON.stringify(sobreviventes));
+  checar('nenhum excluído por grupo quando não há relação nenhuma', excluidosPorGrupo === 0, excluidosPorGrupo);
+})();
+
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const filtrar = w.filaPrioridadeDebug.filtrarPorGrupoEconomico;
+
+  // Cluster de 3 -- só o mais urgente sobrevive, os outros 2 saem.
+  const a = resultadoFake({ cnpj: '77777777/0001-77', prioridade: 3, dias: 6, empresasComVencido: [empresaGrupo('88888888/0001-88'), empresaGrupo('99999999/0001-99')] });
+  const b = resultadoFake({ cnpj: '88888888/0001-88', prioridade: 5, dias: 19 });
+  const c = resultadoFake({ cnpj: '99999999/0001-99', prioridade: 6, dias: 10 });
+  const { sobreviventes, excluidosPorGrupo } = filtrar([a, b, c]);
+  checar('cluster de 3 -- só 1 sobrevive', sobreviventes.length === 1, JSON.stringify(sobreviventes));
+  checar('sobrevivente é o de prioridade mais urgente (tier 3)', sobreviventes[0].cliente.cnpj === '77777777/0001-77', JSON.stringify(sobreviventes));
+  checar('2 excluídos por grupo', excluidosPorGrupo === 2, excluidosPorGrupo);
+})();
+
+(function () {
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const filtrar = w.filaPrioridadeDebug.filtrarPorGrupoEconomico;
+
+  // Defensivo: empresasComVencido undefined (Módulo 5 pode não ter rodado
+  // por algum motivo) não pode travar nem juntar por engano.
+  const a = { cliente: { cnpj: '10101010/0001-10' }, escolhido: { diasAtrasoReal: 3 }, prioridade: 4 };
+  let excecao = null;
+  let resultado;
+  try {
+    resultado = filtrar([a]);
+  } catch (e) {
+    excecao = e;
+  }
+  checar('empresasComVencido ausente não lança exceção', excecao === null, excecao && excecao.message);
+  checar('candidato único sem dado de grupo sobrevive normalmente', resultado && resultado.sobreviventes.length === 1);
+})();
+
+// =====================================================================
 // 8-10. Herdados do Módulo 3 + integração com o schema da fila
 // =====================================================================
 (function () {
@@ -430,6 +526,7 @@ const promessa13 = promessa12.then(async function () {
       },
       __contextoAdicional: {},
       __contextoAdicionalDebug: { lerPromessas: () => [] },
+      __alertaGrupo: { empresasComVencido: [] },
     };
   };
 
@@ -478,6 +575,7 @@ const promessa14 = promessa13.then(async function () {
     },
     __contextoAdicional: {},
     __contextoAdicionalDebug: { lerPromessas: () => [{ status: 'PENDENTE', dataPrometida: hojeMeioDia, titulos: ['1/1'] }] },
+    __alertaGrupo: { empresasComVencido: [] },
   });
 
   await w.filaPrioridadeDebug.iniciar();
@@ -513,6 +611,7 @@ const promessa15 = promessa14.then(async function () {
     },
     __contextoAdicional: {},
     __contextoAdicionalDebug: { lerPromessas: () => [{ status: 'PENDENTE', dataPrometida: amanhaMeioDia, titulos: ['1/1'] }] },
+    __alertaGrupo: { empresasComVencido: [] },
   });
 
   await w.filaPrioridadeDebug.iniciar();
@@ -525,4 +624,67 @@ const promessa15 = promessa14.then(async function () {
   );
 });
 
-promessa15.then(resumo);
+// =====================================================================
+// 16. INTEGRAÇÃO PONTA A PONTA: dois candidatos do MESMO grupo econômico
+// (window.__alertaGrupo cruzado entre as duas abas de fundo) -- só o mais
+// urgente entra na fila final salva, o outro é excluído e contado.
+// =====================================================================
+const promessa16 = promessa15.then(async function () {
+  const cnpjUrgente = '20202020/0001-20'; // ULTIMO_DIA + Cartório -> prioridade 1
+  const cnpjMenosUrgente = '30303030/0001-30'; // EM_ATRASO dia 3 -> prioridade 4
+  const html = [
+    linhaHtml({ grupoId: 0, cnpj: cnpjUrgente, dias: 6 }),
+    linhaHtml({ grupoId: 0, cnpj: cnpjMenosUrgente, dias: 3 }),
+  ].join('');
+  const clientesArray = [
+    clienteJson({ cnpj: cnpjUrgente, cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000', diasAtraso: 6 }),
+    clienteJson({ cnpj: cnpjMenosUrgente, cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000', diasAtraso: 3 }),
+  ];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', `<table><tbody>${html}</tbody></table>`, clientesArray);
+
+  w.open = (url) => {
+    const cnpjNaUrl = decodeURIComponent(url.split('cnpj=')[1] || '');
+    const ehUrgente = cnpjNaUrl === cnpjUrgente;
+    return {
+      closed: false,
+      close() { this.closed = true; },
+      __avisoCobranca: {
+        simular: () => ({
+          fluxo: 'CARTORIO',
+          registros: [ehUrgente
+            ? { situacaoKey: 'ULTIMO_DIA', diasAtrasoReal: 6, tituloCompleto: '1/1', vencimentoTexto: '01/09/2026' }
+            : { situacaoKey: 'EM_ATRASO', diasAtrasoReal: 3, tituloCompleto: '2/1', vencimentoTexto: '01/09/2026' }],
+          naoCobrar: [],
+        }),
+      },
+      __contextoAdicional: {},
+      __contextoAdicionalDebug: { lerPromessas: () => [] },
+      // As duas abas se reconhecem como do mesmo grupo econômico (mesma
+      // fonte que o Módulo 5 exporia na vida real, lendo a aba "Grupo").
+      __alertaGrupo: {
+        empresasComVencido: ehUrgente
+          ? [empresaGrupo(cnpjMenosUrgente)]
+          : [empresaGrupo(cnpjUrgente)],
+      },
+    };
+  };
+
+  await w.filaPrioridadeDebug.iniciar();
+
+  const filaSalva = w.filaDebug.obterFila();
+  checar(
+    'fila final tem só 1 cliente (o outro é do mesmo grupo, já seria cobrado por tabela)',
+    filaSalva !== null && filaSalva.clientes.length === 1,
+    filaSalva && JSON.stringify(filaSalva.clientes)
+  );
+  checar(
+    'o sobrevivente é o mais urgente (ULTIMO_DIA+Cartório, prioridade 1)',
+    filaSalva && filaSalva.clientes[0].cnpj === cnpjUrgente,
+    filaSalva && JSON.stringify(filaSalva.clientes)
+  );
+
+  const toastResumo = Array.from(w.document.body.querySelectorAll('div')).some((el) => /grupo/i.test(el.textContent || ''));
+  checar('resumo final menciona a exclusão por grupo econômico', toastResumo, w.document.body.innerHTML);
+});
+
+promessa16.then(resumo);

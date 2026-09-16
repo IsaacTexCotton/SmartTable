@@ -29,6 +29,13 @@
  *     (posição NAO COBRAR/CARTEIRA, ou todos os títulos já em cartório --
  *     mesmo critério do banner avisarSeNaoCobrar) -- exclui o CLIENTE
  *     inteiro, não só o título específico.
+ *   - CONFIRMADO com o usuário: quando 2+ clientes do MESMO grupo econômico
+ *     (confirmado via window.__alertaGrupo, lido pelo Módulo 5 na aba
+ *     "Grupo" de verdade de cada cliente -- NÃO é o grupoId da lista, que é
+ *     outro campo sem relação com grupo econômico) têm título em aberto, só
+ *     a representante MAIS URGENTE do grupo entra na fila -- as demais já
+ *     serão cobradas por tabela a partir dessa visita (ver
+ *     filtrarPorGrupoEconomico).
  *
  * POR QUE PRECISA VISITAR CADA CLIENTE: a lista de clientes (página de
  * lista) só mostra dias de atraso, cluster e a data da última movimentação
@@ -374,7 +381,8 @@
           pronto = !!(
             janela.__avisoCobranca &&
             typeof janela.__avisoCobranca.simular === 'function' &&
-            janela.__contextoAdicional
+            janela.__contextoAdicional &&
+            janela.__alertaGrupo
           );
         } catch (erro) {
           return resolve(false); // cross-origin ou janela em estado estranho
@@ -467,7 +475,18 @@
       }
 
       const prioridade = determinarPrioridade(escolhido, dadosTitulos.fluxo, cliente.cluster);
-      return { cliente, escolhido, fluxo: dadosTitulos.fluxo, prioridade };
+
+      // CONFIRMADO com o usuário: se outra empresa do mesmo grupo econômico
+      // também tem título vencido, só UMA representante do grupo deve
+      // entrar na fila (a mais urgente) -- as outras já serão cobradas por
+      // tabela via essa mesma visita (ver Alt+A/Alt+G, Módulo 4/5). O
+      // Módulo 5 já lê a aba "Grupo" de verdade em toda visita à página do
+      // cliente (não é o grupoId da lista, que é outro campo, confirmado
+      // via diagnóstico ao vivo) -- window.__alertaGrupo já está disponível
+      // de graça nesta mesma aba de fundo, sem custo extra de visita.
+      const empresasComVencido = (aba.__alertaGrupo && aba.__alertaGrupo.empresasComVencido) || [];
+
+      return { cliente, escolhido, fluxo: dadosTitulos.fluxo, prioridade, empresasComVencido };
     } finally {
       try {
         if (!aba.closed) aba.close();
@@ -475,6 +494,87 @@
         // aba pode já ter sido fechada manualmente -- ignora.
       }
     }
+  }
+
+  // Só os dígitos -- mesmo padrão usado em outros pontos do sistema pra
+  // comparar CNPJ entre fontes com formatação diferente (o da URL do
+  // candidato vem com barra/traço, o lido da tabela "Clientes do grupo"
+  // pode vir só com pontuação, etc.).
+  function normalizarCnpj(cnpj) {
+    return (cnpj || '').replace(/\D/g, '');
+  }
+
+  // Mais urgente = prioridade de tier menor primeiro (1 é a mais urgente);
+  // empatando o tier, quem tem mais dias de atraso real vence -- mesmo
+  // critério de desempate já usado na ordenação final da fila.
+  function maisUrgente(a, b) {
+    if (a.prioridade !== b.prioridade) return a.prioridade < b.prioridade ? a : b;
+    return a.escolhido.diasAtrasoReal >= b.escolhido.diasAtrasoReal ? a : b;
+  }
+
+  // CONFIRMADO com o usuário: quando 2+ clientes do MESMO grupo econômico
+  // têm título em aberto, só a representante mais urgente do grupo entra
+  // na fila -- as demais já serão cobradas por tabela ao atender essa
+  // primeira (Alt+G/Alt+A já cobrem "outras razões do grupo" a partir dela).
+  // Só dá pra saber quem é do mesmo grupo DEPOIS de classificar cada um
+  // (ver empresasComVencido em classificarCliente), por isso roda aqui,
+  // depois do laço de classificação, nunca antes.
+  //
+  // Agrupamento via união por CNPJ cruzado: dois resultados entram no mesmo
+  // cluster se o CNPJ de QUALQUER um aparece na lista empresasComVencido do
+  // outro (união também nas duas mãos, pra tolerar o caso da tabela do
+  // grupo não listar os dois lados de forma simétrica).
+  function filtrarPorGrupoEconomico(resultados) {
+    const indicePorCnpj = new Map();
+    resultados.forEach((r, i) => {
+      const cnpj = normalizarCnpj(r.cliente.cnpj);
+      if (cnpj) indicePorCnpj.set(cnpj, i);
+    });
+
+    // Union-Find simples (path compression) -- número de candidatos por
+    // rodada é pequeno (dezenas), não precisa de nada mais sofisticado.
+    const pai = resultados.map((_, i) => i);
+    function encontrar(i) {
+      while (pai[i] !== i) {
+        pai[i] = pai[pai[i]];
+        i = pai[i];
+      }
+      return i;
+    }
+    function unir(i, j) {
+      const raizI = encontrar(i);
+      const raizJ = encontrar(j);
+      if (raizI !== raizJ) pai[raizI] = raizJ;
+    }
+
+    resultados.forEach((r, i) => {
+      (r.empresasComVencido || []).forEach((empresa) => {
+        const j = indicePorCnpj.get(normalizarCnpj(empresa.cnpj));
+        if (j !== undefined && j !== i) unir(i, j);
+      });
+    });
+
+    const clusters = new Map(); // raiz -> array de índices
+    resultados.forEach((_, i) => {
+      const raiz = encontrar(i);
+      if (!clusters.has(raiz)) clusters.set(raiz, []);
+      clusters.get(raiz).push(i);
+    });
+
+    const sobreviventes = [];
+    let excluidosPorGrupo = 0;
+
+    clusters.forEach((indices) => {
+      if (indices.length === 1) {
+        sobreviventes.push(resultados[indices[0]]);
+        return;
+      }
+      const vencedor = indices.map((i) => resultados[i]).reduce(maisUrgente);
+      sobreviventes.push(vencedor);
+      excluidosPorGrupo += indices.length - 1;
+    });
+
+    return { sobreviventes, excluidosPorGrupo };
   }
 
   /* ---------------------------------------------------------------------
@@ -575,15 +675,18 @@
     removerIndicadorProgresso();
     classificandoEmAndamento = false;
 
+    const { sobreviventes: resultadosSemDuplicataDeGrupo, excluidosPorGrupo } = filtrarPorGrupoEconomico(resultados);
+
     console.log('[Fila Prioridade] Detalhamento da classificação (abas de fundo):', JSON.stringify({
       classificados_com_sucesso: resultados.length,
       excluidos_por_promessa_futura: excluidosPorPromessa,
       excluidos_por_nao_cobrar: excluidosPorNaoCobrar,
       pulados_por_popup_bloqueado: comPopupBloqueado,
       com_outro_erro_timeout: comOutroErro,
+      excluidos_por_grupo_economico_ja_representado: excluidosPorGrupo,
     }));
 
-    if (resultados.length === 0) {
+    if (resultadosSemDuplicataDeGrupo.length === 0) {
       toast('Classificação terminou, mas nenhum cliente ficou elegível pra fila.', 5000);
       return;
     }
@@ -591,12 +694,12 @@
     // Ordena por prioridade (1 primeiro) e, dentro da mesma prioridade,
     // por dias de atraso decrescente -- mesmo critério de urgência que o
     // resto do sistema já usa.
-    resultados.sort((a, b) => {
+    resultadosSemDuplicataDeGrupo.sort((a, b) => {
       if (a.prioridade !== b.prioridade) return a.prioridade - b.prioridade;
       return b.escolhido.diasAtrasoReal - a.escolhido.diasAtrasoReal;
     });
 
-    const clientesDaFila = resultados.map((r) => Object.assign({}, r.cliente, {
+    const clientesDaFila = resultadosSemDuplicataDeGrupo.map((r) => Object.assign({}, r.cliente, {
       diasAtraso: r.escolhido.diasAtrasoReal,
       prioridadeTier: r.prioridade,
       prioridadeNome: NOMES_PRIORIDADE[r.prioridade],
@@ -622,6 +725,7 @@
     if (excluidosPorNaoCobrar) resumoPartes.push(`${excluidosPorNaoCobrar} excluído(s) por alerta de não cobrar`);
     if (comPopupBloqueado) resumoPartes.push(`${comPopupBloqueado} pulado(s) por pop-up bloqueado`);
     if (comOutroErro) resumoPartes.push(`${comOutroErro} com erro/timeout`);
+    if (excluidosPorGrupo) resumoPartes.push(`${excluidosPorGrupo} excluído(s) por já ter representante do grupo na fila`);
     const duracaoResumoMs = 6000;
     toast(resumoPartes.join(' -- '), duracaoResumoMs);
 
@@ -699,6 +803,7 @@
     candidatosEnriquecidos,
     filtrarPorRegrasDaLista,
     determinarPrioridade,
+    filtrarPorGrupoEconomico,
     escolherTituloRepresentativo,
   };
 })();
