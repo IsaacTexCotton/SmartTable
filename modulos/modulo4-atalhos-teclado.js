@@ -448,6 +448,35 @@
     return [...new Set(datas)];
   }
 
+  // Texto do aviso de suspensão SCPC pra um dado nível de atraso -- extraído
+  // pra ser reaproveitado tanto na linha principal (quando NEGATIVADO_SCPC é
+  // a situação escolhida) quanto na linha complementar (quando NÃO é a
+  // escolhida, mas ainda existe entre os títulos do cliente -- ver
+  // obterLinhaNegativadoScpcAdicional).
+  function textoAvisoScpc(dias) {
+    // CONFIRMADO com o usuário: aviso específico nos últimos dias antes
+    // da suspensão de cadastro por SCPC -- fora dessa janela, segue a
+    // frase genérica de sempre.
+    if (dias >= DIAS_AVISO_SUSPENSAO_SCPC_MIN && dias <= DIAS_AVISO_SUSPENSAO_SCPC_MAX) {
+      return `Lembramos que, a partir do ${DIAS_ULTIMO_DIA_SUSPENSAO_SCPC}º dia de atraso, o cadastro é suspenso e os pedidos deixam de ser faturados.`;
+    }
+    if (dias === DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) {
+      return 'Hoje é o último dia para pagamento antes que o cadastro seja suspenso e o caso seja encaminhado a um de nossos analistas.';
+    }
+    return 'Lembramos que a regularização dos débitos negativados no SCPC permite a baixa das restrições.';
+  }
+
+  // Prioridade de urgência entre títulos NEGATIVADO_SCPC -- MESMA lógica de
+  // escolherTituloRepresentativo (dia 19 exato > janela 16-18 > qualquer
+  // outro), usada aqui só pra decidir qual texto usar quando mais de um
+  // título negativado sobrou sem ser o escolhido (ver
+  // obterLinhaNegativadoScpcAdicional).
+  function prioridadeUrgenciaScpc(dias) {
+    if (dias === DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) return 3;
+    if (dias >= DIAS_AVISO_SUSPENSAO_SCPC_MIN && dias <= DIAS_AVISO_SUSPENSAO_SCPC_MAX) return 2;
+    return 1;
+  }
+
   // Linha de contexto por situação -- extraída/adaptada das frases padrão
   // reais do usuário (não escrita do zero). Retorna:
   //   - string vazia: sem linha extra, mensagem segue direto pro fechamento
@@ -480,19 +509,8 @@
           ? `Os títulos grifados em vermelho no relatório abaixo estão no prazo final antes de serem encaminhados ${destino}.`
           : `O título grifado em vermelho no relatório abaixo está no prazo final antes de ser encaminhado ${destino}.`;
       }
-      case 'NEGATIVADO_SCPC': {
-        const dias = escolhido.diasAtrasoReal;
-        // CONFIRMADO com o usuário: aviso específico nos últimos dias antes
-        // da suspensão de cadastro por SCPC -- fora dessa janela, segue a
-        // frase genérica de sempre.
-        if (dias >= DIAS_AVISO_SUSPENSAO_SCPC_MIN && dias <= DIAS_AVISO_SUSPENSAO_SCPC_MAX) {
-          return `Lembramos que, a partir do ${DIAS_ULTIMO_DIA_SUSPENSAO_SCPC}º dia de atraso, o cadastro é suspenso e os pedidos deixam de ser faturados.`;
-        }
-        if (dias === DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) {
-          return 'Hoje é o último dia para pagamento antes que o cadastro seja suspenso e o caso seja encaminhado a um de nossos analistas.';
-        }
-        return 'Lembramos que a regularização dos débitos negativados no SCPC permite a baixa das restrições.';
-      }
+      case 'NEGATIVADO_SCPC':
+        return textoAvisoScpc(escolhido.diasAtrasoReal);
       case 'EM_CARTORIO': {
         // CONFIRMADO com o usuário: referenciar a cor (amarelo) em vez de só
         // "aparecem destacados" -- e essa linha continua junto de qualquer
@@ -540,6 +558,30 @@
     return emCartorio.length > 1
       ? 'Os títulos grifados em amarelo no relatório abaixo também já estão em cartório -- o pagamento do restante ainda é possível via boleto.'
       : 'O título grifado em amarelo no relatório abaixo também já está em cartório -- o pagamento do restante ainda é possível via boleto.';
+  }
+
+  // MESMA CLASSE DE BUG do EM_CARTORIO acima, achada ao auditar
+  // sistematicamente outras combinações de situações simultâneas (pedido do
+  // usuário, depois do bug real relatado): cliente com título em ULTIMO_DIA
+  // (ou outra situação de maior atraso) escolhido como representante, e
+  // OUTRO título já NEGATIVADO_SCPC -- inclusive no último dia antes da
+  // suspensão de cadastro (dia 19) -- tinha esse aviso inteiramente
+  // omitido, mesmo com o título aparecendo destacado (índigo) no relatório.
+  function obterLinhaNegativadoScpcAdicional(escolhido, dados) {
+    if (escolhido.situacaoKey === 'NEGATIVADO_SCPC') return ''; // já coberto pela linha principal
+
+    const negativados = dados.registros.filter((r) => r.situacaoKey === 'NEGATIVADO_SCPC');
+    if (negativados.length === 0) return '';
+
+    // Entre os títulos negativados que sobraram, o mais urgente decide o
+    // texto (dia 19 exato > janela 16-18 > qualquer outro).
+    const maisUrgente = negativados.reduce((a, b) => {
+      const pa = prioridadeUrgenciaScpc(a.diasAtrasoReal);
+      const pb = prioridadeUrgenciaScpc(b.diasAtrasoReal);
+      if (pb !== pa) return pb > pa ? b : a;
+      return b.diasAtrasoReal > a.diasAtrasoReal ? b : a;
+    });
+    return textoAvisoScpc(maisUrgente.diasAtrasoReal);
   }
 
   // CONFIRMADO com o usuário: a pergunta final não deve ser sempre a
@@ -781,10 +823,13 @@
     }
 
     // Complementa (não substitui) linhaContexto quando o cliente tem
-    // títulos já em EM_CARTORIO além do título escolhido como representante
-    // -- ver obterLinhaEmCartorioAdicional acima.
+    // títulos em outras situações que precisam de explicação própria além
+    // do título escolhido como representante -- ver
+    // obterLinhaEmCartorioAdicional e obterLinhaNegativadoScpcAdicional
+    // acima.
     const linhaCartorioAdicional = obterLinhaEmCartorioAdicional(escolhido, dados, omitirRelatorio);
-    const linhaSituacao = [linhaContexto, linhaCartorioAdicional].filter((l) => l).join(' ');
+    const linhaScpcAdicional = obterLinhaNegativadoScpcAdicional(escolhido, dados);
+    const linhaSituacao = [linhaContexto, linhaCartorioAdicional, linhaScpcAdicional].filter((l) => l).join(' ');
 
     const linhaApresentacao = obterLinhaApresentacaoContatoAntigo();
     const linhaAgradecimentoPagamento = obterLinhaAgradecimentoPagamento();

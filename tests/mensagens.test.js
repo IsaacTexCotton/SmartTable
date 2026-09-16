@@ -359,7 +359,13 @@ scpcDias.forEach((dias) => {
   }
 });
 
-// --- Regressão: ULTIMO_DIA continua vencendo sobre a janela de aviso SCPC
+// --- Regressão: ULTIMO_DIA continua vencendo a ESCOLHA do título
+// representante sobre a janela de aviso SCPC (o título escolhido decide o
+// CTA/pergunta final e a linha principal) -- MAS, desde a correção do bug
+// de informação faltando, a mensagem também passa a mencionar a suspensão
+// do outro título (ver bloco "BUG REAL" logo abaixo, que testa isso
+// diretamente). Antes dessa correção, esperava-se NÃO mencionar suspensão
+// aqui -- isso mudou de propósito.
 {
   window.__alertaGrupo = { empresasComVencido: [] };
   const dados = {
@@ -372,10 +378,124 @@ scpcDias.forEach((dias) => {
   window.__contextoAdicional = ctxBase({});
   const msg = montar(dados);
   total++;
-  if (!/encaminhad/i.test(msg) || /suspens/i.test(msg)) {
+  if (!/encaminhad/i.test(msg) || !/consegue regularizar hoje para evitarmos o encaminhamento/i.test(msg)) {
     achados.push({
-      cenario: 'REGRESSÃO: ULTIMO_DIA deve continuar vencendo mesmo com NEGATIVADO_SCPC dia 19 no mesmo cliente',
-      problemas: ['Mensagem deveria falar do prazo final antes do encaminhamento (ULTIMO_DIA), não da suspensão (SCPC dia 19).'],
+      cenario: 'REGRESSÃO: ULTIMO_DIA deve continuar vencendo a escolha do título representante (linha principal + CTA) mesmo com NEGATIVADO_SCPC dia 19 no mesmo cliente',
+      problemas: ['Mensagem deveria ter a linha principal e o CTA de ULTIMO_DIA (prazo final/encaminhamento), não os de NEGATIVADO_SCPC.'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- BUG REAL (relatado pelo usuário, achado ao auditar sistematicamente
+// outras combinações após o bug do EM_CARTORIO): título em ULTIMO_DIA
+// escolhido como representante + OUTRO título já NEGATIVADO_SCPC no último
+// dia antes da suspensão (dia 19) -- a mensagem tinha esse aviso
+// inteiramente omitido, mesmo o título aparecendo destacado (índigo) no
+// relatório.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = {
+    registros: [
+      registro('NEGATIVADO_SCPC', { tituloCompleto: 'SCPC/1', diasAtrasoReal: 19, vencimentoTexto: '20/08/2026' }),
+      registro('ULTIMO_DIA', { tituloCompleto: 'ULT/1', diasAtrasoReal: 6, vencimentoTexto: '09/09/2026' }),
+    ],
+    fluxo: 'SCPC',
+  };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/suspens/i.test(msg)) {
+    achados.push({
+      cenario: 'BUG REAL: ULTIMO_DIA escolhido como representante + outro título já NEGATIVADO_SCPC dia 19 (último dia antes da suspensão)',
+      problemas: ['Mensagem não menciona a suspensão do outro título (índigo) além do título escolhido (ULTIMO_DIA).'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Mesmo bug, janela de aviso (16-18) em vez do dia 19 exato.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = {
+    registros: [
+      registro('NEGATIVADO_SCPC', { tituloCompleto: 'SCPC/1', diasAtrasoReal: 17, vencimentoTexto: '20/08/2026' }),
+      registro('ULTIMO_DIA', { tituloCompleto: 'ULT/1', diasAtrasoReal: 6, vencimentoTexto: '09/09/2026' }),
+    ],
+    fluxo: 'SCPC',
+  };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/suspens/i.test(msg)) {
+    achados.push({
+      cenario: 'BUG REAL: ULTIMO_DIA escolhido como representante + outro título já NEGATIVADO_SCPC dia 17 (janela de aviso)',
+      problemas: ['Mensagem não menciona o aviso de suspensão do outro título (índigo) além do título escolhido (ULTIMO_DIA).'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Mesmo bug, mas com EM_CARTORIO (mais atraso) escolhido como
+// representante e NEGATIVADO_SCPC fora da janela de aviso coexistindo.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = {
+    registros: [
+      registro('EM_CARTORIO', { tituloCompleto: 'CART/1', vencimentoTexto: '01/07/2026', diasAtrasoReal: 45 }),
+      registro('NEGATIVADO_SCPC', { tituloCompleto: 'SCPC/1', vencimentoTexto: '20/07/2026', diasAtrasoReal: 25 }),
+    ],
+    fluxo: 'SCPC',
+  };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/negativad/i.test(msg)) {
+    achados.push({
+      cenario: 'BUG REAL: EM_CARTORIO escolhido como representante + outro título já NEGATIVADO_SCPC fora da janela de aviso',
+      problemas: ['Mensagem não menciona a negativação SCPC do outro título além do título escolhido (EM_CARTORIO).'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Três situações simultâneas: ULTIMO_DIA (escolhido) + EM_CARTORIO +
+// NEGATIVADO_SCPC (janela de aviso) -- a mensagem precisa mencionar as três.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = {
+    registros: [
+      registro('EM_CARTORIO', { tituloCompleto: 'CART/1', vencimentoTexto: '01/06/2026', diasAtrasoReal: 60 }),
+      registro('NEGATIVADO_SCPC', { tituloCompleto: 'SCPC/1', vencimentoTexto: '20/08/2026', diasAtrasoReal: 18 }),
+      registro('ULTIMO_DIA', { tituloCompleto: 'ULT/1', vencimentoTexto: '09/09/2026', diasAtrasoReal: 6 }),
+    ],
+    fluxo: 'SCPC',
+  };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  if (!msg || !/encaminhad/i.test(msg) || !/amarelo/i.test(msg) || !/suspens/i.test(msg)) {
+    achados.push({
+      cenario: 'BUG REAL: 3 situações simultâneas (ULTIMO_DIA + EM_CARTORIO + NEGATIVADO_SCPC janela) devem aparecer todas na mensagem',
+      problemas: ['Mensagem deveria mencionar prazo final, cartório (amarelo) e suspensão SCPC, todos juntos.'],
+      mensagem: msg,
+    });
+  }
+}
+
+// --- Regressão: só NEGATIVADO_SCPC (sem outra situação concorrendo) não
+// deve mudar de comportamento -- continua a linha principal sozinha.
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = { registros: [registro('NEGATIVADO_SCPC', { diasAtrasoReal: 25 })], fluxo: 'SCPC' };
+  window.__contextoAdicional = ctxBase({});
+  const msg = montar(dados);
+  total++;
+  const ocorrencias = (msg.match(/negativad/gi) || []).length;
+  if (ocorrencias !== 1) {
+    achados.push({
+      cenario: 'REGRESSÃO: só NEGATIVADO_SCPC (sem outra situação concorrendo) não deve duplicar a linha',
+      problemas: [`Esperava 1 menção a "negativad", achou ${ocorrencias}.`],
       mensagem: msg,
     });
   }
