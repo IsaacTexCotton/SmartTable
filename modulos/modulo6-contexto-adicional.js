@@ -55,7 +55,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.0.65';
+  const VERSAO_SMARTTABLE = '1.0.66';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -267,10 +267,29 @@
   function calcularContextoPromessa(hoje) {
     const promessas = lerPromessas();
 
+    // BUG REAL (relatado pelo usuário): cliente cumpriu a promessa (título
+    // já tinha sumido da lista de abertos do Módulo 1, baixa lançada), mas
+    // a frase de agradecimento não apareceu -- porque o status da promessa
+    // no CRM ("Pendente") ainda não tinha sido atualizado pra "Cumprida"
+    // no instante da mensagem (o CRM não atualiza isso na hora). Essa
+    // promessa "tecnicamente pendente" continuava sendo tratada como ativa
+    // aqui, bloqueando obterLinhaAgradecimentoPagamento (Módulo 4) via
+    // ctx.promessa -- e pior, teria mostrado "hoje é o dia combinado" pra
+    // um título que JÁ foi pago. CORRIGIDO: cruza com os títulos ainda
+    // abertos de verdade (Módulo 1, mesma fonte que calcularTitulosPendentes
+    // já usa pro caso Parcial) antes de considerar qualquer promessa ativa
+    // -- confiar no status do CRM sozinho não é suficiente.
+    function temTituloAindaAberto(titulosDaPromessa) {
+      return calcularTitulosPendentes(titulosDaPromessa).length > 0;
+    }
+
     // Prioridade 1: alguma promessa é justamente pra hoje (e ainda não foi
     // resolvida antes da hora -- só faz sentido lembrar se ainda pendente).
     const paraHoje = promessas.find(
-      (p) => mesmaData(hoje, p.dataPrometida) && p.status === CONFIG_CONTEXTO.STATUS_DIA_DA_PROMESSA
+      (p) =>
+        mesmaData(hoje, p.dataPrometida) &&
+        p.status === CONFIG_CONTEXTO.STATUS_DIA_DA_PROMESSA &&
+        temTituloAindaAberto(p.titulos)
     );
     if (paraHoje) return { tipo: 'DIA_DA_PROMESSA', promessa: paraHoje };
 
@@ -287,7 +306,12 @@
       .filter(
         (p) =>
           CONFIG_CONTEXTO.STATUS_NAO_PAGAMENTO.indexOf(p.status) !== -1 &&
-          p.dataPrometida.getTime() < hoje.getTime()
+          p.dataPrometida.getTime() < hoje.getTime() &&
+          // Mesma correção do caso "paraHoje" acima: só considera ativa se
+          // sobrar pelo menos 1 título ainda aberto de verdade -- uma
+          // promessa QUEBRADA/PARCIAL com TODOS os títulos já pagos (CRM
+          // sem atualizar o status a tempo) está de fato resolvida.
+          temTituloAindaAberto(p.titulos)
       )
       // Promessa mais antiga primeiro -- a que está esperando resposta há
       // mais tempo é a mais relevante quando há mais de uma vencida.
