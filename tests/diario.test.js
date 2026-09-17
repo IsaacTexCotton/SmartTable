@@ -397,4 +397,69 @@ function comControleLigado(d, fn) {
   checar('e não imprime a comparação régua vs controle como se valesse', !/é ESTA comparação que responde/.test(saida));
 })();
 
+// =====================================================================
+// DEDUPLICAÇÃO DE ATRIBUIÇÕES REPETIDAS
+// =====================================================================
+// BUG REAL, achado num relatório de fila do usuário: as posições 1-36
+// apareciam DUAS vezes no mesmo dia. Causa imediata: o Módulo 7 chamava
+// registrarLote duas vezes por rodada (sobra de refactor). Mas mesmo
+// corrigido isso, rodar o Alt+U duas vezes no dia produz o mesmo efeito de
+// forma legítima -- então a análise precisa aguentar.
+(function () {
+  const w = abrir();
+  const d = w.__diario;
+
+  // Mesmo cliente, mesmo dia, duas atribuições (posições diferentes, como
+  // acontece quando a fila encolhe entre uma rodada e outra).
+  d.registrarLote('fila', [
+    { c: 'AAA', f: 3, p: 50, k: 0, s: 'EM_ATRASO', a: 2 },
+    { c: 'BBB', f: 9, p: 51, k: 0, s: 'EM_ATRASO', a: 3 },
+  ]);
+  d.registrarLote('fila', [
+    { c: 'AAA', f: 3, p: 10, k: 0, s: 'EM_ATRASO', a: 2 },
+    { c: 'BBB', f: 9, p: 11, k: 0, s: 'EM_ATRASO', a: 3 },
+  ]);
+
+  const a = d.analisar();
+  checar('cada cliente conta UMA vez por dia, não uma por rodada', a.totalAtribuicoes === 2, String(a.totalAtribuicoes));
+  checar('as repetidas são contadas e reportadas', a.atribuicoesRepetidas === 2, String(a.atribuicoesRepetidas));
+  checar('a faixa do cliente é preservada', a.porFaixa[3].atribuicoes === 1 && a.porFaixa[9].atribuicoes === 1);
+})();
+
+(function () {
+  // Vale a PRIMEIRA rodada do dia -- é a que reflete a ordem sobre a fila
+  // inteira; as seguintes são recálculos sobre o que sobrou.
+  const w = abrir();
+  const d = w.__diario;
+  d.registrarLote('fila', [{ c: 'AAA', f: 3, p: 50, k: 0 }]);
+  d.registrarLote('fila', [{ c: 'AAA', f: 3, p: 10, k: 0 }]);
+  checar('fica a posição da primeira rodada, não da última', d.analisar().porFaixa[3].posicaoMediana === 50, String(d.analisar().porFaixa[3].posicaoMediana));
+})();
+
+(function () {
+  // A taxa de contato não pode ser derrubada pela metade pela repetição --
+  // era o efeito mais perigoso, porque parecia "só atendo metade da fila".
+  const w = abrir();
+  const d = w.__diario;
+  d.registrarLote('fila', [{ c: 'AAA', f: 3, p: 1, k: 0 }]);
+  d.registrarLote('fila', [{ c: 'AAA', f: 3, p: 1, k: 0 }]);
+  d.registrar('contato', { c: 'AAA' });
+  checar('cliente atribuído 2x e contatado 1x conta como 100% contatado', d.analisar().porFaixa[3].taxaContato === 1, String(d.analisar().porFaixa[3].taxaContato));
+})();
+
+(function () {
+  // O mesmo cliente em DIAS diferentes continua contando duas vezes -- são
+  // duas cobranças de verdade, não repetição.
+  const w = abrir();
+  const d = w.__diario;
+  const prefixo = d.CONFIG_DIARIO.PREFIXO_CHAVE;
+  const hoje = d.chaveDia();
+  const ontem = d.chaveDia(new Date(Date.now() - 86400000));
+  w.localStorage.setItem(prefixo + ontem, JSON.stringify([{ t: 'fila', d: ontem, h: 540, c: 'AAA', f: 3, p: 1, k: 0 }]));
+  w.localStorage.setItem(prefixo + hoje, JSON.stringify([{ t: 'fila', d: hoje, h: 540, c: 'AAA', f: 3, p: 1, k: 0 }]));
+  const a = d.analisar();
+  checar('o mesmo cliente em dias diferentes conta duas vezes', a.totalAtribuicoes === 2, String(a.totalAtribuicoes));
+  checar('e nada é marcado como repetido', a.atribuicoesRepetidas === 0);
+})();
+
 resumo();

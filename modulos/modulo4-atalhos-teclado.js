@@ -1741,6 +1741,13 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.9.2', data: '17/09/2026',
+      mudancas: [
+        'Corrigido: cada Alt+U gravava a fila DUAS vezes no diário, o que dobrava "na fila" e derrubava a taxa de contato pela metade.',
+        'A análise passa a agrupar atribuições repetidas do mesmo dia -- rodar o Alt+U mais de uma vez por dia não distorce mais os números.',
+      ],
+    },
+    {
       versao: '1.9.1', data: '17/09/2026',
       mudancas: [
         'Registrado que o 5º dia de atraso cai em "Demais dias" DE PROPÓSITO -- é a régua como foi desenhada, não uma faixa esquecida.',

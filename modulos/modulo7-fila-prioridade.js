@@ -884,23 +884,6 @@
     const diaDoExperimento = diario ? diario.chaveDia() : null;
     resultadosSemDuplicataDeGrupo = ordenarComGrupoControle(resultadosSemDuplicataDeGrupo, diario, diaDoExperimento);
 
-    // Registra a ATRIBUIÇÃO do dia: faixa, posição final e grupo. Um lote só,
-    // um acesso ao localStorage -- gravar 150 vezes seguidas durante o Alt+U
-    // seria desperdício. Se o diário não estiver carregado, segue sem ele.
-    if (diario) {
-      diario.registrarLote(
-        'fila',
-        resultadosSemDuplicataDeGrupo.map((r, indice) => ({
-          c: r.cliente.cnpj,
-          f: r.prioridade,
-          p: indice + 1,
-          k: r.controle ? 1 : 0,
-          s: r.escolhido.situacaoKey,
-          a: r.escolhido.diasAtrasoReal,
-        }))
-      );
-    }
-
     const clientesDaFila = resultadosSemDuplicataDeGrupo.map((r) => Object.assign({}, r.cliente, {
       diasAtraso: r.escolhido.diasAtrasoReal,
       prioridadeTier: r.prioridade,

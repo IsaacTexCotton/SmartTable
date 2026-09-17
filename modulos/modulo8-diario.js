@@ -367,7 +367,33 @@
     const janela = opcoes.janelaBaixaDias ?? 7;
     const todos = eventos({ ultimosDias: opcoes.ultimosDias });
 
-    const filas = todos.filter((e) => e.t === 'fila');
+    // DEDUPLICA por (cnpj, dia): o mesmo cliente pode ter VÁRIAS atribuições
+    // no mesmo dia, e contar todas infla "na fila" e derruba a taxa de
+    // contato pela metade -- números descritivos errados, justamente os que
+    // sobraram depois do grupo de controle ser desligado.
+    //
+    // Duas causas, uma delas legítima:
+    //   1. BUG (corrigido): o Módulo 7 chamava registrarLote duas vezes por
+    //      rodada, sobra de um refactor. Achado num relatório real do usuário,
+    //      onde as posições 1-36 apareciam repetidas.
+    //   2. LEGÍTIMA: rodar o Alt+U mais de uma vez no dia. A fila encolhe
+    //      conforme o dia passa (quem já teve movimentação hoje sai), então
+    //      92 de manhã viram 36 à tarde -- e quem estava nas duas aparece
+    //      duas vezes, com posições diferentes.
+    //
+    // Fica a PRIMEIRA atribuição do dia: é ela que reflete a ordem com que o
+    // dia foi planejado, sobre a fila inteira. As rodadas seguintes são
+    // recálculos sobre o que sobrou, com posições que não correspondem à
+    // decisão de ordem que de fato valeu.
+    const vistos = new Set();
+    const filas = [];
+    let atribuicoesRepetidas = 0;
+    todos.filter((e) => e.t === 'fila').forEach((e) => {
+      const chave = `${e.c}|${e.d}`;
+      if (vistos.has(chave)) { atribuicoesRepetidas += 1; return; }
+      vistos.add(chave);
+      filas.push(e);
+    });
     const contatos = new Set(todos.filter((e) => e.t === 'contato').map((e) => `${e.c}|${e.d}`));
 
     // Baixas indexadas por cnpj, em ordem de dia, pra procurar dentro da janela.
@@ -428,6 +454,7 @@
     return {
       janelaBaixaDias: janela,
       totalAtribuicoes: linhas.length,
+      atribuicoesRepetidas,
       porFaixa,
       // A comparação que de fato isola o efeito da ORDEM.
       regua: resumir(linhas.filter((l) => !l.controle)),
@@ -452,7 +479,14 @@
     }
 
     console.log(`\n=== DIÁRIO DE COBRANÇA — ${a.totalAtribuicoes} atribuições de fila ===`);
-    console.log(`Janela para atribuir uma baixa à cobrança: ${a.janelaBaixaDias} dias.\n`);
+    console.log(`Janela para atribuir uma baixa à cobrança: ${a.janelaBaixaDias} dias.`);
+    if (a.atribuicoesRepetidas > 0) {
+      console.log(
+        `${a.atribuicoesRepetidas} atribuição(ões) repetida(s) foram agrupadas -- normal quando o Alt+U ` +
+        'roda mais de uma vez no mesmo dia; vale a primeira rodada do dia.'
+      );
+    }
+    console.log('');
 
     console.log('--- Por faixa da régua (OBSERVACIONAL — ver aviso no fim) ---');
     console.table(

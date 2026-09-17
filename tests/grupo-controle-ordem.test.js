@@ -189,4 +189,25 @@ function montarCandidatos(rodada) {
   checar('e desliga de novo depois', diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE === false);
 })();
 
+// =====================================================================
+// UMA gravação de fila por rodada do Alt+U
+// =====================================================================
+// BUG REAL: um refactor deixou DUAS chamadas de registrarLote em iniciar(),
+// e cada Alt+U gravava a fila inteira duas vezes. Só apareceu quando o
+// usuário mandou um relatório real com as posições repetidas -- nenhum teste
+// de comportamento pegava, porque iniciar() abre abas de fundo e não roda em
+// jsdom. Esta checagem é no CÓDIGO-FONTE de propósito: é grosseira, mas pega
+// exatamente a classe de erro que a causou (sobra de copiar-e-colar).
+(function () {
+  const fs = require('fs');
+  const path = require('path');
+  const fonte = fs.readFileSync(path.join(__dirname, '..', 'modulos', 'modulo7-fila-prioridade.js'), 'utf8');
+  const chamadas = (fonte.match(/diario\.registrarLote\s*\(/g) || []).length;
+  checar(
+    'o Módulo 7 grava a fila no diário UMA vez só',
+    chamadas === 1,
+    `${chamadas} chamada(s) de diario.registrarLote -- se acrescentou uma de propósito, atualize este teste`
+  );
+})();
+
 resumo();
