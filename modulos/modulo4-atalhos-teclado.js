@@ -18,6 +18,8 @@
  *   Alt + G  -> Abrir em nova aba as outras razões do grupo com saldo
  *               vencido (uma aba por razão -- gerar o relatório de cada
  *               uma continua sendo Alt+R manual, dentro de cada aba)
+ *   Alt + B  -> Busca rápida de cliente       (por nome ou CNPJ, sem sair
+ *               da lista -- reescreve o ?search= da URL atual)
  *   Alt + H  -> Abrir/fechar painel de ajuda  (mostra esta lista na tela)
  *
  * Fluxo típico com teclado: Alt+C (abre contato) -> Alt+F (escolhe frase)
@@ -52,6 +54,7 @@
   // deste arquivo no @require do wrapper.
   const {
     escolherTituloRepresentativo,
+    normalizarData,
     DIAS_AVISO_SUSPENSAO_SCPC_MIN,
     DIAS_AVISO_SUSPENSAO_SCPC_MAX,
     DIAS_ULTIMO_DIA_SUSPENSAO_SCPC,
@@ -106,6 +109,9 @@
     // IDs confirmados via diagnóstico real (mais confiável que texto/classe).
     ID_BOTAO_REGISTRAR: 'btn-registrar-enviar',
     ID_CAIXA_OBSERVACOES: 'contato-resumo',
+    // Id do overlay da busca rápida (Alt+B) -- precisa ser conhecido por
+    // estaDigitando() pra que o próprio Alt+B consiga fechar a busca.
+    ID_OVERLAY_BUSCA: 'smarttable-busca-rapida',
   };
 
   // Fonte única de verdade pra lista de atalhos — usada tanto no aviso do
@@ -139,6 +145,7 @@
     // (busca, filtro, textarea de observação, etc.).
     const el = document.activeElement;
     if (!el) return false;
+
     const tag = el.tagName;
     return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable === true;
   }
@@ -321,7 +328,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 3. AÇÕES
+   * 3.1 AÇÕES
    * --------------------------------------------------------------------- */
   function acionarIniciarFila() {
     if (window.filaDebug && typeof window.filaDebug.iniciarFila === 'function') {
@@ -788,10 +795,27 @@
       : `Recebemos a baixa do título ${titulosTexto}, obrigado!`;
   }
 
+  /**
+   * Converte "dd/mm/aaaa" para Date, na MESMA convenção de horário que todo
+   * o resto do sistema (meio-dia, via normalizarData do Módulo 0).
+   *
+   * BUG REAL (achado em revisão): esta função construía a data à MEIA-NOITE
+   * enquanto o Módulo 6 normaliza contatoRecente.data ao MEIO-DIA. As 12h de
+   * diferença anulavam silenciosamente a correção do ">=" em
+   * deveOmitirRelatorio -- um título vencido EXATAMENTE na data do último
+   * contato comparava 00:00 >= 12:00 (false) e deixava de contar como
+   * título novo, omitindo o relatório justo no dia em que apareceu dívida
+   * nova. É exatamente o risco que o cabeçalho do Módulo 0 documenta
+   * ("nunca meia-noite, sob risco de comparações inconsistentes entre
+   * módulos").
+   *
+   * @param {string} texto Data no formato "dd/mm/aaaa".
+   * @returns {Date|null} Data ao meio-dia, ou null se o texto não bater no formato.
+   */
   function converterDataBrParaDate(texto) {
     const m = (texto || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
     if (!m) return null;
-    return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    return normalizarData(new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])));
   }
 
   // CONFIRMADO com o usuário (bug real): recontato em dias seguidos sem
@@ -838,12 +862,31 @@
   // Concorda "do/dos" ou "ao/aos" + "título/títulos" com a quantidade real,
   // em vez do "(s)" genérico (ex.: "do(s) título(s)") que ficava estranho
   // tanto no singular quanto no plural.
+  const FORMAS_CONCORDANCIA_TITULO = Object.freeze({
+    do: ['do título', 'dos títulos'],
+    ao: ['ao título', 'aos títulos'],
+  });
+
+  /**
+   * Concorda preposição + "título" com a quantidade real, em vez do "(s)"
+   * genérico (ex.: "do(s) título(s)"), que ficava estranho nos dois números.
+   *
+   * Preposição desconhecida devolve uma forma neutra em vez de estourar --
+   * antes, `const [a, b] = formas[preposicao]` lançava TypeError e derrubava
+   * a montagem da mensagem inteira na primeira frase nova que usasse outra
+   * preposição.
+   *
+   * @param {'do'|'ao'} preposicao
+   * @param {number} quantidade
+   * @returns {string}
+   */
   function concordarTitulos(preposicao, quantidade) {
-    const formas = {
-      do: ['do título', 'dos títulos'],
-      ao: ['ao título', 'aos títulos'],
-    };
-    const [singular, plural] = formas[preposicao];
+    const formas = FORMAS_CONCORDANCIA_TITULO[preposicao];
+    if (!formas) {
+      console.warn(`[Atalhos] Preposição "${preposicao}" não tem forma de concordância definida -- usando forma neutra.`);
+      return pluralizarTitulo(quantidade);
+    }
+    const [singular, plural] = formas;
     return quantidade === 1 ? singular : plural;
   }
 
@@ -882,20 +925,119 @@
     }
   }
 
+  /**
+   * Mensagem de primeiro contato: cliente sem NENHUM registro na aba
+   * Contatos. Só se identifica e confirma o responsável -- relatório,
+   * situação do título e promessa não fazem sentido antes desse passo.
+   *
+   * @param {object} dados Retorno de window.__avisoCobranca.simular().
+   * @returns {string} Mensagem pronta, com as variáveis já substituídas.
+   */
+  function montarMensagemPrimeiroContato(dados) {
+    const texto = [
+      '{{saudacao}}',
+      '',
+      montarApresentacao(),
+      'Este é o contato responsável pela razão social {{cliente_nome}}?',
+    ].join('\n');
+    return substituirVariaveisDaFrase(texto, dados);
+  }
+
+  /**
+   * Junta, numa frase só, tudo que descreve a SITUAÇÃO dos títulos: a linha
+   * do título representativo mais as complementares de cartório e SCPC,
+   * quando esses títulos existem sem ter sido o escolhido.
+   *
+   * @returns {string|null} Frase montada, ou null quando a situação do
+   *   título escolhido não deve gerar mensagem automática.
+   */
+  function montarLinhaSituacao(escolhido, dados, omitirRelatorio) {
+    const linhaContexto = obterLinhaContexto(escolhido, dados, omitirRelatorio);
+    if (linhaContexto === null) return null;
+
+    // Complementam (não substituem) a linha principal -- ver
+    // obterLinhaEmCartorioAdicional e obterLinhaNegativadoScpcAdicional.
+    return [
+      linhaContexto,
+      obterLinhaEmCartorioAdicional(escolhido, dados, omitirRelatorio),
+      obterLinhaNegativadoScpcAdicional(escolhido, dados),
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  /**
+   * Bloco de contexto da conversa (apresentação, agradecimento de pagamento,
+   * retomada de contato e promessa), uma linha por assunto. Cada função
+   * decide sozinha se tem algo a dizer; aqui só empilhamos o que sobrou.
+   *
+   * @returns {string} Linhas separadas por quebra simples, ou string vazia.
+   */
+  function montarBlocoContexto() {
+    return [
+      obterLinhaApresentacao(),
+      obterLinhaAgradecimentoPagamento(),
+      obterLinhaContatoRecente(),
+      obterLinhaPromessa(),
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  // CONFIRMADO com o usuário: com 2+ razões com saldo vencido, a frase fala
+  // de "cada razão social" em vez de citar a específica -- e é frase fechada,
+  // não um lead-in com ":" pra uma linha só.
+  function montarLinhaRelatorio() {
+    return temOutraRazaoComVencido()
+      ? 'Segue o relatório atualizado com os débitos em aberto de cada razão social.'
+      : 'Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:';
+  }
+
+  /**
+   * Decide se a pergunta final entra na mensagem.
+   *
+   * BUG REAL achado via teste combinatório: a versão antiga usava
+   * `!omitirRelatorio || !temConteudoAcionavel`, e por isso a pergunta sumia
+   * sempre que o relatório era omitido E havia linha de contexto -- ou seja,
+   * justamente nas situações mais graves (ULTIMO_DIA, EM_CARTORIO,
+   * NEGATIVADO_SCPC), cuja linha nunca é vazia. A mensagem virava um aviso
+   * solto, sem nenhum pedido de ação. O critério certo não é "já existe
+   * conteúdo", é "esse conteúdo já pede alguma coisa" -- só a promessa
+   * QUEBRADA embute isso ("Já foi realizado?...").
+   */
+  function precisaDePerguntaFinal(linhaSituacao, blocoContexto) {
+    return !/\?/.test(linhaSituacao) && !/\?/.test(blocoContexto);
+  }
+
+  /**
+   * Decide se o relatório entra, respeitando a omissão por recontato.
+   *
+   * CORRIGIDO (bateria de cobrança digna): blocoContexto e linhaSituacao
+   * podem ficar os dois vazios ao mesmo tempo (ex.: EM_ATRASO + recontato sem
+   * título novo + sem promessa ativa + promessa do último contato já
+   * resolvida). Sem relatório e sem nenhuma dessas linhas, sobrava só
+   * saudação + pergunta genérica, sem citar título, valor nem situação -- o
+   * cliente não tinha como saber do que se tratava. Nesse caso o relatório
+   * volta, mesmo com omitirRelatorio=true: é a única âncora que resta.
+   */
+  function precisaDoRelatorio(omitirRelatorio, linhaSituacao, blocoContexto) {
+    const semNenhumaAncora = !blocoContexto && !linhaSituacao;
+    return !omitirRelatorio || semNenhumaAncora;
+  }
+
+  /**
+   * Monta a mensagem personalizada do Alt+A pra situação real do cliente.
+   *
+   * @param {object} dados Retorno de window.__avisoCobranca.simular().
+   * @returns {string|null} Mensagem pronta, ou null quando não deve haver
+   *   mensagem automática (sem título vencido, ou situação incerta demais --
+   *   nos dois casos o motivo vai pro console).
+   */
   function montarMensagemPersonalizada(dados) {
     const ctx = window.__contextoAdicional;
 
-    // Primeiro contato: cliente sem nenhum registro na aba Contatos. Mensagem
-    // própria, só pra confirmar o responsável -- ignora relatório, situação
-    // do título e promessa, que não fazem sentido antes desse primeiro passo.
-    if (ctx && ctx.semContatoAnterior) {
-      const textoPrimeiroContato = [
-        '{{saudacao}}',
-        '',
-        montarApresentacao(),
-        'Este é o contato responsável pela razão social {{cliente_nome}}?',
-      ].join('\n');
-      return substituirVariaveisDaFrase(textoPrimeiroContato, dados);
+    if (ctx?.semContatoAnterior) {
+      return montarMensagemPrimeiroContato(dados);
     }
 
     const escolhido = escolherTituloRepresentativo(dados);
@@ -904,85 +1046,27 @@
       return null;
     }
 
-    // CONFIRMADO com o usuário: recontato em dias seguidos sem nenhum
-    // título novo vencido desde o último contato não reenvia o relatório --
-    // o cliente já viu a mesma informação. Precisa ser calculado ANTES de
-    // obterLinhaContexto -- a linha de situação muda de texto quando não há
-    // relatório (ver
-    // comentário lá dentro).
+    // Precisa vir ANTES de montarLinhaSituacao: a linha de situação muda de
+    // texto quando não há relatório ("grifado no relatório abaixo" deixa de
+    // fazer sentido e volta a citar a data).
     const omitirRelatorio = deveOmitirRelatorio(dados);
 
-    const linhaContexto = obterLinhaContexto(escolhido, dados, omitirRelatorio);
-    if (linhaContexto === null) {
+    const linhaSituacao = montarLinhaSituacao(escolhido, dados, omitirRelatorio);
+    if (linhaSituacao === null) {
       console.warn(
         `[Atalhos] Situação "${escolhido.situacaoKey}" não gera mensagem automática (situação incerta demais) -- escreva manualmente.`
       );
       return null;
     }
 
-    // Complementa (não substitui) linhaContexto quando o cliente tem
-    // títulos em outras situações que precisam de explicação própria além
-    // do título escolhido como representante -- ver
-    // obterLinhaEmCartorioAdicional e obterLinhaNegativadoScpcAdicional
-    // acima.
-    const linhaCartorioAdicional = obterLinhaEmCartorioAdicional(escolhido, dados, omitirRelatorio);
-    const linhaScpcAdicional = obterLinhaNegativadoScpcAdicional(escolhido, dados);
-    const linhaSituacao = [linhaContexto, linhaCartorioAdicional, linhaScpcAdicional].filter((l) => l).join(' ');
+    const blocoContexto = montarBlocoContexto();
 
-    const linhaApresentacao = obterLinhaApresentacao();
-    const linhaAgradecimentoPagamento = obterLinhaAgradecimentoPagamento();
-    const linhaContatoRecente = obterLinhaContatoRecente();
-    const linhaPromessa = obterLinhaPromessa();
-    const blocoContexto = [linhaApresentacao, linhaAgradecimentoPagamento, linhaContatoRecente, linhaPromessa]
-      .filter((l) => l)
-      .join('\n');
-
-    // CONFIRMADO com o usuário: com 2+ razões com saldo vencido, a frase do
-    // relatório fala de "cada razão social" em vez de citar a razão social
-    // específica -- não é mais um lead-in com ":" pra uma linha só, é frase
-    // fechada por conta própria (segue igual pra situação do título/{{}}
-    // logo abaixo, se houver).
-    const linhaRelatorio = temOutraRazaoComVencido()
-      ? 'Segue o relatório atualizado com os débitos em aberto de cada razão social.'
-      : 'Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:';
-
-    // BUG REAL encontrado via teste combinatório (achados 1-43 da bateria de
-    // regressão): a versão anterior só incluía a pergunta final quando
-    // `!omitirRelatorio || !temConteudoAcionavel` -- ou seja, sempre que o
-    // relatório era omitido E havia linha de contexto/promessa, a pergunta
-    // final sumia. Isso quebrava justamente as situações mais graves
-    // (ULTIMO_DIA, EM_CARTORIO, NEGATIVADO_SCPC), cuja linhaContexto NUNCA é
-    // vazia -- a mensagem virava só um aviso solto, sem nenhum pedido de
-    // ação (ex.: "Os títulos vencidos em 01/09 já estão em cartório..."
-    // sem nenhuma pergunta). O critério certo não é "já existe algum
-    // conteúdo", e sim "esse conteúdo já pergunta/pede alguma coisa" --
-    // só QUEBRADA embute isso (linhaPromessa termina em "Já foi
-    // realizado?..."). Em qualquer outro caso, sempre inclui a pergunta
-    // final -- inclusive quando o relatório é omitido.
-    const jaTemPerguntaOuPedido = /\?/.test(linhaSituacao) || /\?/.test(linhaPromessa);
-    const incluirPerguntaFinal = !jaTemPerguntaOuPedido;
-
-    // CORRIGIDO (achado real via bateria de cobrança digna): pode acontecer
-    // de blocoContexto E linhaContexto ficarem os dois vazios ao mesmo tempo
-    // -- ex. EM_ATRASO/PRAZO_FINAL (linhaContexto sempre '') + recontato sem
-    // título novo (omitirRelatorio=true) + sem promessa ativa + promessa do
-    // último contato já resolvida (obterLinhaContatoRecente também some
-    // nesse caso). Sem relatório e sem nenhuma dessas linhas, a mensagem
-    // caía pra só saudação + pergunta final genérica ("Podemos agendar...")
-    // sem citar título, valor ou situação nenhuma -- o cliente não tem como
-    // saber do que se trata. Mantém o relatório mesmo com
-    // omitirRelatorio=true nesse caso específico -- é a única âncora que
-    // sobra pra dar contexto à pergunta.
-    const semNenhumaAncora = !blocoContexto && !linhaSituacao;
-    const incluirRelatorio = !omitirRelatorio || semNenhumaAncora;
-
-    // Cada item aqui vira um parágrafo da mensagem (separado por linha em
-    // branco).
+    // Cada item vira um parágrafo (separado por linha em branco).
     const blocos = ['{{saudacao}}'];
     if (blocoContexto) blocos.push(blocoContexto);
-    if (incluirRelatorio) blocos.push(linhaRelatorio);
+    if (precisaDoRelatorio(omitirRelatorio, linhaSituacao, blocoContexto)) blocos.push(montarLinhaRelatorio());
     if (linhaSituacao) blocos.push(linhaSituacao);
-    if (incluirPerguntaFinal) blocos.push(obterPerguntaFinal(escolhido));
+    if (precisaDePerguntaFinal(linhaSituacao, blocoContexto)) blocos.push(obterPerguntaFinal(escolhido));
 
     return substituirVariaveisDaFrase(blocos.join('\n\n'), dados);
   }
@@ -1110,7 +1194,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 3.1 SELECIONAR PRIMEIRA FRASE PADRÃO
+   * 3.4 SELECIONAR PRIMEIRA FRASE PADRÃO
    * -----------------------------------------------------------------
    * Cobre o caso mais comum (um <select> de frases). Se a tela de contato
    * usar uma LISTA de itens clicáveis em vez de dropdown, este atalho vai
@@ -1283,11 +1367,29 @@
     quantidade_titulos_vencidos: (dados) => String(dados.registros.length),
     quantidade_titulos_protestados: (dados) =>
       String(dados.registros.filter((r) => r.situacaoKey === 'EM_CARTORIO').length),
+    // CORRIGIDO (achado de revisão): antes, um saldo que o parser não
+    // entendesse virava 0 em silêncio (`acumulado + (valor || 0)`) e a soma
+    // saía errada -- no limite, "R$ 0,00" na mensagem do cliente. E como a
+    // string não é vazia, nem entrava no aviso de "variável não preenchida".
+    // Era o único ponto do sistema em que um valor financeiro ERRADO chegava
+    // ao cliente sem nenhum sinal. Agora, se QUALQUER saldo não for
+    // entendido, a variável não é resolvida: o {{valor_total_vencido}} fica
+    // visível na caixa e o aviso do console aponta o problema -- mesmo
+    // critério de "falhar à vista, nunca em silêncio" que o resto do módulo
+    // já segue.
     valor_total_vencido: (dados) => {
-      const soma = dados.registros.reduce((acumulado, r) => {
+      let soma = 0;
+      for (const r of dados.registros) {
         const valor = converterMoedaBrParaNumero(r.saldoTexto);
-        return acumulado + (valor || 0);
-      }, 0);
+        if (valor === null) {
+          console.warn(
+            `[Atalhos] Não consegui interpretar o saldo "${r.saldoTexto}" do título ${r.tituloCompleto} -- ` +
+            'total não será preenchido automaticamente pra não enviar valor errado.'
+          );
+          return null;
+        }
+        soma += valor;
+      }
       return formatarMoedaBr(soma);
     },
     // Saudação por horário do relógio -- usada na mensagem personalizada do
@@ -1431,6 +1533,7 @@
     }
 
     overlayBuscaEl = document.createElement('div');
+    overlayBuscaEl.id = CONFIG_ATALHOS.ID_OVERLAY_BUSCA;
     Object.assign(overlayBuscaEl.style, {
       position: 'fixed',
       top: '0',
@@ -1601,6 +1704,20 @@
       // com outros atalhos do navegador ou do próprio CRM.
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       if (e.repeat) return; // ignora repetição ao segurar a tecla
+
+      // EXCEÇÃO DIRIGIDA (corrige código morto achado em revisão): com a
+      // busca rápida aberta, o foco está no input dela, então estaDigitando()
+      // barrava o próprio Alt+B -- o toggle
+      // `if (overlayBuscaEl) fecharBuscaRapida()` era inalcançável e só
+      // Escape/clique fora fechavam. A exceção é só pra ESTA tecla: qualquer
+      // outro Alt+letra continua bloqueado enquanto você digita, senão um
+      // Alt+S no meio de uma pesquisa registraria e enviaria a cobrança.
+      if (e.code === CONFIG_ATALHOS.TECLA_BUSCA_RAPIDA && overlayBuscaEl) {
+        e.preventDefault();
+        fecharBuscaRapida();
+        return;
+      }
+
       if (estaDigitando()) return;
 
       switch (e.code) {
@@ -1685,5 +1802,10 @@
     deveOmitirRelatorio,
     gerarRelatoriosDasOutrasRazoes,
     esperarRelatorioProntoNaJanela,
+    substituirVariaveisDaFrase,
+    concordarTitulos,
+    abrirBuscaRapida,
+    fecharBuscaRapida,
+    estaBuscaRapidaAberta: () => overlayBuscaEl !== null,
   };
 })();

@@ -68,9 +68,31 @@
     return container.querySelector('table');
   }
 
+  /**
+   * Normaliza a célula "Vencido" da tabela de grupo: devolve o texto original
+   * quando há saldo vencido de verdade, ou null quando não há.
+   *
+   * ENDURECIDO (achado de revisão): antes, QUALQUER texto que não fosse
+   * vazio nem travessão contava como "tem vencido" -- inclusive um
+   * "R$ 0,00". Se o CRM renderizar zero assim em vez de "—" (não confirmado
+   * ao vivo), TODA empresa do grupo entraria em empresasComVencido, mudando
+   * a mensagem do Alt+A e fazendo o Alt+A abrir abas de fundo à toa. Zero
+   * não é saldo vencido em nenhuma das duas formas de renderizar, então
+   * tratar os dois casos é correto independentemente de qual o CRM usa.
+   *
+   * @param {string} texto Conteúdo cru da célula.
+   * @returns {string|null} O texto original, ou null se não houver vencido.
+   */
   function limparValorMonetario(texto) {
     const limpo = (texto || '').trim();
     if (!limpo || limpo === '—' || limpo === '-' || limpo === '--') return null;
+
+    // "R$ 1.234,56" -> 1234.56. Se não sobrar número nenhum (texto
+    // inesperado), mantém o comportamento antigo de confiar no texto -- na
+    // dúvida, avisar a mais é mais seguro que deixar passar um vencido.
+    const numero = parseFloat(limpo.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'));
+    if (Number.isFinite(numero) && numero === 0) return null;
+
     return limpo;
   }
 
@@ -382,5 +404,6 @@
     criarBanner,
     obterAlturaHeaderFixo,
     verificarOutrasEmpresasComVencido,
+    limparValorMonetario,
   };
 })();

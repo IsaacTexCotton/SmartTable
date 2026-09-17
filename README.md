@@ -118,8 +118,17 @@ Cada `tests/*.test.js` cobre um módulo (fila de atendimento, mensagens do
 Alt+A, fila por prioridade, snapshot de pagamento, contato recente,
 aviso de não cobrar, alerta de grupo econômico, geração de relatório de
 outras razões, resumo do "Registrar e Enviar", agendamento rápido de
-pagamento, contexto de promessa de pagamento e cliente nunca contatado
-por este negociador). Rode `npm test` antes de subir qualquer mudança em
-`modulos/` —
+pagamento, contexto de promessa de pagamento, cliente nunca contatado
+por este negociador, omissão do relatório em recontato, e substituição de
+variáveis `{{ }}`/concordância de plural/busca rápida). Rode `npm test`
+antes de subir qualquer mudança em `modulos/` —
 esses testes já pegaram bugs reais nesta base de código (ex.: o bug crítico
 de `normalizarData` corrigido no Módulo 0).
+
+**Regra de fixture (aprendida do jeito difícil)**: teste de um módulo que
+consome contexto de OUTRO (ex.: Módulo 4 lendo `window.__contextoAdicional`
+do Módulo 6) não escreve esse objeto à mão — pede pro módulo real produzir,
+via `tests/helpers/contexto-real.js`. Uma fixture escrita à mão com a data à
+meia-noite, enquanto o Módulo 6 entrega meio-dia, deixou um teste de
+regressão VERDE por semanas com o bug vivo em produção: os dois erros se
+cancelavam dentro do teste.

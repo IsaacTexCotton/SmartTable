@@ -197,4 +197,39 @@ function calcular(w) {
   checar('código do header em minúsculas é normalizado', w.__contextoAdicionalDebug.lerUsuarioLogado() === EU);
 })();
 
+// =====================================================================
+// CONTRATO DO CONTEXTO (achado de revisão): o objeto de fallback era um
+// literal DUPLICADO em dois pontos do Módulo 6. Quem acrescentasse um campo
+// novo ao contexto tinha que lembrar de editar os dois -- esquecer um não
+// quebrava teste nenhum, só fazia o Módulo 4 receber `undefined` naquele
+// campo e mudar de comportamento em silêncio, justamente no caminho de
+// fallback (o menos testado). Agora existe uma fábrica só, e este teste
+// trava que ela continua com a MESMA FORMA do contexto calculado de verdade.
+// =====================================================================
+(function () {
+  const w = abrirPagina([contatoItem(OUTRA)], EU);
+  const { contextoVazio, calcularContexto } = w.__contextoAdicionalDebug;
+
+  const vazio = contextoVazio();
+  const real = calcularContexto();
+
+  const camposVazio = Object.keys(vazio).sort();
+  const camposReal = Object.keys(real).sort();
+
+  checar(
+    'contextoVazio() tem exatamente os mesmos campos que calcularContexto()',
+    camposVazio.join(',') === camposReal.join(','),
+    `vazio=[${camposVazio}] real=[${camposReal}]`
+  );
+
+  // Nenhum campo pode vir undefined: é justamente o sintoma silencioso que a
+  // duplicação produzia.
+  const indefinidos = camposVazio.filter((k) => vazio[k] === undefined);
+  checar('nenhum campo do contexto neutro vem undefined', indefinidos.length === 0, indefinidos.join(','));
+
+  checar('contexto neutro desliga todas as regras', vazio.promessa === null && vazio.contatoRecente === null && vazio.semContatoAnterior === false && vazio.contatoAntigo === false && vazio.nuncaContatadoPorMim === false);
+  checar('contexto neutro ainda sabe o nome do negociador (do CONFIG)', vazio.nomeNegociador === 'Isaac', vazio.nomeNegociador);
+  checar('contexto neutro mantém calcularTitulosPendentes chamável', typeof vazio.calcularTitulosPendentes === 'function');
+})();
+
 resumo();

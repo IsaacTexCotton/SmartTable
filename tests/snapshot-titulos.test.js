@@ -274,4 +274,56 @@ function lerRawDoEstado(estadoStorage, w) {
   checar('entrada salva tem "salvoEm" como timestamp plausível (agora)', entrada && entrada.salvoEm >= antes && entrada.salvoEm <= depois, JSON.stringify(entrada));
 })();
 
+// 16. BUG REAL (achado em revisão, com repro): a comparação era destrutiva --
+// o retrato era sobrescrito a cada CARREGAMENTO de página. Como o
+// agradecimento de pagamento só é montado quando o operador aperta Alt+A,
+// bastava um F5 entre a detecção e a cobrança pra linha sumir pra sempre.
+// A detecção agora fica grudada no retrato pelo resto do dia.
+(function () {
+  const estado = {};
+  const doisTitulos = { simular: () => ({ registros: [registro('T1'), registro('T2')] }) };
+  const umTitulo = { simular: () => ({ registros: [registro('T2')] }) };
+
+  visitar(estado, 'RELOAD', doisTitulos);
+  const deteccao = visitar(estado, 'RELOAD', umTitulo).resultado;
+  checar('visita em que o título some detecta o pagamento', deteccao.houve === true && deteccao.titulos.join() === 'T1', JSON.stringify(deteccao));
+
+  const depoisDoF5 = visitar(estado, 'RELOAD', umTitulo).resultado;
+  checar('recarregar a página NÃO apaga a detecção do mesmo dia', depoisDoF5.houve === true && depoisDoF5.titulos.join() === 'T1', JSON.stringify(depoisDoF5));
+
+  const depoisDeOutroF5 = visitar(estado, 'RELOAD', umTitulo).resultado;
+  checar('recarregar várias vezes continua sem apagar', depoisDeOutroF5.houve === true, JSON.stringify(depoisDeOutroF5));
+})();
+
+// 17. A detecção grudada é do DIA -- um retrato marcado com data antiga não
+// ressuscita o agradecimento (senão a linha voltaria dias depois do pagamento).
+(function () {
+  const estado = {};
+  const umTitulo = { simular: () => ({ registros: [registro('T2')] }) };
+
+  visitar(estado, 'ONTEM', { simular: () => ({ registros: [registro('T1'), registro('T2')] }) });
+  const w0 = visitar(estado, 'ONTEM', umTitulo).window;
+  checar('detecção aconteceu', JSON.parse(estado[chaveSnapshot(w0)])['ONTEM'].sumidos.join() === 'T1');
+
+  // Reescreve o retrato como se a detecção tivesse sido em outro dia.
+  const bruto = JSON.parse(estado[chaveSnapshot(w0)]);
+  bruto['ONTEM'].sumidosEm = '2020-01-01';
+  estado[chaveSnapshot(w0)] = JSON.stringify(bruto);
+
+  const hoje = visitar(estado, 'ONTEM', umTitulo).resultado;
+  checar('detecção de outro dia não é reaproveitada', hoje.houve === false, JSON.stringify(hoje));
+})();
+
+// 18. Retrato gravado por uma versão anterior (só {titulos, salvoEm}, sem os
+// campos novos) continua sendo lido sem erro -- não houve quebra de formato.
+(function () {
+  const estado = {};
+  const w0 = visitar(estado, 'ANTIGO', { simular: () => ({ registros: [registro('T1'), registro('T2')] }) }).window;
+  const chave = chaveSnapshot(w0);
+  estado[chave] = JSON.stringify({ ANTIGO: { titulos: ['T1', 'T2'], salvoEm: Date.now() } });
+
+  const r = visitar(estado, 'ANTIGO', { simular: () => ({ registros: [registro('T2')] }) }).resultado;
+  checar('formato antigo (sem sumidos/sumidosEm) ainda detecta o pagamento', r.houve === true && r.titulos.join() === 'T1', JSON.stringify(r));
+})();
+
 resumo();

@@ -55,7 +55,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.3.0';
+  const VERSAO_SMARTTABLE = '1.4.0';
 
   function avisarVersaoCarregada() {
     console.log(
@@ -511,10 +511,32 @@
     const snapshots = lerSnapshotsTitulos();
     const anterior = snapshots[cnpj];
 
-    const titulosSumidos =
+    const sumidosAgora =
       anterior && Array.isArray(anterior.titulos)
         ? anterior.titulos.filter((t) => titulosAtuais.indexOf(t) === -1)
         : [];
+
+    // BUG REAL (achado em revisão, com repro): a comparação é destrutiva --
+    // toda vez que a página CARREGA, o retrato é sobrescrito. Como o
+    // agradecimento de pagamento só é montado quando o operador aperta
+    // Alt+A, bastava um F5 (ou sair e voltar pra página do cliente) entre a
+    // detecção e a cobrança pra linha "Recebemos a baixa do título X,
+    // obrigado!" sumir pra sempre -- o segundo carregamento comparava contra
+    // o retrato já atualizado pelo primeiro e não via mais nada sumido.
+    //
+    // Correção: a detecção fica "grudada" no retrato pelo resto do DIA em
+    // que aconteceu, então recarregar a página quantas vezes for não apaga
+    // mais nada. Não precisa de limpeza explícita: o agradecimento só sai
+    // quando contatoRecente existe (último contato = dia útil anterior), e
+    // no instante em que o operador registra o contato de hoje o contato
+    // mais recente passa a ser HOJE, contatoRecente vira null e a linha sai
+    // de cena sozinha (ver obterLinhaAgradecimentoPagamento no Módulo 4).
+    const hojeChave = chaveData(new Date());
+    const sumidosDeHoje =
+      anterior && Array.isArray(anterior.sumidos) && anterior.sumidosEm === hojeChave
+        ? anterior.sumidos
+        : [];
+    const titulosSumidos = [...new Set([...sumidosDeHoje, ...sumidosAgora])];
 
     const agora = Date.now();
     const limiteMs = DIAS_EXPIRACAO_SNAPSHOT_TITULOS * 24 * 60 * 60 * 1000;
@@ -525,7 +547,15 @@
         snapshotsLimpos[chaveCnpj] = entrada;
       }
     });
-    snapshotsLimpos[cnpj] = { titulos: titulosAtuais, salvoEm: agora };
+    snapshotsLimpos[cnpj] = {
+      titulos: titulosAtuais,
+      salvoEm: agora,
+      // Campos novos e OPCIONAIS -- retrato gravado por uma versão anterior
+      // (só {titulos, salvoEm}) continua sendo lido sem erro, então não há
+      // quebra de formato salvo.
+      sumidos: titulosSumidos,
+      sumidosEm: hojeChave,
+    };
     salvarSnapshotsTitulos(snapshotsLimpos);
 
     return { houve: titulosSumidos.length > 0, titulos: titulosSumidos };
@@ -629,6 +659,36 @@
     return promessas.some((p) => mesmaData(p.dataPrometida, contatoRecente.data));
   }
 
+  /**
+   * Contexto "neutro": mesma forma que calcularContexto() devolve, com todas
+   * as regras desligadas. Usado quando não dá pra calcular (erro, ou página
+   * sem as abas de Promessas/Contatos).
+   *
+   * CORRIGIDO (achado de revisão): este objeto era um literal DUPLICADO em
+   * dois pontos do arquivo. Quem acrescentasse um campo novo ao contexto
+   * tinha que lembrar de editar os dois -- esquecer um não quebra teste
+   * nenhum, só faz o Módulo 4 receber `undefined` naquele campo e mudar de
+   * comportamento em silêncio, justamente no caminho de fallback (o menos
+   * testado). Agora existe um lugar só.
+   *
+   * @returns {object} Contexto neutro, com o nome do negociador vindo do
+   *   CONFIG (o header do CRM não está disponível nesse caminho).
+   */
+  function contextoVazio() {
+    return {
+      promessa: null,
+      contatoRecente: null,
+      houvePromessaNoUltimoContato: false,
+      houveTituloPagoDesdeUltimaVisita: false,
+      titulosPagosDesdeUltimaVisita: [],
+      semContatoAnterior: false,
+      contatoAntigo: false,
+      nuncaContatadoPorMim: false,
+      nomeNegociador: nomeDoNegociador(CONFIG_CONTEXTO.USUARIO_NEGOCIADOR),
+      calcularTitulosPendentes,
+    };
+  }
+
   function calcularContexto() {
     const hoje = normalizarData(new Date());
     const totalContatos = document.querySelectorAll(CONFIG_CONTEXTO.SELETOR_ITEM_CONTATO).length;
@@ -659,7 +719,7 @@
       console.log('[Contexto Adicional] Calculado:', window.__contextoAdicional);
     } catch (erro) {
       console.warn('[Contexto Adicional] Falha ao calcular -- Alt+A segue funcionando sem essas linhas extras:', erro.message);
-      window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, nuncaContatadoPorMim: false, nomeNegociador: nomeDoNegociador(CONFIG_CONTEXTO.USUARIO_NEGOCIADOR), calcularTitulosPendentes };
+      window.__contextoAdicional = contextoVazio();
     }
   }
 
@@ -687,7 +747,7 @@
         console.warn(
           '[Contexto Adicional] Containers de Promessas/Contatos não encontrados nesta página -- normal fora da tela de cliente.'
         );
-        window.__contextoAdicional = { promessa: null, contatoRecente: null, houvePromessaNoUltimoContato: false, houveTituloPagoDesdeUltimaVisita: false, titulosPagosDesdeUltimaVisita: [], semContatoAnterior: false, contatoAntigo: false, nuncaContatadoPorMim: false, nomeNegociador: nomeDoNegociador(CONFIG_CONTEXTO.USUARIO_NEGOCIADOR), calcularTitulosPendentes };
+        window.__contextoAdicional = contextoVazio();
       }
     }, 5000);
   }
@@ -727,5 +787,7 @@
     salvarSnapshotsTitulos,
     verificarESalvarSnapshotTitulos,
     obterCnpjDaPagina,
+    contextoVazio,
+    calcularContexto,
   };
 })();

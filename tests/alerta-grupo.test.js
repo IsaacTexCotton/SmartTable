@@ -95,7 +95,25 @@ function empresa(overrides) {
   checar('banner cita a razão social e o valor vencido', /FILIAL TESTE LTDA/.test(banner.textContent) && /2\.500,00/.test(banner.textContent), banner.textContent);
 })();
 
-// 8. MELHORIA (bug de timing corrigido): se a altura do header medida nas
+// 8. ENDURECIDO (achado de revisão): "R$ 0,00" não é saldo vencido. Antes,
+// qualquer texto que não fosse vazio nem travessão contava como vencido --
+// se o CRM renderizar zero assim em vez de "—", TODA empresa do grupo
+// entraria em empresasComVencido, mudando a mensagem do Alt+A e fazendo o
+// Alt+A abrir abas de fundo à toa.
+(function () {
+  const w = abrirPagina();
+  const limpar = w.__alertaGrupoDebug.limparValorMonetario;
+
+  checar('"R$ 0,00" não conta como vencido', limpar('R$ 0,00') === null, String(limpar('R$ 0,00')));
+  checar('"0,00" não conta como vencido', limpar('0,00') === null, String(limpar('0,00')));
+  checar('travessão continua não contando', limpar('—') === null);
+  checar('vazio continua não contando', limpar('   ') === null);
+  checar('valor de verdade continua contando', limpar('R$ 1.000,00') === 'R$ 1.000,00', String(limpar('R$ 1.000,00')));
+  checar('centavos sozinhos contam', limpar('R$ 0,01') === 'R$ 0,01', String(limpar('R$ 0,01')));
+  checar('texto inesperado (sem número) segue confiando no texto', limpar('a combinar') === 'a combinar', String(limpar('a combinar')));
+})();
+
+// 9. MELHORIA (bug de timing corrigido): se a altura do header medida nas
 // primeiras leituras (criação do banner + reajuste síncrono logo em
 // seguida) ainda estava desatualizada -- layout genuinamente não tinha
 // assentado a tempo nem daquela segunda leitura --, o reajuste posterior

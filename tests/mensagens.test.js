@@ -4,8 +4,29 @@
 // contra o código REAL de modulos/modulo4-atalhos-teclado.js via
 // window.__atalhosDebug.montarMensagemPersonalizada.
 const { novaJanela } = require('./helpers/dom-env');
+const { contatoRecenteReal } = require('./helpers/contexto-real');
 
 const SPECS = [{ arquivo: 'modulo0-utilitarios-compartilhados.js' }, { arquivo: 'modulo4-atalhos-teclado.js' }];
+
+// Fixtures de contexto calculadas pelo Módulo 6 REAL -- ver o porquê no
+// cabeçalho de helpers/contexto-real.js (fixture escrita à mão escondeu um
+// bug real de comparação de data). Montadas ANTES da janela principal
+// porque novaJanela repõe os globals do Node a cada chamada, e a última
+// tem que ser a janela do Módulo 4 usada pelo resto do arquivo.
+//
+// Cenário 1: hoje é terça 15/09/2026, contato foi segunda 14/09 (dia útil
+// anterior E dia de calendário anterior -> "ontem" é literalmente verdade).
+const contatoRecenteOntem = contatoRecenteReal({
+  dataContatoTexto: '14/09/2026',
+  hoje: new Date(2026, 8, 15),
+});
+
+// Cenário 2: hoje é segunda 14/09/2026, contato foi sexta 11/09 -- dia útil
+// anterior, mas NÃO "ontem" de calendário (pulou o fim de semana).
+const contatoSexta = contatoRecenteReal({
+  dataContatoTexto: '11/09/2026',
+  hoje: new Date(2026, 8, 14),
+});
 
 const window = novaJanela({
   url: 'https://texhub.texcotton.com.br/crm/clientes/grupo/1?cnpj=11111111%2F0001-11',
@@ -52,13 +73,6 @@ function ctxBase(overrides) {
     calcularTitulosPendentes: (t) => t,
   }, overrides || {});
 }
-
-const contatoRecenteOntem = {
-  data: new Date(2026, 8, 14),
-  dataTexto: '14/09/2026',
-  ehOntemLiteral: true,
-  diaSemanaTexto: 'segunda-feira',
-};
 
 // ---------------------------------------------------------------------
 // Matriz de cenários
@@ -324,7 +338,6 @@ situacoesBase.forEach((sit) => {
 // --- Variante "dia útil anterior mas não ontem de calendário" (segunda após sexta)
 {
   window.__alertaGrupo = { empresasComVencido: [] };
-  const contatoSexta = { data: new Date(2026, 8, 11), dataTexto: '11/09/2026', ehOntemLiteral: false, diaSemanaTexto: 'sexta-feira' };
   situacoesBase.forEach((sit) => {
     const dados = { registros: [registro(sit)], fluxo: 'CARTORIO' };
     window.__contextoAdicional = ctxBase({ contatoRecente: contatoSexta });
