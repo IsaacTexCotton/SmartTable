@@ -24,6 +24,16 @@ function cnpjFicticio(i) {
   return String(10000000000000 + i);
 }
 
+// O grupo de controle vem DESLIGADO por padrão (decisão do usuário). Os
+// testes do sorteio ligam explicitamente -- é o comportamento deles que está
+// sendo protegido, pra quando for religado. Sem isso, eles passariam
+// trivialmente com tudo zero, que é falso positivo.
+function comControleLigado(d, fn) {
+  const antes = d.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE;
+  d.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE = true;
+  try { fn(); } finally { d.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE = antes; }
+}
+
 // =====================================================================
 // GRAVAÇÃO E LEITURA
 // =====================================================================
@@ -151,11 +161,13 @@ function cnpjFicticio(i) {
 
   // Determinismo: rodar o Alt+U duas vezes no mesmo dia não pode remexer o
   // sorteio, senão o cliente trocaria de grupo no meio do experimento.
+  comControleLigado(d, () => {
   const cnpj = cnpjFicticio(7);
   const dia = 20260917;
   checar('ehGrupoControle é determinístico no mesmo dia', d.ehGrupoControle(cnpj, dia) === d.ehGrupoControle(cnpj, dia));
   checar('sorteioEstavel é determinístico no mesmo dia', d.sorteioEstavel(cnpj, dia) === d.sorteioEstavel(cnpj, dia));
   checar('sorteioEstavel fica no intervalo [0,1)', d.sorteioEstavel(cnpj, dia) >= 0 && d.sorteioEstavel(cnpj, dia) < 1);
+  });
 })();
 
 (function () {
@@ -164,10 +176,12 @@ function cnpjFicticio(i) {
 
   // Nenhum cliente pode ficar preso no controle pra sempre -- isso o tiraria
   // permanentemente da régua, o que é um custo real de cobrança.
+  comControleLigado(d, () => {
   const cnpj = cnpjFicticio(7);
   const dias = [20260101, 20260102, 20260103, 20260104, 20260105, 20260106, 20260107, 20260108, 20260109, 20260110];
   const grupos = dias.map((dia) => d.ehGrupoControle(cnpj, dia));
   checar('o mesmo cliente NÃO fica sempre no mesmo grupo ao longo dos dias', new Set(grupos).size === 2, JSON.stringify(grupos));
+  });
 })();
 
 (function () {
@@ -176,6 +190,7 @@ function cnpjFicticio(i) {
 
   // A proporção precisa bater com o combinado (~1 em 5). Amostra grande pra
   // não depender de sorte.
+  comControleLigado(d, () => {
   const total = 5000;
   let controle = 0;
   for (let i = 0; i < total; i += 1) {
@@ -187,6 +202,7 @@ function cnpjFicticio(i) {
     proporcao > 0.18 && proporcao < 0.22,
     `${(proporcao * 100).toFixed(1)}%`
   );
+  });
 })();
 
 (function () {
@@ -201,6 +217,7 @@ function cnpjFicticio(i) {
   // é parecida em todas.
   const w = abrir();
   const d = w.__diario;
+  comControleLigado(d, () => {
   const dia = 20260917;
 
   const taxas = [];
@@ -222,6 +239,7 @@ function cnpjFicticio(i) {
     maior - menor < 0.08,
     `menor=${(menor * 100).toFixed(1)}% maior=${(maior * 100).toFixed(1)}%`
   );
+  });
 })();
 
 (function () {
@@ -336,6 +354,47 @@ function cnpjFicticio(i) {
   let excecao = null;
   try { w.__diario.relatorio(); } catch (erro) { excecao = erro; }
   checar('relatorio() com diário vazio não lança', excecao === null, excecao && excecao.message);
+})();
+
+// =====================================================================
+// PADRÃO: grupo de controle DESLIGADO
+// =====================================================================
+(function () {
+  const w = abrir();
+  const d = w.__diario;
+
+  checar('vem desligado por padrão', d.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE === false);
+  checar('desligado, ehGrupoControle devolve false pra qualquer cnpj',
+    Array.from({ length: 200 }, (_, i) => d.ehGrupoControle(cnpjFicticio(i), 20260917)).every((x) => x === false));
+  checar('desligado, também devolve false em qualquer dia',
+    [20260101, 20260615, 20261231].every((dia) => d.ehGrupoControle(cnpjFicticio(1), dia) === false));
+
+  // O sorteio de POSIÇÃO continua funcionando -- só não é usado por ninguém
+  // enquanto o experimento está desligado. Religar não pode depender de mais
+  // nada além da flag.
+  checar('sorteioEstavel continua válido mesmo com o experimento desligado',
+    d.sorteioEstavel(cnpjFicticio(1), 20260917) >= 0 && d.sorteioEstavel(cnpjFicticio(1), 20260917) < 1);
+
+  // E a gravação segue normal: desligar o experimento não desliga o diário.
+  checar('desligado, o diário continua gravando', d.registrar('contato', { c: cnpjFicticio(1) }) === true);
+  checar('e o evento gravado aparece', d.eventos({ tipo: 'contato' }).length === 1);
+})();
+
+(function () {
+  // O relatório não pode apresentar a comparação vazia como se fosse
+  // resultado -- tem que dizer que está desligada.
+  const w = abrir();
+  const d = w.__diario;
+  d.registrarLote('fila', [{ c: cnpjFicticio(1), f: 3, p: 1, k: 0 }]);
+
+  const linhas = [];
+  const logOriginal = console.log;
+  console.log = (...args) => linhas.push(args.join(' '));
+  try { d.relatorio(); } finally { console.log = logOriginal; }
+
+  const saida = linhas.join('\n');
+  checar('o relatório avisa que o grupo de controle está desligado', /DESLIGADO/.test(saida), saida.slice(0, 200));
+  checar('e não imprime a comparação régua vs controle como se valesse', !/é ESTA comparação que responde/.test(saida));
 })();
 
 resumo();

@@ -56,6 +56,26 @@
     DIAS_RETENCAO: 120,
     // A partir daqui, avisa no console pra exportar e limpar.
     LIMITE_AVISO_BYTES: 3_500_000,
+    // LIGA/DESLIGA o grupo de controle (a parte que reordena 20% da fila).
+    //
+    // DESLIGADO por decisão do usuário. O raciocínio: gravar é de graça e não
+    // tem risco, mas reordenar tem um custo que se paga TODO DIA -- ~18 dos
+    // ~92 clientes da fila são chamados fora da ordem da régua -- enquanto o
+    // benefício só chega em semanas, e só se alguma decisão for tomada a
+    // partir do resultado. Somando a isso que o desenho do sorteio já saiu
+    // errado uma vez (a chave era sorteada no espaço das faixas, e o controle
+    // nunca alcançava o fim da fila -- achado só quando o usuário mandou uma
+    // fila real), a conta não fechava ainda.
+    //
+    // Com isso desligado, o diário continua gravando tudo e responde as
+    // perguntas DESCRITIVAS (quanto da fila é atendido, quais faixas nunca
+    // são chamadas, o que cai em "Demais dias"). O que se perde é a pergunta
+    // CAUSAL -- "a ordem da régua ajuda?" -- que só o grupo de controle
+    // responde.
+    //
+    // Pra religar: true aqui, e window.__diario.limpar() antes, pra não
+    // misturar período com e sem experimento na mesma análise.
+    ATIVAR_GRUPO_CONTROLE: false,
     // 1 em cada 5 clientes entra no grupo de controle (posição sorteada em
     // vez de posição pela régua). Confirmado com o usuário.
     PROPORCAO_CONTROLE: 5,
@@ -243,6 +263,10 @@
    * @returns {boolean}
    */
   function ehGrupoControle(cnpj, dia) {
+    // Lido em tempo de chamada, não no carregamento: assim dá pra ligar e
+    // desligar pelo console (window.__diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE)
+    // sem recarregar a página.
+    if (!CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE) return false;
     const chave = `${cnpj}|${dia ?? chaveDia()}`;
     return hashEstavel(chave) % CONFIG_DIARIO.PROPORCAO_CONTROLE === 0;
   }
@@ -445,6 +469,20 @@
       )
     );
 
+    if (!CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE && a.controle.atribuicoes === 0) {
+      console.log(
+        '\n--- Régua vs. Controle: DESLIGADO ---\n' +
+        '  O grupo de controle está desativado, então a fila sai 100% na ordem da régua.\n' +
+        '  Sem ele não dá pra responder "a ordem da régua ajuda?" -- as faixas contêm\n' +
+        '  clientes diferentes por construção, e comparar uma com a outra mede o cliente,\n' +
+        '  não a régua. A tabela acima continua valendo pra COBERTURA (quem nunca é\n' +
+        '  chamado, o que cai em "Demais dias").\n' +
+        '  Pra ligar: window.__diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE = true\n' +
+        '  (rode window.__diario.limpar() antes, pra não misturar os dois períodos).'
+      );
+      return a;
+    }
+
     console.log('\n--- Régua vs. Controle (é ESTA comparação que responde a pergunta) ---');
     console.table({
       'Ordenado pela régua': {
@@ -497,6 +535,13 @@
     console.warn(
       `[Diário] Já são ~${(bytes / 1_000_000).toFixed(1)} MB guardados. ` +
       'Rode window.__diario.exportar() e depois window.__diario.limpar() pra não esbarrar na cota do navegador.'
+    );
+  }
+
+  if (CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE) {
+    console.log(
+      `%c[Diário] Grupo de controle LIGADO -- 1 em cada ${CONFIG_DIARIO.PROPORCAO_CONTROLE} clientes recebe posição sorteada na fila.`,
+      'color:#8A2A16;font-weight:bold;'
     );
   }
 

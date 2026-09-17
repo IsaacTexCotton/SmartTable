@@ -28,6 +28,16 @@ const w = novaJanela({
 const { ordenarComGrupoControle } = w.filaPrioridadeDebug;
 const diario = w.__diario;
 
+// O grupo de controle vem DESLIGADO por padrão (decisão do usuário: gravar é
+// de graça, reordenar tem custo diário). Os testes de espalhamento abaixo
+// ligam explicitamente -- é o comportamento deles que está sendo protegido,
+// pra quando for religado.
+function comControleLigado(fn) {
+  const antes = diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE;
+  diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE = true;
+  try { fn(); } finally { diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE = antes; }
+}
+
 // Distribuição REAL de faixas observada na fila de 17/09/2026 -- é a forma
 // que expôs o bug, então é a forma com que o teste protege.
 const DISTRIBUICAO_REAL = { 1: 16, 2: 8, 3: 1, 4: 2, 5: 7, 6: 13, 7: 2, 8: 0, 9: 18, 10: 25 };
@@ -51,6 +61,7 @@ function montarCandidatos(rodada) {
 // A régua continua valendo pra quem NÃO é controle
 // =====================================================================
 (function () {
+ comControleLigado(() => {
   const fila = ordenarComGrupoControle(montarCandidatos(1), diario, 20260917);
   const regua = fila.filter((r) => !r.controle);
 
@@ -59,6 +70,7 @@ function montarCandidatos(rodada) {
     if (regua[i].prioridade < regua[i - 1].prioridade) quebras += 1;
   }
   checar('entre os NÃO-controle, a ordem de faixa nunca quebra', quebras === 0, `${quebras} quebra(s)`);
+ });
 })();
 
 (function () {
@@ -82,6 +94,7 @@ function montarCandidatos(rodada) {
 // REGRESSÃO: o controle tem que alcançar a fila INTEIRA
 // =====================================================================
 (function () {
+ comControleLigado(() => {
   const RODADAS = 300;
   let totalControle = 0;
   let totalCandidatos = 0;
@@ -120,9 +133,11 @@ function montarCandidatos(rodada) {
     pct(alcancouUltimoDecimo) > 6,
     `${pct(alcancouUltimoDecimo).toFixed(1)}% no último décimo (esperado ~10%)`
   );
+ });
 })();
 
 (function () {
+ comControleLigado(() => {
   // Determinismo: rodar o Alt+U duas vezes no mesmo dia não pode remexer a
   // fila, senão o cliente troca de posição no meio do experimento.
   const a = ordenarComGrupoControle(montarCandidatos(7), diario, 20260917).map((r) => r.cliente.cnpj).join();
@@ -131,6 +146,7 @@ function montarCandidatos(rodada) {
 
   const c = ordenarComGrupoControle(montarCandidatos(7), diario, 20260918).map((r) => r.cliente.cnpj).join();
   checar('em outro dia a ordem muda (o sorteio é por dia)', a !== c);
+ });
 })();
 
 (function () {
@@ -140,6 +156,37 @@ function montarCandidatos(rodada) {
   const um = ordenarComGrupoControle([{ cliente: { cnpj: 'X' }, prioridade: 4, escolhido: { diasAtrasoReal: 3 } }], diario, 20260917);
   checar('lista com um único cliente devolve ele mesmo', um.length === 1 && um[0].cliente.cnpj === 'X');
   checar('e o rank dele é um número válido', Number.isFinite(um[0].rank), String(um[0].rank));
+})();
+
+// =====================================================================
+// PADRÃO: grupo de controle DESLIGADO -> fila é 100% régua
+// =====================================================================
+(function () {
+  checar('o grupo de controle vem desligado por padrão', diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE === false);
+
+  const fila = ordenarComGrupoControle(montarCandidatos(42), diario, 20260917);
+  checar('desligado, ninguém é marcado como controle', fila.every((r) => r.controle === false));
+
+  let quebras = 0;
+  for (let i = 1; i < fila.length; i += 1) {
+    if (fila[i].prioridade < fila[i - 1].prioridade) quebras += 1;
+  }
+  checar('desligado, a fila INTEIRA sai na ordem da régua', quebras === 0, `${quebras} quebra(s)`);
+  checar('desligado, o primeiro da fila é faixa 1', fila[0].prioridade === 1);
+  checar('desligado, o último da fila é a faixa mais alta presente', fila[fila.length - 1].prioridade === 10);
+
+  // E o ato de desligar não pode ter quebrado o registro: ehGrupoControle
+  // devolve false pra todo mundo, sem lançar.
+  checar('ehGrupoControle devolve false pra qualquer cnpj quando desligado', ['A', 'B', 'C', 'D', 'E'].every((c) => diario.ehGrupoControle(c, 20260917) === false));
+})();
+
+(function () {
+  // Religar volta a funcionar -- o desligamento não é um caminho sem volta.
+  comControleLigado(() => {
+    const fila = ordenarComGrupoControle(montarCandidatos(43), diario, 20260917);
+    checar('religando, o controle volta a existir', fila.some((r) => r.controle === true));
+  });
+  checar('e desliga de novo depois', diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE === false);
 })();
 
 resumo();

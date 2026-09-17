@@ -86,14 +86,32 @@ clientes diferentes por construção — quem está 2 dias atrasado paga mais qu
 quem está 30 em qualquer ordem que você ligue. Ela serve para ver cobertura:
 quais faixas nunca são chamadas.
 
-**Quem responde é a comparação régua vs. controle.** 1 em cada 5 clientes
-recebe posição sorteada, independente da faixa (verificado: faixa 1 no
-controle chega a cair na posição 137, faixa 10 chega a subir para a 29). Se a
-régua estiver certa, o grupo ordenado por ela converte melhor que o grupo
-sorteado. Se os dois empatarem, a ordem não está agregando.
+**O grupo de controle está DESLIGADO** (`ATIVAR_GRUPO_CONTROLE: false` no
+Módulo 8). A fila sai 100% na ordem da régua. Decisão do usuário, e a conta
+que a motivou: gravar é de graça e sem risco, mas reordenar 20% da fila tem
+um custo que se paga TODO DIA — ~18 dos ~92 clientes chamados fora da ordem —
+enquanto o benefício só chega em semanas, e só se alguma decisão for tomada a
+partir do resultado.
 
-O sorteio é determinístico por (cnpj, dia): rodar o Alt+U duas vezes no mesmo
-dia não remexe o experimento, e nenhum cliente fica preso no controle.
+Com ele desligado, o diário continua respondendo as perguntas **descritivas**
+(cobertura por faixa, quais faixas nunca são chamadas, o que cai em "Demais
+dias"). O que se perde é a pergunta **causal** — "a ordem da régua ajuda?" —
+que só o grupo de controle responde, porque as faixas contêm clientes
+diferentes por construção.
+
+Para religar:
+
+```js
+window.__diario.limpar()   // não misture período com e sem experimento
+window.__diario.CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE = true
+```
+
+Ligado, 1 em cada 5 clientes recebe posição sorteada **no espaço das
+posições**, não das faixas — essa distinção importa: a primeira versão
+sorteava no espaço das faixas e, como a faixa 10 sozinha era 27% de uma fila
+real, o controle nunca alcançava o fim dela (12% no terço final em vez de
+33%). O sorteio é determinístico por (cnpj, dia): rodar o Alt+U duas vezes no
+mesmo dia não remexe o experimento, e nenhum cliente fica preso no controle.
 
 **"Pagou" é inferência** — o que o sistema vê é título que sumiu da lista de
 vencidos. Renegociação e baixa manual dão o mesmo sinal.
