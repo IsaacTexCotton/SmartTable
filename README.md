@@ -163,9 +163,16 @@ Ela não substitui `npm test` — cobre justamente o que ele não alcança.
 
 ## Integração contínua
 
-`.github/workflows/testes.yml` roda `npm run lint` e `npm test` em todo push
-para `main` e em todo pull request. Localmente, `npm run verificar` roda os
-dois na mesma ordem.
+`.github/workflows/testes.yml` roda `npm ci`, `npm run lint` e `npm test` em
+todo push para `main` e em todo pull request. Localmente, `npm run verificar`
+roda os três na mesma ordem.
+
+O primeiro passo (`npm run lock`, que é `npm ci --dry-run`) existe porque essa
+falha é **invisível localmente**: `npm test` usa o `node_modules` que já está
+instalado e passa alegremente com o `package-lock.json` dessincronizado do
+`package.json`. Só o `npm ci` do CI reclama — e foi o que aconteceu ao
+adicionar o ESLint com `--no-save`: quatro runs seguidos morreram em 10
+segundos sem rodar um teste sequer. Custa meio segundo.
 
 **Sobre o alcance do lint, sem ilusão:** das quatro falhas que chegaram a
 atrapalhar a cobrança, o ESLint não teria pegado nenhuma — são de contrato
