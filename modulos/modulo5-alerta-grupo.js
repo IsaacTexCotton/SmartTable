@@ -158,6 +158,44 @@
     return header ? header.getBoundingClientRect().height : 0;
   }
 
+  /**
+   * Onde termina, de verdade, a área fixa do topo da página.
+   *
+   * BUG REAL (o banner existia, estava visível, e mesmo assim ninguém via):
+   * a medição olhava só a altura do <header> -- 80px no CRM. Mas dentro do
+   * header existe uma barra de navegação rápida POSICIONADA, que transborda
+   * pra baixo dele e vai até 157px. Como ela é DESCENDENTE do header, ela
+   * pinta no contexto de empilhamento dele (z-50), e portanto cobre qualquer
+   * coisa de fora com z-index menor -- inclusive este banner, que é z-30 de
+   * propósito, pra não cortar os modais do CRM (que também são z-50).
+   *
+   * Ou seja: não existe z-index válido. Acima da barra seria acima dos
+   * modais, e o bug antigo voltaria. A correção é POSICIONAL -- ficar abaixo
+   * da área fixa inteira, não só do <header>.
+   *
+   * Mede genericamente (qualquer descendente posicionado e visível que
+   * transborde), sem fixar o seletor da barra: se o CRM mudar o nome dela,
+   * ou ganhar outra, a conta continua certa.
+   *
+   * @returns {number} Coordenada Y (viewport) onde a área fixa termina.
+   */
+  function obterFimDaAreaFixaSuperior() {
+    const header = obterElementoHeaderFixo();
+    if (!header) return 0;
+
+    let limite = header.getBoundingClientRect().bottom;
+
+    Array.from(header.querySelectorAll('*')).forEach((el) => {
+      const estilo = window.getComputedStyle(el);
+      if (estilo.position === 'static') return; // não transborda o pai
+      if (estilo.display === 'none' || estilo.visibility === 'hidden') return;
+      const r = el.getBoundingClientRect();
+      if (r.height > 0 && r.bottom > limite) limite = r.bottom;
+    });
+
+    return limite;
+  }
+
   // BUG REAL (relatado pelo usuário): o banner às vezes ficava por cima do
   // header do CRM. A medição em si bate certo quando testada isoladamente
   // (confirmado: position fixed, 80px de altura) -- o problema é de
@@ -167,8 +205,10 @@
   // assentar) e observa o header com ResizeObserver pra continuar
   // correto se a altura dele mudar depois (ex.: header responsivo).
   function manterBannerAlinhadoAoHeader(banner) {
+    const observadoresExtras = [];
+
     function reajustar() {
-      banner.style.top = obterAlturaHeaderFixo() + 'px';
+      banner.style.top = obterFimDaAreaFixaSuperior() + 'px';
     }
     reajustar();
     requestAnimationFrame(reajustar);
@@ -178,11 +218,21 @@
     if (header && typeof ResizeObserver === 'function') {
       const observerHeader = new ResizeObserver(reajustar);
       observerHeader.observe(header);
+
+      // A barra de navegação rápida ABRE E FECHA por clique do usuário, e é
+      // `position: absolute` -- então o header não muda de tamanho quando
+      // isso acontece, e o ResizeObserver acima não dispara. Observar
+      // atributos e filhos do header pega a troca de classe/display que
+      // abre e fecha a barra, e o banner desce ou sobe junto.
+      const observerConteudoHeader = new MutationObserver(reajustar);
+      observerConteudoHeader.observe(header, { attributes: true, childList: true, subtree: true });
+      observadoresExtras.push(observerConteudoHeader);
       // Desliga sozinho quando o banner sai da tela (fechado ou trocou de
       // página) -- sem isso, o observer ficaria vivo pra sempre.
       const paradaObserver = new MutationObserver(() => {
         if (!document.body.contains(banner)) {
           observerHeader.disconnect();
+          observadoresExtras.forEach((o) => o.disconnect());
           paradaObserver.disconnect();
         }
       });
@@ -197,7 +247,7 @@
     banner.id = 'alerta-grupo-vencido';
     Object.assign(banner.style, {
       position: 'fixed',
-      top: obterAlturaHeaderFixo() + 'px',
+      top: obterFimDaAreaFixaSuperior() + 'px',
       left: '0',
       right: '0',
       background: '#FEF3C7',
@@ -405,5 +455,6 @@
     obterAlturaHeaderFixo,
     verificarOutrasEmpresasComVencido,
     limparValorMonetario,
+    obterFimDaAreaFixaSuperior,
   };
 })();

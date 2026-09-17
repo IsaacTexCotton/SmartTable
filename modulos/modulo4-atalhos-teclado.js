@@ -1741,6 +1741,13 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.11.1', data: '17/09/2026',
+      mudancas: [
+        'Corrigido: o alerta de grupo econômico existia mas ficava escondido atrás da barra de navegação rápida do CRM.',
+        'Ele agora se posiciona abaixo da área fixa inteira do topo, e acompanha quando você abre ou fecha essa barra.',
+      ],
+    },
+    {
       versao: '1.11.0', data: '17/09/2026',
       mudancas: [
         'Novos window.__diag.fila() e window.__diag.grupo(): diagnósticos que já saem CENSURADOS, sem CNPJ, razão social nem valor.',

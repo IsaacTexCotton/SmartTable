@@ -95,7 +95,77 @@ function empresa(overrides) {
   checar('banner cita a razão social e o valor vencido', /FILIAL TESTE LTDA/.test(banner.textContent) && /2\.500,00/.test(banner.textContent), banner.textContent);
 })();
 
-// 8. ENDURECIDO (achado de revisão): "R$ 0,00" não é saldo vencido. Antes,
+// 8. BUG REAL (diagnosticado ao vivo no CRM): o banner EXISTIA, estava
+// visível, com opacity 1 -- e mesmo assim ninguém via. A medição olhava só a
+// altura do <header> (80px), mas dentro dele existe uma barra de navegação
+// rápida POSICIONADA que transborda até 157px. Como ela é descendente do
+// header, pinta no contexto de empilhamento dele (z-50) e cobre este banner,
+// que é z-30 de propósito pra não cortar os modais (também z-50). Não existe
+// z-index válido -- a correção é ficar abaixo da área fixa INTEIRA.
+(function () {
+  const w = abrirPagina();
+
+  const header = w.document.createElement('header');
+  header.style.position = 'fixed';
+  header.getBoundingClientRect = () => ({ width: 1000, height: 80, top: 0, left: 0, right: 1000, bottom: 80 });
+
+  // A barra que transborda o header, igual ao #sit-quicknav do CRM real.
+  const barra = w.document.createElement('div');
+  barra.style.position = 'absolute';
+  barra.getBoundingClientRect = () => ({ width: 1000, height: 77, top: 80, left: 0, right: 1000, bottom: 157 });
+  header.appendChild(barra);
+  w.document.body.appendChild(header);
+
+  checar('só o <header> mediria 80px', w.__alertaGrupoDebug.obterAlturaHeaderFixo() === 80);
+  checar(
+    'REGRESSÃO: a área fixa considera a barra que transborda (157px)',
+    w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior() === 157,
+    String(w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior())
+  );
+
+  w.__alertaGrupoDebug.criarBanner([empresa()]);
+  const banner = w.document.getElementById('alerta-grupo-vencido');
+  checar('o banner nasce abaixo da área fixa inteira, não só do header', banner.style.top === '157px', banner.style.top);
+  checar('e continua abaixo dos modais do CRM (z-index 30)', banner.style.zIndex === '30', banner.style.zIndex);
+})();
+
+(function () {
+  // Barra FECHADA (display:none) não empurra o banner -- senão ele ficaria
+  // com um vão permanente quando o usuário fecha a navegação rápida.
+  const w = abrirPagina();
+  const header = w.document.createElement('header');
+  header.style.position = 'fixed';
+  header.getBoundingClientRect = () => ({ width: 1000, height: 80, top: 0, left: 0, right: 1000, bottom: 80 });
+
+  const barra = w.document.createElement('div');
+  barra.style.position = 'absolute';
+  barra.style.display = 'none';
+  barra.getBoundingClientRect = () => ({ width: 1000, height: 77, top: 80, left: 0, right: 1000, bottom: 157 });
+  header.appendChild(barra);
+  w.document.body.appendChild(header);
+
+  checar('barra fechada não é contada', w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior() === 80, String(w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior()));
+})();
+
+(function () {
+  // Descendente em fluxo normal (static) não transborda o pai -- não conta.
+  const w = abrirPagina();
+  const header = w.document.createElement('header');
+  header.style.position = 'fixed';
+  header.getBoundingClientRect = () => ({ width: 1000, height: 80, top: 0, left: 0, right: 1000, bottom: 80 });
+  const dentro = w.document.createElement('div');
+  dentro.getBoundingClientRect = () => ({ width: 1000, height: 40, top: 20, left: 0, right: 1000, bottom: 60 });
+  header.appendChild(dentro);
+  w.document.body.appendChild(header);
+  checar('filho estático não altera a medição', w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior() === 80);
+})();
+
+(function () {
+  const w = abrirPagina();
+  checar('sem header, a área fixa é 0', w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior() === 0);
+})();
+
+// 9. ENDURECIDO (achado de revisão): "R$ 0,00" não é saldo vencido. Antes,
 // qualquer texto que não fosse vazio nem travessão contava como vencido --
 // se o CRM renderizar zero assim em vez de "—", TODA empresa do grupo
 // entraria em empresasComVencido, mudando a mensagem do Alt+A e fazendo o
@@ -113,7 +183,7 @@ function empresa(overrides) {
   checar('texto inesperado (sem número) segue confiando no texto', limpar('a combinar') === 'a combinar', String(limpar('a combinar')));
 })();
 
-// 9. MELHORIA (bug de timing corrigido): se a altura do header medida nas
+// 10. MELHORIA (bug de timing corrigido): se a altura do header medida nas
 // primeiras leituras (criação do banner + reajuste síncrono logo em
 // seguida) ainda estava desatualizada -- layout genuinamente não tinha
 // assentado a tempo nem daquela segunda leitura --, o reajuste posterior
