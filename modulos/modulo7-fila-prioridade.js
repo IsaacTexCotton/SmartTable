@@ -681,6 +681,69 @@
   /* ---------------------------------------------------------------------
    * 6. ORQUESTRAÇÃO (Alt+U)
    * --------------------------------------------------------------------- */
+  /**
+   * Ordena pela régua (1 primeiro; dentro da faixa, mais dias de atraso
+   * primeiro).
+   */
+  function compararPelaRegua(a, b) {
+    if (a.prioridade !== b.prioridade) return a.prioridade - b.prioridade;
+    return b.escolhido.diasAtrasoReal - a.escolhido.diasAtrasoReal;
+  }
+
+  /**
+   * Monta a ordem final da fila, com 1 em cada 5 clientes recebendo posição
+   * SORTEADA em vez da posição pela faixa (ver Módulo 8).
+   *
+   * BUG REAL (achado conferindo uma fila de verdade, 92 clientes): a versão
+   * anterior sorteava a chave no espaço das FAIXAS -- `1 + sorteio * 9`,
+   * gerando um número em [1, 10). Como a faixa 10 vale exatamente 10, nenhum
+   * cliente do controle conseguia ser ordenado DEPOIS de um faixa 10. Na
+   * fila real, isso tornava 25 dos 92 lugares (27%) inalcançáveis pro
+   * controle, e ele caía no terço final da fila só 12% das vezes em vez de
+   * 33%. O grupo de controle existe pra medir o efeito de ser chamado CEDO
+   * ou TARDE -- se ele quase nunca é chamado tarde, a comparação mede menos
+   * do que deveria, e no sentido que favorece a régua.
+   *
+   * A causa é que as faixas têm tamanhos MUITO diferentes: a faixa 10
+   * sozinha era 27% da fila e ocupava 1/10 do espaço de chaves. Sortear
+   * uniformemente no espaço das faixas não é sortear uniformemente no
+   * espaço das POSIÇÕES, que é o que importa.
+   *
+   * Correção: cada não-controle recebe um rank igual à sua posição relativa
+   * na régua (0 = primeiro, 1 = último), e cada controle recebe um rank
+   * sorteado em [0,1). Ordenar por rank espalha o controle uniformemente
+   * pelas posições, independente do tamanho de cada faixa. Verificado em
+   * simulação com a distribuição real: 33% / 34% / 33% pelos terços.
+   *
+   * @param {object[]} resultados Candidatos já classificados.
+   * @param {object|null} diario window.__diario, ou null se não carregou.
+   * @param {number|null} dia Dia do experimento (AAAAMMDD).
+   * @returns {object[]} Nova lista, ordenada.
+   */
+  function ordenarComGrupoControle(resultados, diario, dia) {
+    if (!diario) {
+      // Sem o Módulo 8 não há experimento: régua pura, como antes dele existir.
+      resultados.forEach((r) => { r.controle = false; });
+      return resultados.slice().sort(compararPelaRegua);
+    }
+
+    resultados.forEach((r) => {
+      r.controle = diario.ehGrupoControle(r.cliente.cnpj, dia);
+    });
+
+    const regua = resultados.filter((r) => !r.controle).sort(compararPelaRegua);
+    regua.forEach((r, i) => {
+      r.rank = regua.length > 1 ? i / (regua.length - 1) : 0.5;
+    });
+
+    const controle = resultados.filter((r) => r.controle);
+    controle.forEach((r) => {
+      r.rank = diario.sorteioEstavel(r.cliente.cnpj, dia);
+    });
+
+    return [...regua, ...controle].sort((a, b) => a.rank - b.rank);
+  }
+
   async function iniciar() {
     if (classificandoEmAndamento) {
       toast('Já tem uma classificação em andamento -- aguarde terminar.');
@@ -776,7 +839,11 @@
     removerIndicadorProgresso();
     classificandoEmAndamento = false;
 
-    const { sobreviventes: resultadosSemDuplicataDeGrupo, excluidosPorGrupo } = filtrarPorGrupoEconomico(resultados);
+    // Uma chamada só -- a união-find do grupo econômico não é barata.
+    // `let` porque a ordenação com grupo de controle devolve uma lista nova.
+    const filtradoPorGrupo = filtrarPorGrupoEconomico(resultados);
+    const { excluidosPorGrupo } = filtradoPorGrupo;
+    let resultadosSemDuplicataDeGrupo = filtradoPorGrupo.sobreviventes;
 
     console.log('[Fila Prioridade] Detalhamento da classificação (abas de fundo):', JSON.stringify({
       classificados_com_sucesso: resultados.length,
@@ -807,21 +874,24 @@
     // duas vezes no mesmo dia não remexe o experimento.
     const diario = window.__diario;
     const diaDoExperimento = diario ? diario.chaveDia() : null;
+    resultadosSemDuplicataDeGrupo = ordenarComGrupoControle(resultadosSemDuplicataDeGrupo, diario, diaDoExperimento);
 
-    resultadosSemDuplicataDeGrupo.forEach((r) => {
-      r.controle = diario ? diario.ehGrupoControle(r.cliente.cnpj, diaDoExperimento) : false;
-      // Chave de ordenação: quem está no controle usa um número sorteado no
-      // MESMO intervalo das faixas (1..10), então cai em qualquer altura da
-      // fila; os demais usam a própria faixa.
-      r.chaveOrdem = r.controle
-        ? 1 + diario.sorteioEstavel(r.cliente.cnpj, diaDoExperimento) * (Object.keys(NOMES_PRIORIDADE).length - 1)
-        : r.prioridade;
-    });
-
-    resultadosSemDuplicataDeGrupo.sort((a, b) => {
-      if (a.chaveOrdem !== b.chaveOrdem) return a.chaveOrdem - b.chaveOrdem;
-      return b.escolhido.diasAtrasoReal - a.escolhido.diasAtrasoReal;
-    });
+    // Registra a ATRIBUIÇÃO do dia: faixa, posição final e grupo. Um lote só,
+    // um acesso ao localStorage -- gravar 150 vezes seguidas durante o Alt+U
+    // seria desperdício. Se o diário não estiver carregado, segue sem ele.
+    if (diario) {
+      diario.registrarLote(
+        'fila',
+        resultadosSemDuplicataDeGrupo.map((r, indice) => ({
+          c: r.cliente.cnpj,
+          f: r.prioridade,
+          p: indice + 1,
+          k: r.controle ? 1 : 0,
+          s: r.escolhido.situacaoKey,
+          a: r.escolhido.diasAtrasoReal,
+        }))
+      );
+    }
 
     const clientesDaFila = resultadosSemDuplicataDeGrupo.map((r) => Object.assign({}, r.cliente, {
       diasAtraso: r.escolhido.diasAtrasoReal,
@@ -941,6 +1011,8 @@
   window.filaPrioridadeDebug = {
     CONFIG,
     NOMES_PRIORIDADE,
+    ordenarComGrupoControle,
+    compararPelaRegua,
     iniciar,
     candidatosEnriquecidos,
     filtrarPorRegrasDaLista,
