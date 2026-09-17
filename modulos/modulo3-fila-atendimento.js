@@ -620,6 +620,25 @@
       const janela = openOriginal.apply(window, args);
       if (janela && !sucesso) {
         sucesso = true;
+
+        // DIÁRIO (Módulo 8): este é o instante EXATO em que sabemos que a
+        // cobrança saiu de verdade (o WhatsApp abriu). Registra antes do
+        // resto porque o Módulo 2 dispara location.reload() logo em seguida
+        // -- só grava em localStorage, que sobrevive ao reload.
+        //
+        // Fica AQUI, e não dentro de registrarSucessoSemAvancar(), porque
+        // aquela função sai cedo quando a página não faz parte de uma fila
+        // -- e pra medir interessa toda cobrança enviada, dentro da fila ou
+        // fora dela.
+        if (window.__diario) {
+          try {
+            const cnpjAtual = new URL(location.href).searchParams.get('cnpj') || '';
+            window.__diario.registrar('contato', { c: cnpjAtual });
+          } catch (erro) {
+            console.warn('[Fila] Não consegui registrar o contato no diário -- cobrança segue normal.', erro);
+          }
+        }
+
         registrarSucessoSemAvancar();
       }
       return janela;

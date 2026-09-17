@@ -247,8 +247,14 @@ function lerRawDoEstado(estadoStorage, w) {
   dom.window.eval(CODIGO_MODULO0);
   dom.window.eval(CODIGO_MODULO6);
 
-  const original = dom.window.localStorage.setItem.bind(dom.window.localStorage);
-  dom.window.localStorage.setItem = () => { throw new Error('QuotaExceededError simulado'); };
+  // CORRIGIDO (falso positivo achado ao escrever tests/diario.test.js):
+  // `dom.window.localStorage.setItem = fn` NÃO pega no jsdom -- a atribuição
+  // na instância falha em silêncio. O setItem de verdade continuava valendo,
+  // nunca lançava, e este teste passava sem exercitar nada. O mock tem que ir
+  // no PROTOTYPE de Storage.
+  const proto = dom.window.Storage.prototype;
+  const original = proto.setItem;
+  proto.setItem = () => { throw new Error('QuotaExceededError simulado'); };
 
   let excecao = null;
   try {
@@ -258,7 +264,7 @@ function lerRawDoEstado(estadoStorage, w) {
   }
   checar('setItem falhando não propaga exceção', excecao === null, excecao && excecao.message);
 
-  dom.window.localStorage.setItem = original;
+  proto.setItem = original;
 })();
 
 // 15. Formato salvo tem exatamente os campos esperados

@@ -71,6 +71,36 @@ módulos, mesma ordem, nenhum módulo órfão em `modulos/`, e o estável nunca
 apontando para `main`. É o erro que não quebraria nada visivelmente — só
 faria duas pessoas rodarem código diferente.
 
+## Medindo se a régua de prioridade funciona
+
+O Módulo 8 grava três eventos: a atribuição de fila (faixa, posição, grupo),
+a cobrança efetivamente enviada (com a hora) e a baixa detectada. Para ver:
+
+```js
+window.__diario.relatorio()        // análise no console
+window.__diario.exportar()         // baixa o JSON, pra juntar os dados de duas máquinas
+```
+
+**A tabela por faixa não responde se a régua é boa.** As faixas contêm
+clientes diferentes por construção — quem está 2 dias atrasado paga mais que
+quem está 30 em qualquer ordem que você ligue. Ela serve para ver cobertura:
+quais faixas nunca são chamadas.
+
+**Quem responde é a comparação régua vs. controle.** 1 em cada 5 clientes
+recebe posição sorteada, independente da faixa (verificado: faixa 1 no
+controle chega a cair na posição 137, faixa 10 chega a subir para a 29). Se a
+régua estiver certa, o grupo ordenado por ela converte melhor que o grupo
+sorteado. Se os dois empatarem, a ordem não está agregando.
+
+O sorteio é determinístico por (cnpj, dia): rodar o Alt+U duas vezes no mesmo
+dia não remexe o experimento, e nenhum cliente fica preso no controle.
+
+**"Pagou" é inferência** — o que o sistema vê é título que sumiu da lista de
+vencidos. Renegociação e baixa manual dão o mesmo sinal.
+
+Os dados ficam no `localStorage` de cada navegador, com 120 dias de retenção
+(~3 MB no volume atual). Não se juntam sozinhos entre duas pessoas.
+
 ## Integração contínua
 
 `.github/workflows/testes.yml` roda `npm test` em todo push para `main` e em
@@ -136,6 +166,13 @@ decisões, armadilhas e itens em aberto.
    negociador logado (`#user-menu-btn`) pra saber se ELE já falou com aquele
    cliente e pra assinar a mensagem com o nome certo — nada de nome fixo no
    código.
+8. `modulo8-diario.js` — registra o que aconteceu (atribuição de fila com
+   faixa e posição, cobrança enviada com hora, e baixa detectada), pra
+   permitir responder se a régua de prioridade do Alt+U funciona. Inclui o
+   **grupo de controle**: 1 em cada 5 clientes recebe posição sorteada em vez
+   da posição pela faixa — sem isso, comparar faixa 3 com faixa 9 mede o
+   cliente, não a régua. Carrega logo depois do Módulo 0; os módulos 3, 6 e 7
+   dependem dele. Análise em `window.__diario.relatorio()`.
 7. `modulo7-fila-prioridade.js` — monta uma fila de atendimento ordenada por
    uma régua de prioridade de negócio (Alt+U), visitando cada candidato em
    aba de fundo pra classificar a situação real do título e a promessa de
@@ -165,8 +202,9 @@ outras razões, resumo do "Registrar e Enviar", agendamento rápido de
 pagamento, contexto de promessa de pagamento, cliente nunca contatado
 por este negociador, omissão do relatório em recontato, substituição de
 variáveis `{{ }}`/concordância de plural/busca rápida, classificação de
-títulos do Módulo 1 — prazos, feriados e as 6 situações — e a consistência
-entre os dois wrappers do Tampermonkey). Rode `npm test`
+títulos do Módulo 1 — prazos, feriados e as 6 situações —, a consistência
+entre os dois wrappers do Tampermonkey, e o diário de cobrança incluindo a
+independência do grupo de controle em relação à faixa). Rode `npm test`
 antes de subir qualquer mudança em `modulos/` —
 
 O que não roda no jsdom (captura de imagem, área de transferência, handoff

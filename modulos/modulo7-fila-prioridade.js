@@ -795,8 +795,31 @@
     // Ordena por prioridade (1 primeiro) e, dentro da mesma prioridade,
     // por dias de atraso decrescente -- mesmo critério de urgência que o
     // resto do sistema já usa.
+    //
+    // GRUPO DE CONTROLE (Módulo 8): 1 em cada 5 clientes recebe uma posição
+    // SORTEADA, independente da faixa dele. Sem isso, comparar faixa 3 com
+    // faixa 9 não diz nada sobre a régua -- as faixas contêm clientes
+    // diferentes por construção (dias de atraso, SCPC, promessa), então quem
+    // está 2 dias atrasado pagaria mais que quem está 30 em QUALQUER ordem.
+    // Com o controle, dá pra comparar o mesmo tipo de cliente chamado cedo
+    // (pela régua) e chamado em posição aleatória, que é o que isola o efeito
+    // da ORDEM. O sorteio é determinístico por (cnpj, dia): rodar o Alt+U
+    // duas vezes no mesmo dia não remexe o experimento.
+    const diario = window.__diario;
+    const diaDoExperimento = diario ? diario.chaveDia() : null;
+
+    resultadosSemDuplicataDeGrupo.forEach((r) => {
+      r.controle = diario ? diario.ehGrupoControle(r.cliente.cnpj, diaDoExperimento) : false;
+      // Chave de ordenação: quem está no controle usa um número sorteado no
+      // MESMO intervalo das faixas (1..10), então cai em qualquer altura da
+      // fila; os demais usam a própria faixa.
+      r.chaveOrdem = r.controle
+        ? 1 + diario.sorteioEstavel(r.cliente.cnpj, diaDoExperimento) * (Object.keys(NOMES_PRIORIDADE).length - 1)
+        : r.prioridade;
+    });
+
     resultadosSemDuplicataDeGrupo.sort((a, b) => {
-      if (a.prioridade !== b.prioridade) return a.prioridade - b.prioridade;
+      if (a.chaveOrdem !== b.chaveOrdem) return a.chaveOrdem - b.chaveOrdem;
       return b.escolhido.diasAtrasoReal - a.escolhido.diasAtrasoReal;
     });
 
@@ -804,7 +827,25 @@
       diasAtraso: r.escolhido.diasAtrasoReal,
       prioridadeTier: r.prioridade,
       prioridadeNome: NOMES_PRIORIDADE[r.prioridade],
+      grupoControle: r.controle,
     }));
+
+    // Registra a ATRIBUIÇÃO do dia: faixa, posição final e grupo. Um lote só,
+    // um acesso ao localStorage -- gravar 150 vezes seguidas durante o Alt+U
+    // seria desperdício. Se o diário não estiver carregado, segue sem ele.
+    if (diario) {
+      diario.registrarLote(
+        'fila',
+        resultadosSemDuplicataDeGrupo.map((r, indice) => ({
+          c: r.cliente.cnpj,
+          f: r.prioridade,
+          p: indice + 1,
+          k: r.controle ? 1 : 0,
+          s: r.escolhido.situacaoKey,
+          a: r.escolhido.diasAtrasoReal,
+        }))
+      );
+    }
 
     const fila = {
       versao: window.filaDebug.CONFIG.VERSAO_SCHEMA,

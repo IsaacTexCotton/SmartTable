@@ -55,13 +55,46 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.4.1';
+  const VERSAO_SMARTTABLE = '1.5.0';
+
+  // Cada módulo marca sua própria flag de "já carreguei" pra não instalar
+  // duas vezes. Contar essas flags diz quantos módulos REALMENTE carregaram,
+  // que é a informação útil quando o cache do Tampermonkey serve um @require
+  // velho ou um módulo falha sozinho.
+  //
+  // CORRIGIDO: o número era fixo no código ("7 módulos") e já não batia com a
+  // realidade antes mesmo do Módulo 8 entrar -- é exatamente o tipo de
+  // comentário-número que diverge em silêncio. Contado, não declarado.
+  const FLAGS_DOS_MODULOS = [
+    '__utilitariosCompartilhadosCarregados', // 0
+    '__diarioCarregado',                     // 8
+    '__avisoCobrancaInstalado',              // 1
+    '__registrarEEnviarInstalado',           // 2
+    '__filaAtendimentoCarregado',            // 3
+    '__filaPrioridadeCarregada',             // 7
+    '__alertaGrupoCarregado',                // 5
+    '__atalhosTecladoCarregados',            // 4
+    '__contextoAdicionalCarregado',          // 6
+  ];
+
+  function contarModulosCarregados() {
+    return FLAGS_DOS_MODULOS.filter((flag) => window[flag] === true).length;
+  }
 
   function avisarVersaoCarregada() {
+    const carregados = contarModulosCarregados();
+    const total = FLAGS_DOS_MODULOS.length;
     console.log(
-      `%c[SmartTable] v${VERSAO_SMARTTABLE} carregado (7 módulos)`,
+      `%c[SmartTable] v${VERSAO_SMARTTABLE} carregado (${carregados}/${total} módulos)`,
       'color:#16232F;font-weight:bold;font-size:12px;'
     );
+    if (carregados < total) {
+      const faltando = FLAGS_DOS_MODULOS.filter((flag) => window[flag] !== true);
+      console.warn(
+        `[SmartTable] ${total - carregados} módulo(s) NÃO carregaram: ${faltando.join(', ')}. ` +
+        'Pode ser cache antigo do Tampermonkey ou erro em um @require -- confira o console acima.'
+      );
+    }
 
     if (!document.body) return; // segurança extra, não deveria acontecer em document-idle
 
@@ -532,6 +565,15 @@
     // mais recente passa a ser HOJE, contatoRecente vira null e a linha sai
     // de cena sozinha (ver obterLinhaAgradecimentoPagamento no Módulo 4).
     const hojeChave = chaveData(new Date());
+
+    // DIÁRIO (Módulo 8): registra só o que sumiu AGORA, nunca o acumulado do
+    // dia. A detecção fica grudada no retrato pelo resto do dia (ver acima),
+    // então gravar `titulosSumidos` aqui geraria um evento duplicado a cada
+    // recarregamento da página -- e o Alt+U visita cada cliente em aba de
+    // fundo, o que multiplicaria isso ainda mais.
+    if (sumidosAgora.length > 0 && window.__diario) {
+      window.__diario.registrar('baixa', { c: cnpj, tt: sumidosAgora });
+    }
     const sumidosDeHoje =
       anterior && Array.isArray(anterior.sumidos) && anterior.sumidosEm === hojeChave
         ? anterior.sumidos
@@ -789,5 +831,7 @@
     obterCnpjDaPagina,
     contextoVazio,
     calcularContexto,
+    contarModulosCarregados,
+    FLAGS_DOS_MODULOS,
   };
 })();
