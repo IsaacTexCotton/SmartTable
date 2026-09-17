@@ -34,7 +34,13 @@ const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
  * @returns {string} stdout já sem espaços nas pontas.
  */
 function rodar(comando, argumentos) {
-  return execFileSync(comando, argumentos, { cwd: RAIZ, encoding: 'utf8' }).trim();
+  try {
+    return execFileSync(comando, argumentos, { cwd: RAIZ, encoding: 'utf8' }).trim();
+  } catch (erro) {
+    const detalhe = (erro.stderr || erro.stdout || erro.message || '').toString().trim();
+    abortar(`Falhou: ${comando} ${argumentos.join(' ')}\n  ${detalhe}`);
+    return ''; // inalcançável -- abortar() encerra o processo.
+  }
 }
 
 /** @param {string} mensagem */
@@ -131,9 +137,20 @@ function main() {
   }
   console.log(`→ ${reapontados} @require reapontados para ${tag}.`);
 
-  // 6. Commit + tag locais. O push fica com você.
+  // 6. Commit (se houve mudança) + tag locais. O push fica com você.
+  //
+  // O commit é condicional porque nem toda publicação muda o arquivo: quando
+  // o wrapper estável JÁ está apontando pra essa tag -- caso da primeira
+  // publicação, ou de uma tentativa repetida -- não há nada pra commitar, e
+  // `git commit` sairia com erro em cima de um estado perfeitamente válido.
   rodar('git', ['add', 'smart-table-estavel.user.js']);
-  rodar('git', ['commit', '-m', `Publica ${tag} no canal estável`]);
+  const temMudanca = rodar('git', ['diff', '--cached', '--name-only']) !== '';
+  if (temMudanca) {
+    rodar('git', ['commit', '-m', `Publica ${tag} no canal estável`]);
+    console.log('→ Canal estável commitado.');
+  } else {
+    console.log('→ Canal estável já apontava pra essa tag; nada a commitar.');
+  }
   rodar('git', ['tag', '-a', tag, '-m', `SmartTable ${tag}`]);
 
   console.log(`\n✓ ${tag} preparada localmente.\n`);
