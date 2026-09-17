@@ -46,6 +46,15 @@ function novaJanela({ url, bodyHtml, clientes, specs }) {
   global.URLSearchParams = window.URLSearchParams;
   global.MutationObserver = window.MutationObserver;
   global.requestAnimationFrame = window.requestAnimationFrame;
+  // Eventos precisam ser os do jsdom, não os do Node: simularCliqueCompleto
+  // (Módulo 4) faz `new PointerEvent(...)` com fallback pra `new MouseEvent(...)`,
+  // e sem estes globais o fallback estourava ReferenceError -- fora do
+  // try/catch, derrubando o clique inteiro. PointerEvent pode não existir no
+  // jsdom; nesse caso o fallback pra MouseEvent é justamente o caminho certo.
+  global.Event = window.Event;
+  global.MouseEvent = window.MouseEvent;
+  global.PointerEvent = window.PointerEvent;
+  global.KeyboardEvent = window.KeyboardEvent;
 
   if (clientes !== undefined) window.CLIENTES = clientes;
 

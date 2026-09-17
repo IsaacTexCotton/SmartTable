@@ -109,6 +109,11 @@
     // IDs confirmados via diagnóstico real (mais confiável que texto/classe).
     ID_BOTAO_REGISTRAR: 'btn-registrar-enviar',
     ID_CAIXA_OBSERVACOES: 'contato-resumo',
+    // Id do botão de relatório, criado pelo Módulo 1 (criarBotao). Buscar por
+    // ID em vez de por texto é o que sobrevive à troca de rótulo: durante a
+    // geração, aoClicar() muda o texto pra "Gerando...", que não contém
+    // "relatório" -- e a busca por texto não achava mais o botão.
+    ID_BOTAO_RELATORIO: 'aviso-cobranca-botao',
     // Id do overlay da busca rápida (Alt+B) -- precisa ser conhecido por
     // estaDigitando() pra que o próprio Alt+B consiga fechar a busca.
     ID_OVERLAY_BUSCA: 'smarttable-busca-rapida',
@@ -459,13 +464,53 @@
     }
   }
 
+  /**
+   * Acha o botão de gerar relatório.
+   *
+   * BUG REAL (intermitente, relatado pelo usuário): a busca era só por
+   * TEXTO, e o Módulo 1 troca o rótulo do botão pra "Gerando..." durante a
+   * geração. Apertar Alt+A enquanto um relatório anterior ainda rodava não
+   * encontrava botão nenhum -- e o relatório novo não saía, sem erro claro.
+   * O ID é criado pelo próprio Módulo 1 e não muda.
+   *
+   * @returns {HTMLElement|null}
+   */
+  function encontrarBotaoRelatorio() {
+    const porId = document.getElementById(CONFIG_ATALHOS.ID_BOTAO_RELATORIO);
+    if (porId) return porId;
+    return encontrarElementoVisivelPorTexto(
+      'button, a[role="button"], [role="button"]',
+      CONFIG_ATALHOS.TEXTO_BOTAO_RELATORIO
+    );
+  }
+
+  /**
+   * Dispara a geração do relatório (mesma ação do Alt+R).
+   *
+   * @returns {HTMLElement|null} O botão acionado, pra quem precisar esperar
+   *   a geração terminar (ver acionarAtendimentoRapido).
+   */
   function acionarGerarRelatorio() {
-    if (!clicarBotaoPorTexto(CONFIG_ATALHOS.TEXTO_BOTAO_RELATORIO)) {
+    const botao = encontrarBotaoRelatorio();
+    if (!botao) {
       console.warn(
-        `[Atalhos] Não encontrei um botão visível com "${CONFIG_ATALHOS.TEXTO_BOTAO_RELATORIO}" no texto. ` +
-        'Me diga o texto exato do botão de gerar relatório pra eu ajustar CONFIG_ATALHOS.TEXTO_BOTAO_RELATORIO.'
+        `[Atalhos] Não encontrei o botão de relatório (#${CONFIG_ATALHOS.ID_BOTAO_RELATORIO} ` +
+        `nem um botão visível com "${CONFIG_ATALHOS.TEXTO_BOTAO_RELATORIO}" no texto). ` +
+        'Confirme se a tabela de títulos carregou nesta página.'
       );
+      return null;
     }
+
+    // Já está gerando: clicar de novo não faz nada (o Módulo 1 desabilita o
+    // botão) e só confundiria. Devolve mesmo assim, pra quem chamou esperar
+    // a geração em curso terminar em vez de seguir por cima dela.
+    if (botao.disabled) {
+      console.log('[Atalhos] Relatório já está sendo gerado -- aguardando o que já está em andamento.');
+      return botao;
+    }
+
+    simularCliqueCompleto(botao);
+    return botao;
   }
 
   function acionarAbrirContato() {
@@ -1126,13 +1171,43 @@
       return;
     }
 
-    // Passo 1: gera o relatório (mesma ação do Alt+R). Roda em paralelo --
-    // não existe uma forma exposta de "esperar terminar de verdade" (é
-    // assíncrono por dentro: captura de imagem, clipboard, download), então
-    // só disparamos e seguimos com os próximos passos depois de um intervalo
-    // curto, igual ao padrão já usado abaixo entre abrir contato e escrever.
-    acionarGerarRelatorio();
-    setTimeout(abrirContatoEEscrever, CONFIG_ATALHOS.ATRASO_ATENDIMENTO_RAPIDO_MS);
+    // Passo 1: gera o relatório (mesma ação do Alt+R).
+    //
+    // BUG REAL (intermitente, relatado pelo usuário): aqui havia uma espera
+    // FIXA de 150ms antes de abrir a tela de contato. Mas a geração é
+    // assíncrona e pode demorar segundos -- o html2canvas é baixado de um
+    // CDN no momento do clique. Com a biblioteca fria, o modal de contato
+    // abria POR CIMA da página enquanto a captura ainda estava rodando, e o
+    // relatório saía errado ou falhava. Com ela quente, dava tempo -- por
+    // isso falhava "às vezes".
+    //
+    // Agora espera o SINAL real de término, a mesma técnica que as abas de
+    // fundo já usavam: o Módulo 1 desabilita o botão no início de aoClicar()
+    // e só reabilita no finally, depois que captura, cópia e download
+    // terminaram. O teto de tempo evita travar o Alt+A se algo der errado
+    // lá dentro.
+    const botaoRelatorio = acionarGerarRelatorio();
+
+    if (!botaoRelatorio) {
+      // Sem botão, não há o que esperar -- segue com o resto do Alt+A pra
+      // não perder a mensagem por causa do relatório.
+      setTimeout(abrirContatoEEscrever, CONFIG_ATALHOS.ATRASO_ATENDIMENTO_RAPIDO_MS);
+      return;
+    }
+
+    const terminou = await esperarCondicaoNaJanela(
+      () => botaoRelatorio.disabled === false,
+      window,
+      CONFIG_ATALHOS.TIMEOUT_AGUARDAR_RELATORIO_PRONTO_MS,
+      CONFIG_ATALHOS.INTERVALO_POLL_OUTRA_RAZAO_MS
+    );
+    if (!terminou) {
+      console.warn(
+        '[Atalhos] O relatório não confirmou término a tempo -- seguindo com a tela de contato mesmo assim.'
+      );
+    }
+
+    abrirContatoEEscrever();
   }
 
   /* ---------------------------------------------------------------------
@@ -1804,6 +1879,9 @@
     esperarRelatorioProntoNaJanela,
     substituirVariaveisDaFrase,
     concordarTitulos,
+    acionarGerarRelatorio,
+    encontrarBotaoRelatorio,
+    acionarAtendimentoRapido,
     abrirBuscaRapida,
     fecharBuscaRapida,
     estaBuscaRapidaAberta: () => overlayBuscaEl !== null,
