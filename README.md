@@ -33,8 +33,52 @@ não envia credenciais). O código não contém segredos/credenciais, mas expõe
 publicamente seletores, endpoints e regras de negócio do CRM interno — decisão
 já tomada e confirmada.
 
-**Nota sobre a URL de atualização**: `@updateURL`/`@downloadURL`/`@require`
-apontam para a branch `main`.
+## Dois canais: desenvolvimento e estável
+
+Existem **dois** arquivos de instalação, e cada pessoa escolhe um:
+
+| Canal | Arquivo | De onde vêm os módulos | Para quem |
+|---|---|---|---|
+| Desenvolvimento | `smart-table.user.js` | branch `main` | Quem desenvolve (Isaac) |
+| Estável | `smart-table-estavel.user.js` | tag congelada (`v1.4.1`) | O resto da equipe |
+
+**Por que isso existe**: antes, os `@require` apontavam só para `main` — ou
+seja, **todo `git push` ia para o navegador de todo mundo** na checagem
+seguinte do Tampermonkey. Sem homologação e sem rollback. Com um usuário só
+isso era quase inofensivo; com duas pessoas, um push quebrado interrompe a
+cobrança de alguém que não faz ideia do porquê.
+
+No canal estável, os `@require` apontam para uma **tag**, que é imutável.
+Trabalho do dia a dia em `main` não chega lá. Só chega uma versão publicada
+de propósito. Os `@updateURL` continuam em `main` nos dois canais — é por
+eles que o Tampermonkey descobre que saiu versão nova.
+
+### Publicar uma versão nova no canal estável
+
+```
+npm run release -- 1.5.0
+```
+
+O script recusa publicar se: a árvore estiver suja, a versão pedida não bater
+com o `@version` do `smart-table.user.js` e o `VERSAO_SMARTTABLE` do Módulo 6,
+a tag já existir, ou a suíte falhar. Passando por tudo isso, ele reaponta os
+`@require` do canal estável para a tag nova, commita e cria a tag localmente —
+e imprime o comando de `push`, que fica com você (tag publicada é chata de
+desfazer).
+
+`tests/wrappers.test.js` trava os dois canais em sincronia: mesma lista de
+módulos, mesma ordem, nenhum módulo órfão em `modulos/`, e o estável nunca
+apontando para `main`. É o erro que não quebraria nada visivelmente — só
+faria duas pessoas rodarem código diferente.
+
+## Integração contínua
+
+`.github/workflows/testes.yml` roda `npm test` em todo push para `main` e em
+todo pull request. Antes disso, as asserções só valiam se alguém lembrasse de
+rodar a suíte à mão antes de empurrar.
+
+**Nota sobre a URL de atualização**: no canal de desenvolvimento,
+`@updateURL`/`@downloadURL`/`@require` apontam para a branch `main`.
 
 ## Versionamento
 
@@ -120,8 +164,9 @@ aviso de não cobrar, alerta de grupo econômico, geração de relatório de
 outras razões, resumo do "Registrar e Enviar", agendamento rápido de
 pagamento, contexto de promessa de pagamento, cliente nunca contatado
 por este negociador, omissão do relatório em recontato, substituição de
-variáveis `{{ }}`/concordância de plural/busca rápida, e classificação de
-títulos do Módulo 1 — prazos, feriados e as 6 situações). Rode `npm test`
+variáveis `{{ }}`/concordância de plural/busca rápida, classificação de
+títulos do Módulo 1 — prazos, feriados e as 6 situações — e a consistência
+entre os dois wrappers do Tampermonkey). Rode `npm test`
 antes de subir qualquer mudança em `modulos/` —
 
 O que não roda no jsdom (captura de imagem, área de transferência, handoff

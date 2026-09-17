@@ -1,0 +1,38 @@
+# Portão de qualidade: nenhuma mudança entra em main sem a suíte verde.
+#
+# POR QUE EXISTE: os @require do canal de desenvolvimento apontam pra branch
+# main, então um push quebrado ia direto pro navegador de quem usa esse
+# canal. Antes disso aqui, as 741 asserções só valiam se alguém lembrasse de
+# rodar `npm test` à mão.
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Permite rodar manualmente pela aba Actions do GitHub.
+  workflow_dispatch:
+
+jobs:
+  testes:
+    name: npm test (jsdom)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      # Mesma major do ambiente de desenvolvimento (v22). Uma versão só --
+      # o script roda no Chrome via Tampermonkey, o Node aqui é só pra rodar
+      # os testes em jsdom.
+      - name: Preparar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Rodar a suíte
+        run: npm test
