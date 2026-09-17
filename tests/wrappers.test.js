@@ -19,6 +19,16 @@ const ESTAVEL = fs.readFileSync(path.join(RAIZ, 'smart-table-estavel.user.js'), 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const BASE_RAW = 'https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/';
 
+// O canal estável é um BRANCH, não uma tag. A decisão está registrada no
+// cabeçalho de scripts/release.js: a sessão que mantém o projeto consegue
+// mover branches e não consegue criar tags, e um canal estável que só avança
+// com ação manual não avança -- ficou sete correções para trás na prática.
+//
+// O nome aparece em dois lugares (aqui e no release.js) e precisa ser o
+// mesmo nos dois: renomear num lugar só daria 404 na máquina de outra
+// pessoa, em silêncio. A última checagem deste arquivo trava isso.
+const BRANCH_ESTAVEL = 'estavel';
+
 /** @param {string} texto @returns {string|null} */
 function versaoDe(texto) {
   return texto.match(/^\/\/ @version\s+(\S+)\s*$/m)?.[1] ?? null;
@@ -111,38 +121,44 @@ checar(
 );
 
 // =====================================================================
-// O ARQUIVO QUE O ESTÁVEL PEDE EXISTE NA TAG DELE?
+// O ARQUIVO QUE O ESTÁVEL PEDE EXISTE NO BRANCH DELE?
 // =====================================================================
 // É a checagem que teria pego o 404 antes de ele chegar na máquina de
-// alguém. Só roda quando a tag está disponível localmente -- o workflow de
-// CI busca as tags justamente pra isso (fetch-depth: 0).
-(function conferirArquivosNaTag() {
-  const tag = refsEstavel[0];
+// alguém. Só roda quando o branch está disponível localmente -- o workflow
+// de CI busca tudo justamente pra isso (fetch-depth: 0). Num clone raso ou
+// antes da primeira publicação, ela se declara pulada em vez de falhar.
+(function conferirArquivosNoBranch() {
   const { execFileSync } = require('child_process');
+  const ref = refsEstavel[0];
 
-  let tagExiste = false;
-  try {
-    execFileSync('git', ['rev-parse', '--verify', `${tag}^{commit}`], { cwd: RAIZ, stdio: 'pipe' });
-    tagExiste = true;
-  } catch (erro) {
-    tagExiste = false;
-  }
+  /** @param {string} r @returns {boolean} */
+  const existeRef = (r) => {
+    try {
+      execFileSync('git', ['rev-parse', '--verify', `${r}^{commit}`], { cwd: RAIZ, stdio: 'pipe' });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
-  if (!tagExiste) {
-    console.log(`  NOTA - tag ${tag} não está disponível aqui; a checagem de conteúdo da tag foi pulada.`);
-    console.log('         (a primeira publicação ainda não aconteceu, ou o clone veio sem tags)');
+  // Local primeiro; no CI o branch costuma existir só como origin/<ref>.
+  const refUsavel = [ref, `origin/${ref}`].find(existeRef);
+
+  if (!refUsavel) {
+    console.log(`  NOTA - ${ref} não está disponível aqui; a checagem de conteúdo do branch foi pulada.`);
+    console.log('         (a primeira publicação ainda não aconteceu, ou o clone veio sem esse branch)');
     return;
   }
 
   arquivosEstavel.forEach((arquivo) => {
     let existe = false;
     try {
-      execFileSync('git', ['cat-file', '-e', `${tag}:${arquivo}`], { cwd: RAIZ, stdio: 'pipe' });
+      execFileSync('git', ['cat-file', '-e', `${refUsavel}:${arquivo}`], { cwd: RAIZ, stdio: 'pipe' });
       existe = true;
-    } catch (erro) {
+    } catch {
       existe = false;
     }
-    checar(`o canal estável pede ${arquivo}, e ele existe em ${tag}`, existe);
+    checar(`o canal estável pede ${arquivo}, e ele existe em ${refUsavel}`, existe);
   });
 })();
 
@@ -165,15 +181,16 @@ requiresDev.forEach(({ arquivo }) => {
 checar('todos os @require do canal de desenvolvimento apontam pra main', requiresDev.every((r) => r.ref === 'main'), JSON.stringify([...new Set(requiresDev.map((r) => r.ref))]));
 
 // =====================================================================
-// Canal estável: sempre numa tag congelada, e a tag tem que ser a da versão
+// Canal estável: sempre no branch `estavel`, nunca em main
 // =====================================================================
 checar('todos os @require do canal estável apontam pra UMA única referência', refsEstavel.length === 1, JSON.stringify(refsEstavel));
 checar('o canal estável NÃO aponta pra main', !refsEstavel.includes('main'), JSON.stringify(refsEstavel));
-checar('a tag do canal estável é a da própria @version', refsEstavel[0] === `v${versaoEstavel}`, `ref=${refsEstavel[0]} versão=${versaoEstavel}`);
+checar(`os @require do canal estável apontam pro branch ${BRANCH_ESTAVEL}`, refsEstavel[0] === BRANCH_ESTAVEL, `ref=${refsEstavel[0]}`);
 
 // =====================================================================
-// updateURL/downloadURL: têm que ficar em main nos DOIS canais, senão o
-// Tampermonkey nunca descobre que saiu versão nova (a tag é imutável).
+// updateURL/downloadURL: têm que ficar em main nos DOIS canais. É por eles
+// que o Tampermonkey descobre que saiu versão nova -- o branch `estavel` só
+// serve os módulos, e o @version que dispara a atualização mora em main.
 // =====================================================================
 [['desenvolvimento', DEV], ['estável', ESTAVEL]].forEach(([nome, texto]) => {
   ['updateURL', 'downloadURL'].forEach((chave) => {
@@ -197,5 +214,24 @@ checar('os dois canais rodam em document-idle', metaDe(DEV, 'run-at') === metaDe
 // Nomes diferentes: senão o Tampermonkey trata os dois como o mesmo script e
 // instalar um sobrescreve o outro.
 checar('os dois canais têm @name diferente', metaDe(DEV, 'name') !== metaDe(ESTAVEL, 'name'));
+
+// =====================================================================
+// O script de publicação e o wrapper falam do MESMO branch
+// =====================================================================
+// Sem isto, renomear o branch num dos dois lugares não quebra nada aqui e
+// só aparece como 404 no navegador de quem está no canal estável.
+const RELEASE = fs.readFileSync(path.join(RAIZ, 'scripts', 'release.js'), 'utf8');
+const branchNoRelease = RELEASE.match(/const BRANCH_ESTAVEL = '([^']+)'/)?.[1];
+checar(
+  'scripts/release.js publica no mesmo branch que os @require do wrapper pedem',
+  branchNoRelease === BRANCH_ESTAVEL,
+  `release=${branchNoRelease} wrapper=${refsEstavel[0]}`
+);
+// A tag deixou de ser o mecanismo; o script não pode ter sobrado com ela.
+checar(
+  'scripts/release.js não cria mais tag',
+  !/'tag'/.test(RELEASE),
+  'o canal estável é branch -- `git tag` aqui é resíduo do desenho antigo'
+);
 
 resumo();

@@ -40,7 +40,7 @@ Existem **dois** arquivos de instalação, e cada pessoa escolhe um:
 | Canal | Arquivo | De onde vêm os módulos | Para quem |
 |---|---|---|---|
 | Desenvolvimento | `smart-table.user.js` | branch `main` | Quem desenvolve (Isaac) |
-| Estável | `smart-table-estavel.user.js` | tag congelada (`v1.4.1`) | O resto da equipe |
+| Estável | `smart-table-estavel.user.js` | branch `estavel` | O resto da equipe |
 
 **Por que isso existe**: antes, os `@require` apontavam só para `main` — ou
 seja, **todo `git push` ia para o navegador de todo mundo** na checagem
@@ -48,28 +48,45 @@ seguinte do Tampermonkey. Sem homologação e sem rollback. Com um usuário só
 isso era quase inofensivo; com duas pessoas, um push quebrado interrompe a
 cobrança de alguém que não faz ideia do porquê.
 
-No canal estável, os `@require` apontam para uma **tag**, que é imutável.
-Trabalho do dia a dia em `main` não chega lá. Só chega uma versão publicada
-de propósito. Os `@updateURL` continuam em `main` nos dois canais — é por
-eles que o Tampermonkey descobre que saiu versão nova.
+No canal estável, os `@require` apontam para o branch **`estavel`**, que só
+anda quando uma versão é publicada de propósito. Trabalho do dia a dia em
+`main` não chega lá. Os `@updateURL` continuam em `main` nos dois canais — é
+por eles que o Tampermonkey descobre que saiu versão nova.
+
+**Por que branch e não tag** (decisão registrada, com o custo à vista): o
+desenho original usava tag, que é imutável e seria a escolha certa num mundo
+sem atrito. Mas a sessão de manutenção deste projeto consegue mover branches
+e **não** consegue criar tags (403 do GitHub, verificado), então com tag toda
+publicação dependeria de um comando manual seu — e foi exatamente por isso
+que o canal estável ficou parado em `v1.4.1` enquanto o `main` acumulava sete
+correções. O que se perde é a garantia de que uma versão publicada nunca
+muda; o que se mantém, que era o objetivo, é que **o canal estável não se
+move quando o `main` anda**.
+
+No lugar da imutabilidade, o script de publicação ganhou uma trava explícita:
+a versão publicada precisa ser **estritamente maior** que a que já está no ar,
+para que "publicar" nunca signifique "voltar atrás em silêncio".
 
 ### Publicar uma versão nova no canal estável
 
 ```
 npm run release -- 1.5.0
+npm run release -- 1.5.0 --local     # prepara sem empurrar
 ```
 
 O script recusa publicar se: a árvore estiver suja, a versão pedida não bater
 com o `@version` do `smart-table.user.js` e o `VERSAO_SMARTTABLE` do Módulo 6,
-a tag já existir, ou a suíte falhar. Passando por tudo isso, ele reaponta os
-`@require` do canal estável para a tag nova, commita e cria a tag localmente —
-e imprime o comando de `push`, que fica com você (tag publicada é chata de
-desfazer).
+a versão não for maior que a publicada, ou a suíte falhar. Passando por tudo
+isso, ele regera os `@require` do canal estável, commita o arquivo em `main`,
+aponta o branch `estavel` para esse commit e empurra os dois (`main` primeiro,
+porque é de lá que o Tampermonkey lê o `@version` novo).
 
-`tests/wrappers.test.js` trava os dois canais em sincronia: mesma lista de
-módulos, mesma ordem, nenhum módulo órfão em `modulos/`, e o estável nunca
-apontando para `main`. É o erro que não quebraria nada visivelmente — só
-faria duas pessoas rodarem código diferente.
+`tests/wrappers.test.js` trava os dois canais em sincronia: mesma ordem de
+módulos, nenhum módulo órfão em `modulos/`, o estável nunca apontando para
+`main`, todo arquivo que o estável pede existindo de fato em `estavel`, e o
+`release.js` publicando no mesmo branch que o wrapper pede. É o erro que não
+quebraria nada visivelmente — só faria duas pessoas rodarem código
+diferente.
 
 ## Medindo se a régua de prioridade funciona
 
