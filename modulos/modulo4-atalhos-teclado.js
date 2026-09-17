@@ -1741,6 +1741,12 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.11.2', data: '17/09/2026',
+      mudancas: [
+        'Corrigido: ao FECHAR a barra de navegação rápida, o alerta de grupo não subia junto e ficava com um vão.',
+      ],
+    },
+    {
       versao: '1.11.1', data: '17/09/2026',
       mudancas: [
         'Corrigido: o alerta de grupo econômico existia mas ficava escondido atrás da barra de navegação rápida do CRM.',

@@ -51,6 +51,18 @@ function novaJanela({ url, bodyHtml, clientes, specs }) {
   // e sem estes globais o fallback estourava ReferenceError -- fora do
   // try/catch, derrubando o clique inteiro. PointerEvent pode não existir no
   // jsdom; nesse caso o fallback pra MouseEvent é justamente o caminho certo.
+  // jsdom não implementa ResizeObserver, e código que só o usa como
+  // "observar mudança de tamanho" fica sem cobertura nenhuma sem isto. Stub
+  // mínimo: construtível e desconectável. Não dispara sozinho -- quem
+  // precisa testar a reação usa MutationObserver, que o jsdom tem de verdade.
+  if (typeof window.ResizeObserver !== 'function') {
+    window.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  }
+  global.ResizeObserver = window.ResizeObserver;
   global.Event = window.Event;
   global.MouseEvent = window.MouseEvent;
   global.PointerEvent = window.PointerEvent;

@@ -46,6 +46,12 @@
     INDICE_COLUNA_CNPJ: 0,
     INDICE_COLUNA_RAZAO_SOCIAL: 1,
     INDICE_COLUNA_VENCIDO: 3,
+    // Por quanto tempo o banner fica seguindo a área fixa depois de uma
+    // mudança. A barra de navegação rápida do CRM abre e fecha com
+    // transição CSS: medir uma vez só, no instante em que a classe muda,
+    // pega a altura do MEIO da animação -- ou nem isso, pega a de antes.
+    // Seguir por um instante faz o banner acompanhar e parar no valor final.
+    DURACAO_SEGUIR_ANIMACAO_MS: 600,
   };
 
   /* ---------------------------------------------------------------------
@@ -210,28 +216,76 @@
     function reajustar() {
       banner.style.top = obterFimDaAreaFixaSuperior() + 'px';
     }
-    reajustar();
-    requestAnimationFrame(reajustar);
-    setTimeout(reajustar, 300);
+
+    let seguirAte = 0;
+    let seguindo = false;
+
+    /**
+     * Reajusta a cada quadro por um instante, em vez de uma vez só.
+     *
+     * BUG REAL (relatado pelo usuário): ao FECHAR a barra de navegação
+     * rápida, o banner não acompanhava e ficava com um vão. O observer
+     * disparava no instante em que a classe muda -- ou seja, no COMEÇO da
+     * transição CSS, quando a barra ainda está aberta. Media o valor velho e
+     * não media mais. Seguindo por alguns quadros, o banner acompanha a
+     * animação e para no valor final, sem precisar saber a duração dela nem
+     * depender de transitionend (que não dispara se não houver transição).
+     */
+    function seguirPorUmInstante() {
+      seguirAte = Date.now() + CONFIG_GRUPO.DURACAO_SEGUIR_ANIMACAO_MS;
+      if (seguindo) return; // já tem um laço rodando; ele só estendeu o prazo
+      seguindo = true;
+      (function passo() {
+        // isConnected, e não document.body.contains(): não depende de QUAL
+        // document está corrente, o que importa quando o módulo roda em mais
+        // de uma janela (abas de fundo do Alt+A/Alt+U, e o harness de teste).
+        if (!banner.isConnected) { seguindo = false; return; }
+        reajustar();
+        if (Date.now() < seguirAte) {
+          requestAnimationFrame(passo);
+        } else {
+          seguindo = false;
+        }
+      })();
+    }
+
+    // Só o laço de seguimento: ele já cobre os primeiros 600ms quadro a
+    // quadro, então o `setTimeout(reajustar, 300)` que existia aqui virou
+    // redundante. Pior que redundante -- ele mascarava a falha ao fechar a
+    // barra, corrigindo a posição por outro caminho e deixando o teste
+    // passar mesmo com o observer medindo cedo demais.
+    seguirPorUmInstante();
 
     const header = obterElementoHeaderFixo();
-    if (header && typeof ResizeObserver === 'function') {
-      const observerHeader = new ResizeObserver(reajustar);
-      observerHeader.observe(header);
+    if (!header) return;
+
+    // CORRIGIDO: o MutationObserver abaixo estava DENTRO do teste de
+    // ResizeObserver. São capacidades independentes -- num navegador (ou
+    // ambiente de teste) sem ResizeObserver, o banner perdia junto o
+    // acompanhamento de abrir/fechar da barra, que é o caso que mais
+    // acontece na prática.
+    const observadorTamanho =
+      typeof ResizeObserver === 'function' ? new ResizeObserver(seguirPorUmInstante) : null;
+    if (observadorTamanho) observadorTamanho.observe(header);
+    {
 
       // A barra de navegação rápida ABRE E FECHA por clique do usuário, e é
       // `position: absolute` -- então o header não muda de tamanho quando
       // isso acontece, e o ResizeObserver acima não dispara. Observar
       // atributos e filhos do header pega a troca de classe/display que
       // abre e fecha a barra, e o banner desce ou sobe junto.
-      const observerConteudoHeader = new MutationObserver(reajustar);
+      //
+      // Dispara seguirPorUmInstante, não reajustar: a mudança de classe
+      // acontece no COMEÇO da transição, quando a barra ainda está do
+      // tamanho antigo.
+      const observerConteudoHeader = new MutationObserver(seguirPorUmInstante);
       observerConteudoHeader.observe(header, { attributes: true, childList: true, subtree: true });
       observadoresExtras.push(observerConteudoHeader);
       // Desliga sozinho quando o banner sai da tela (fechado ou trocou de
       // página) -- sem isso, o observer ficaria vivo pra sempre.
       const paradaObserver = new MutationObserver(() => {
-        if (!document.body.contains(banner)) {
-          observerHeader.disconnect();
+        if (!banner.isConnected) {
+          if (observadorTamanho) observadorTamanho.disconnect();
           observadoresExtras.forEach((o) => o.disconnect());
           paradaObserver.disconnect();
         }
@@ -456,5 +510,6 @@
     verificarOutrasEmpresasComVencido,
     limparValorMonetario,
     obterFimDaAreaFixaSuperior,
+    CONFIG_GRUPO,
   };
 })();
