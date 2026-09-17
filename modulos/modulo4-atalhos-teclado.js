@@ -20,6 +20,8 @@
  *               uma continua sendo Alt+R manual, dentro de cada aba)
  *   Alt + B  -> Busca rápida de cliente       (por nome ou CNPJ, sem sair
  *               da lista -- reescreve o ?search= da URL atual)
+ *   Alt + L  -> Ver o que mudou nas últimas versões (log de atualização,
+ *               com marcação do que chegou desde a sua última leitura)
  *   Alt + H  -> Abrir/fechar painel de ajuda  (mostra esta lista na tela)
  *
  * Fluxo típico com teclado: Alt+C (abre contato) -> Alt+F (escolhe frase)
@@ -74,6 +76,7 @@
     TECLA_SELECIONAR_FRASE: 'KeyF',
     TECLA_REGISTRAR_ENVIAR: 'KeyS',
     TECLA_AJUDA: 'KeyH',
+    TECLA_NOVIDADES: 'KeyL',
     TECLA_BUSCA_RAPIDA: 'KeyB',
     TECLA_ATENDIMENTO_RAPIDO: 'KeyA',
     TECLA_ABRIR_GRUPO_VENCIDO: 'KeyG',
@@ -117,6 +120,9 @@
     // Id do overlay da busca rápida (Alt+B) -- precisa ser conhecido por
     // estaDigitando() pra que o próprio Alt+B consiga fechar a busca.
     ID_OVERLAY_BUSCA: 'smarttable-busca-rapida',
+    // Última versão cujo log de atualização já foi lido -- é o que permite
+    // marcar como NOVO só o que chegou depois da sua última olhada.
+    CHAVE_ULTIMA_VERSAO_VISTA: 'smarttable_ultima_versao_vista',
   };
 
   // Fonte única de verdade pra lista de atalhos — usada tanto no aviso do
@@ -134,6 +140,7 @@
     { tecla: 'Alt+V', descricao: 'Voltar um cliente na fila' },
     { tecla: 'Alt+G', descricao: 'Abrir em nova aba as outras razões do grupo com saldo vencido' },
     { tecla: 'Alt+B', descricao: 'Busca rápida de cliente' },
+    { tecla: 'Alt+L', descricao: 'Ver o que mudou nas últimas versões' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
   ];
 
@@ -1722,6 +1729,224 @@
   }
 
   /* ---------------------------------------------------------------------
+   * 3.3a LOG DE ATUALIZAÇÃO (Alt+L)
+   * -----------------------------------------------------------------
+   * O que mudou em cada versão, em linguagem de quem USA o script -- não
+   * mensagem de commit. A entrada mais recente fica em primeiro.
+   *
+   * MANTER ATUALIZADO a cada bump: tests/changelog.test.js FALHA se a versão
+   * do topo desta lista não for a mesma de VERSAO_SMARTTABLE (Módulo 6). É
+   * de propósito -- changelog que envelhece em silêncio é pior que não ter,
+   * porque passa a mentir sobre o que está rodando.
+   * --------------------------------------------------------------------- */
+  const LOG_ATUALIZACOES = [
+    {
+      versao: '1.9.0', data: '17/09/2026',
+      mudancas: [
+        'Novo atalho Alt+L: mostra este log de atualização, com o que chegou desde a sua última leitura marcado como NOVO.',
+      ],
+    },
+    {
+      versao: '1.8.0', data: '17/09/2026',
+      mudancas: [
+        'A fila do Alt+U volta a sair 100% na ordem da régua -- o sorteio de posição que reordenava 1 em cada 5 clientes foi desligado.',
+        'O diário continua gravando tudo; só a comparação "a ordem da régua ajuda?" fica em suspenso.',
+      ],
+    },
+    {
+      versao: '1.7.0', data: '17/09/2026',
+      mudancas: [
+        'Corrigido: o sorteio de posição nunca alcançava o fim da fila, o que enviesava a medição a favor da régua.',
+      ],
+    },
+    {
+      versao: '1.6.0', data: '17/09/2026',
+      mudancas: [
+        'Cliente que prometeu pagar HOJE não recebe mais "Podemos agendar para hoje?" -- agora pede o comprovante.',
+        'Pagamento parcial passa a pedir "Consegue quitar o restante hoje?" em vez de falar do débito como se nada tivesse sido pago.',
+      ],
+    },
+    {
+      versao: '1.5.1', data: '17/09/2026',
+      mudancas: [
+        'Corrigido: o Alt+A às vezes não gerava o relatório. Agora ele espera a geração TERMINAR antes de abrir a tela de contato.',
+        'Efeito colateral: a tela de contato abre alguns segundos depois no primeiro Alt+A do dia. É o preço de não perder o relatório.',
+      ],
+    },
+    {
+      versao: '1.5.0', data: '17/09/2026',
+      mudancas: [
+        'Novo diário de cobrança: registra a fila, a cobrança enviada e a baixa detectada.',
+        'Veja a análise com window.__diario.relatorio() no console.',
+      ],
+    },
+    {
+      versao: '1.4.0', data: '17/09/2026',
+      mudancas: [
+        'Corrigido: o relatório era omitido por engano quando um título vencia no mesmo dia do último contato.',
+        'Corrigido: o agradecimento de pagamento sumia se você recarregasse a página antes do Alt+A.',
+        'Corrigido: um saldo ilegível virava R$ 0,00 em silêncio na mensagem. Agora a variável fica visível e avisa.',
+        'Alt+B passa a fechar a própria busca rápida.',
+      ],
+    },
+    {
+      versao: '1.3.0', data: '16/09/2026',
+      mudancas: [
+        'As mensagens passam a se apresentar com o nome de quem está logado no CRM, não com um nome fixo no código.',
+        'A régua de "nunca contatado por mim" também segue o usuário logado.',
+      ],
+    },
+    {
+      versao: '1.1.0', data: '16/09/2026',
+      mudancas: [
+        'Cliente já contatado por outro negociador, mas nunca por você, recebe a linha de apresentação.',
+      ],
+    },
+  ];
+
+  let painelNovidadesEl = null;
+
+  /**
+   * Compara duas versões semver. Devolve >0 se `a` for mais nova que `b`.
+   *
+   * @param {string} a @param {string} b @returns {number}
+   */
+  function compararVersoes(a, b) {
+    const pa = String(a).split('.').map(Number);
+    const pb = String(b).split('.').map(Number);
+    for (let i = 0; i < 3; i += 1) {
+      if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+    }
+    return 0;
+  }
+
+  function lerUltimaVersaoVista() {
+    try {
+      return localStorage.getItem(CONFIG_ATALHOS.CHAVE_ULTIMA_VERSAO_VISTA);
+    } catch (erro) {
+      return null; // localStorage bloqueado -- só perde a marcação de NOVO
+    }
+  }
+
+  function marcarLogComoLido() {
+    try {
+      localStorage.setItem(CONFIG_ATALHOS.CHAVE_ULTIMA_VERSAO_VISTA, LOG_ATUALIZACOES[0].versao);
+    } catch (erro) {
+      /* sem drama -- o log continua abrindo, só repete o "NOVO" da próxima vez */
+    }
+  }
+
+  /**
+   * Versões do log que chegaram depois da última leitura.
+   * Primeira vez (nada salvo): nenhuma é marcada, senão abriria com tudo
+   * piscando "NOVO", o que não informa nada.
+   *
+   * @returns {Set<string>}
+   */
+  function versoesNaoLidas() {
+    const vista = lerUltimaVersaoVista();
+    if (!vista) return new Set();
+    return new Set(LOG_ATUALIZACOES.filter((e) => compararVersoes(e.versao, vista) > 0).map((e) => e.versao));
+  }
+
+  function alternarPainelNovidades() {
+    if (painelNovidadesEl) {
+      painelNovidadesEl.remove();
+      painelNovidadesEl = null;
+      return;
+    }
+
+    const naoLidas = versoesNaoLidas();
+
+    painelNovidadesEl = document.createElement('div');
+    Object.assign(painelNovidadesEl.style, {
+      position: 'fixed',
+      bottom: '112px',
+      left: '16px',
+      background: '#ffffff',
+      border: '1px solid #d0d5dd',
+      borderRadius: '10px',
+      padding: '14px 16px',
+      boxShadow: '0 4px 18px rgba(0,0,0,0.18)',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontSize: '13px',
+      // Mesmo z-index do banner de grupo (Módulo 5): fica ABAIXO dos modais
+      // do CRM, que usam z-50, pra nunca cortar um modal ao meio.
+      zIndex: 30,
+      width: '420px',
+      maxWidth: '90vw',
+      maxHeight: '60vh',
+      overflowY: 'auto',
+    });
+
+    const titulo = document.createElement('div');
+    titulo.textContent = `O que mudou — você está na v${LOG_ATUALIZACOES[0].versao}`;
+    Object.assign(titulo.style, {
+      color: '#16232F', fontWeight: '700', fontSize: '14px',
+      marginBottom: '10px', borderBottom: '1px solid #eef2f6', paddingBottom: '6px',
+      position: 'sticky', top: '0', background: '#fff',
+    });
+    painelNovidadesEl.appendChild(titulo);
+
+    LOG_ATUALIZACOES.forEach((entrada) => {
+      const bloco = document.createElement('div');
+      bloco.style.marginBottom = '12px';
+
+      const cabecalho = document.createElement('div');
+      Object.assign(cabecalho.style, { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' });
+
+      const versao = document.createElement('span');
+      versao.textContent = `v${entrada.versao}`;
+      Object.assign(versao.style, {
+        fontFamily: 'ui-monospace, monospace', background: '#eef2f6', color: '#16232F',
+        padding: '2px 7px', borderRadius: '5px', fontWeight: '600', fontSize: '12px',
+      });
+      cabecalho.appendChild(versao);
+
+      const data = document.createElement('span');
+      data.textContent = entrada.data;
+      Object.assign(data.style, { color: '#98a2b3', fontSize: '11px' });
+      cabecalho.appendChild(data);
+
+      if (naoLidas.has(entrada.versao)) {
+        const novo = document.createElement('span');
+        novo.textContent = 'NOVO';
+        Object.assign(novo.style, {
+          background: '#1B6B4A', color: '#fff', padding: '1px 6px',
+          borderRadius: '4px', fontSize: '10px', fontWeight: '700', letterSpacing: '.04em',
+        });
+        cabecalho.appendChild(novo);
+      }
+
+      bloco.appendChild(cabecalho);
+
+      entrada.mudancas.forEach((texto) => {
+        const linha = document.createElement('div');
+        linha.textContent = `• ${texto}`;
+        Object.assign(linha.style, { color: '#344054', lineHeight: '1.45', paddingLeft: '2px', marginTop: '2px' });
+        bloco.appendChild(linha);
+      });
+
+      painelNovidadesEl.appendChild(bloco);
+    });
+
+    const dica = document.createElement('div');
+    dica.textContent = 'Alt+L de novo pra fechar';
+    Object.assign(dica.style, {
+      marginTop: '4px', paddingTop: '6px', borderTop: '1px solid #eef2f6',
+      color: '#98a2b3', fontSize: '11px', textAlign: 'center',
+      position: 'sticky', bottom: '0', background: '#fff',
+    });
+    painelNovidadesEl.appendChild(dica);
+
+    document.body.appendChild(painelNovidadesEl);
+
+    // Marca como lido só DEPOIS de montar: se algo acima falhar, o "NOVO"
+    // continua na próxima abertura em vez de sumir sem ter sido visto.
+    marcarLogComoLido();
+  }
+
+  /* ---------------------------------------------------------------------
    * 3.3 PAINEL DE AJUDA (Alt+H) — lista visual dos atalhos, liga/desliga
    * --------------------------------------------------------------------- */
   function alternarPainelAjuda() {
@@ -1877,6 +2102,10 @@
           e.preventDefault();
           alternarPainelAjuda();
           break;
+        case CONFIG_ATALHOS.TECLA_NOVIDADES:
+          e.preventDefault();
+          alternarPainelNovidades();
+          break;
         case CONFIG_ATALHOS.TECLA_BUSCA_RAPIDA:
           e.preventDefault();
           abrirBuscaRapida();
@@ -1918,6 +2147,10 @@
     concordarTitulos,
     acionarGerarRelatorio,
     encontrarBotaoRelatorio,
+    LOG_ATUALIZACOES,
+    alternarPainelNovidades,
+    versoesNaoLidas,
+    compararVersoes,
     obterPerguntaFinal,
     acionarAtendimentoRapido,
     abrirBuscaRapida,

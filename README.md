@@ -175,7 +175,10 @@ decisões, armadilhas e itens em aberto.
    **Não editar sem confirmação explícita do usuário.**
 3. `modulo3-fila-atendimento.js` — percorre a lista de clientes sozinha,
    priorizada por urgência, avança automaticamente após cada registro.
-4. `modulo4-atalhos-teclado.js` — fluxo por teclado (`Alt+letra`).
+4. `modulo4-atalhos-teclado.js` — fluxo por teclado (`Alt+letra`). Inclui o
+   log de atualização (`Alt+L`), cuja lista `LOG_ATUALIZACOES` **precisa ser
+   atualizada a cada bump de versão** — `tests/changelog.test.js` falha se a
+   versão do topo divergir de `VERSAO_SMARTTABLE`.
 5. `modulo5-alerta-grupo.js` — avisa se outra empresa do mesmo grupo
    econômico também tem título vencido.
 6. `modulo6-contexto-adicional.js` — lê Promessas e Contatos ao carregar a
