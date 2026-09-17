@@ -73,13 +73,28 @@ function reescreverWrapperEstavel(versao) {
   const original = fs.readFileSync(WRAPPER_ESTAVEL, 'utf8');
   let reapontados = 0;
 
+  // A lista de módulos vem do wrapper de DESENVOLVIMENTO, não da versão
+  // anterior do estável.
+  //
+  // BUG REAL que motivou isto: um módulo novo foi adicionado aos DOIS
+  // wrappers de uma vez, então o estável (parado na tag antiga) passou a
+  // pedir um arquivo que não existia naquela tag -- 404, e o canal estável
+  // simplesmente não carregava. O canal estável fica para trás DE PROPÓSITO,
+  // e a lista dele tem que refletir o que existia no momento da publicação.
+  // Gerando a lista aqui, ela sempre bate com o conteúdo da tag.
+  const linhasRequireDev = (fs.readFileSync(WRAPPER_DEV, 'utf8').match(/^\/\/ @require\s+\S+$/gm) ?? []);
+  const requiresNovos = linhasRequireDev.map((linha) => {
+    reapontados += 1;
+    return linha.replace(
+      /(https:\/\/raw\.githubusercontent\.com\/IsaacTexCotton\/SmartTable\/)[^/]+(\/modulos\/)/,
+      `$1${tag}$2`
+    );
+  });
+
   const atualizado = original
     .replace(/^(\/\/ @version\s+)\S+$/m, `$1${versao}`)
-    .replace(/^(\/\/ @require\s+https:\/\/raw\.githubusercontent\.com\/IsaacTexCotton\/SmartTable\/)[^/]+(\/modulos\/)/gm,
-      (_todo, prefixo, sufixo) => {
-        reapontados += 1;
-        return `${prefixo}${tag}${sufixo}`;
-      })
+    // Substitui o BLOCO inteiro de @require pelo gerado acima.
+    .replace(/^\/\/ @require\s+\S+$(\n\/\/ @require\s+\S+$)*/m, requiresNovos.join('\n'))
     // O comentário do rodapé cita a tag vigente -- mantém coerente.
     .replace(/uma TAG \(v[^)]+\)/, `uma TAG (${tag})`);
 

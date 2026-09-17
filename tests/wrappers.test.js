@@ -59,6 +59,7 @@ const versaoDev = versaoDe(DEV);
 const versaoEstavel = versaoDe(ESTAVEL);
 const requiresDev = requiresDe(DEV);
 const requiresEstavel = requiresDe(ESTAVEL);
+const refsEstavel = [...new Set(requiresEstavel.map((r) => r.ref))];
 
 // =====================================================================
 // Versões
@@ -74,20 +75,76 @@ const versaoModulo = fs
 checar('VERSAO_SMARTTABLE do Módulo 6 bate com o canal de desenvolvimento', versaoModulo === versaoDev, `modulo=${versaoModulo} wrapper=${versaoDev}`);
 
 // =====================================================================
-// Os dois wrappers carregam os MESMOS módulos, na MESMA ordem
+// O canal estável FICA PARA TRÁS de propósito
 // =====================================================================
+// CORRIGIDO (bug real, achado antes de publicar a primeira tag): aqui havia
+// uma asserção de que os dois canais carregassem os MESMOS módulos. Isso é
+// errado por construção -- o estável aponta pra uma tag congelada, então
+// entre uma publicação e outra ele legitimamente tem MENOS módulos que o
+// main. A asserção forçou adicionar um módulo novo aos dois wrappers de uma
+// vez, e o estável passou a pedir da tag antiga um arquivo que não existia
+// lá: 404, e o canal estável não carregava.
+//
+// O que de fato precisa ser verdade é o teste abaixo: todo arquivo que o
+// estável pede EXISTE na tag dele.
 const arquivosDev = requiresDev.map((r) => r.arquivo);
 const arquivosEstavel = requiresEstavel.map((r) => r.arquivo);
 
-checar('os dois canais têm a mesma quantidade de módulos', arquivosDev.length === arquivosEstavel.length, `dev=${arquivosDev.length} estável=${arquivosEstavel.length}`);
+checar('o canal estável não pede mais módulos do que existem em main', arquivosEstavel.length <= arquivosDev.length, `dev=${arquivosDev.length} estável=${arquivosEstavel.length}`);
 checar(
-  'os dois canais carregam os mesmos módulos na mesma ordem',
-  arquivosDev.join('|') === arquivosEstavel.join('|'),
-  `\n    dev     = ${arquivosDev.join(', ')}\n    estável = ${arquivosEstavel.join(', ')}`
+  'todo módulo do canal estável também existe no canal de desenvolvimento',
+  arquivosEstavel.every((a) => arquivosDev.includes(a)),
+  `\n    sobrando no estável = ${arquivosEstavel.filter((a) => !arquivosDev.includes(a)).join(', ') || '(nenhum)'}`
 );
 
 // A ordem importa de verdade: o Módulo 0 precisa vir antes de todos.
-checar('Módulo 0 é o primeiro a carregar', /modulo0-/.test(arquivosDev[0] ?? ''), arquivosDev[0]);
+checar('Módulo 0 é o primeiro a carregar no canal de desenvolvimento', /modulo0-/.test(arquivosDev[0] ?? ''), arquivosDev[0]);
+checar('Módulo 0 é o primeiro a carregar no canal estável', /modulo0-/.test(arquivosEstavel[0] ?? ''), arquivosEstavel[0]);
+
+// A ordem relativa dos módulos que os dois compartilham tem que ser a mesma
+// -- ordem de carregamento é dependência, não estética.
+const devFiltrado = arquivosDev.filter((a) => arquivosEstavel.includes(a));
+checar(
+  'a ordem relativa dos módulos compartilhados é a mesma nos dois canais',
+  devFiltrado.join('|') === arquivosEstavel.join('|'),
+  `\n    dev (filtrado) = ${devFiltrado.join(', ')}\n    estável        = ${arquivosEstavel.join(', ')}`
+);
+
+// =====================================================================
+// O ARQUIVO QUE O ESTÁVEL PEDE EXISTE NA TAG DELE?
+// =====================================================================
+// É a checagem que teria pego o 404 antes de ele chegar na máquina de
+// alguém. Só roda quando a tag está disponível localmente -- o workflow de
+// CI busca as tags justamente pra isso (fetch-depth: 0).
+(function conferirArquivosNaTag() {
+  const tag = refsEstavel[0];
+  const { execFileSync } = require('child_process');
+
+  let tagExiste = false;
+  try {
+    execFileSync('git', ['rev-parse', '--verify', `${tag}^{commit}`], { cwd: RAIZ, stdio: 'pipe' });
+    tagExiste = true;
+  } catch (erro) {
+    tagExiste = false;
+  }
+
+  if (!tagExiste) {
+    console.log(`  NOTA - tag ${tag} não está disponível aqui; a checagem de conteúdo da tag foi pulada.`);
+    console.log('         (a primeira publicação ainda não aconteceu, ou o clone veio sem tags)');
+    return;
+  }
+
+  arquivosEstavel.forEach((arquivo) => {
+    let existe = false;
+    try {
+      execFileSync('git', ['cat-file', '-e', `${tag}:${arquivo}`], { cwd: RAIZ, stdio: 'pipe' });
+      existe = true;
+    } catch (erro) {
+      existe = false;
+    }
+    checar(`o canal estável pede ${arquivo}, e ele existe em ${tag}`, existe);
+  });
+})();
 
 // =====================================================================
 // Nenhum módulo órfão: tudo que está em modulos/ é carregado, e tudo que é
@@ -96,7 +153,7 @@ checar('Módulo 0 é o primeiro a carregar', /modulo0-/.test(arquivosDev[0] ?? '
 const emDisco = fs.readdirSync(path.join(RAIZ, 'modulos')).filter((f) => f.endsWith('.js')).sort();
 const carregados = arquivosDev.map((a) => a.replace(/^modulos\//, '')).sort();
 
-checar('todo módulo em modulos/ é carregado por algum @require', emDisco.join('|') === carregados.join('|'), `\n    disco     = ${emDisco.join(', ')}\n    carregados = ${carregados.join(', ')}`);
+checar('todo módulo em modulos/ é carregado pelo canal de desenvolvimento', emDisco.join('|') === carregados.join('|'), `\n    disco     = ${emDisco.join(', ')}\n    carregados = ${carregados.join(', ')}`);
 
 requiresDev.forEach(({ arquivo }) => {
   checar(`o arquivo do @require existe em disco: ${arquivo}`, fs.existsSync(path.join(RAIZ, arquivo)));
@@ -110,7 +167,6 @@ checar('todos os @require do canal de desenvolvimento apontam pra main', require
 // =====================================================================
 // Canal estável: sempre numa tag congelada, e a tag tem que ser a da versão
 // =====================================================================
-const refsEstavel = [...new Set(requiresEstavel.map((r) => r.ref))];
 checar('todos os @require do canal estável apontam pra UMA única referência', refsEstavel.length === 1, JSON.stringify(refsEstavel));
 checar('o canal estável NÃO aponta pra main', !refsEstavel.includes('main'), JSON.stringify(refsEstavel));
 checar('a tag do canal estável é a da própria @version', refsEstavel[0] === `v${versaoEstavel}`, `ref=${refsEstavel[0]} versão=${versaoEstavel}`);

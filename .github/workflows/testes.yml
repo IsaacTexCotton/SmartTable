@@ -21,6 +21,13 @@ jobs:
     steps:
       - name: Baixar o repositório
         uses: actions/checkout@v4
+        with:
+          # Histórico completo COM as tags: tests/wrappers.test.js confere que
+          # todo arquivo pedido pelo canal estável existe de verdade na tag
+          # dele. Sem as tags, essa checagem é pulada em silêncio no CI -- e
+          # ela é justamente a que pega um 404 antes de chegar na máquina de
+          # quem usa o canal estável.
+          fetch-depth: 0
 
       # Mesma major do ambiente de desenvolvimento (v22). Uma versão só --
       # o script roda no Chrome via Tampermonkey, o Node aqui é só pra rodar

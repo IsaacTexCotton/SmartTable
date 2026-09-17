@@ -10,7 +10,6 @@
 // @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table-estavel.user.js
 // @downloadURL  https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table-estavel.user.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/v1.4.1/modulos/modulo0-utilitarios-compartilhados.js
-// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/v1.4.1/modulos/modulo8-diario.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/v1.4.1/modulos/modulo1-aviso-cobranca.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/v1.4.1/modulos/modulo2-registrar-enviar.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/v1.4.1/modulos/modulo3-fila-atendimento.js
