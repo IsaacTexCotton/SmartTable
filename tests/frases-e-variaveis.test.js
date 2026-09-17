@@ -98,7 +98,7 @@ checar('ao + 3 -> "aos títulos"', concordarTitulos('ao', 3) === 'aos títulos',
 // input dela, e estaDigitando() barrava o próprio atalho que deveria fechar.
 // =====================================================================
 (function () {
-  const { abrirBuscaRapida, estaBuscaRapidaAberta, fecharBuscaRapida } = w.__atalhosDebug;
+  const { estaBuscaRapidaAberta, fecharBuscaRapida } = w.__atalhosDebug;
 
   function apertarAltB() {
     w.document.dispatchEvent(new w.KeyboardEvent('keydown', { code: 'KeyB', altKey: true, bubbles: true, cancelable: true }));

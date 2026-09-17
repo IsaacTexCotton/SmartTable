@@ -164,8 +164,16 @@ function comControleLigado(d, fn) {
   comControleLigado(d, () => {
   const cnpj = cnpjFicticio(7);
   const dia = 20260917;
-  checar('ehGrupoControle é determinístico no mesmo dia', d.ehGrupoControle(cnpj, dia) === d.ehGrupoControle(cnpj, dia));
-  checar('sorteioEstavel é determinístico no mesmo dia', d.sorteioEstavel(cnpj, dia) === d.sorteioEstavel(cnpj, dia));
+  // Capturado em variáveis de propósito: comparar a chamada com ela mesma na
+  // mesma expressão não prova determinismo nenhum pro leitor (e o ESLint
+  // reclama, com razão).
+  const grupoPrimeira = d.ehGrupoControle(cnpj, dia);
+  const grupoSegunda = d.ehGrupoControle(cnpj, dia);
+  checar('ehGrupoControle é determinístico no mesmo dia', grupoPrimeira === grupoSegunda);
+
+  const sorteioPrimeiro = d.sorteioEstavel(cnpj, dia);
+  const sorteioSegundo = d.sorteioEstavel(cnpj, dia);
+  checar('sorteioEstavel é determinístico no mesmo dia', sorteioPrimeiro === sorteioSegundo);
   checar('sorteioEstavel fica no intervalo [0,1)', d.sorteioEstavel(cnpj, dia) >= 0 && d.sorteioEstavel(cnpj, dia) < 1);
   });
 })();
@@ -267,7 +275,6 @@ function comControleLigado(d, fn) {
 (function () {
   const w = abrir();
   const d = w.__diario;
-  const hoje = d.chaveDia();
 
   // Cliente 1: entrou na fila, foi contatado, e o título sumiu no mesmo dia.
   d.registrarLote('fila', [{ c: 'AAA', f: 3, p: 1, k: 0, s: 'EM_ATRASO', a: 2 }]);

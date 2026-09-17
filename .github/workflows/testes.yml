@@ -41,5 +41,9 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
+      # Lint ANTES dos testes: é mais rápido e a falha é mais fácil de ler.
+      - name: Lint
+        run: npm run lint
+
       - name: Rodar a suíte
         run: npm test

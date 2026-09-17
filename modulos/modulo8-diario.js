@@ -560,7 +560,144 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 7. INICIALIZAÇÃO
+   * 7. AUTOCONFERÊNCIA (window.__conferir)
+   * -----------------------------------------------------------------
+   * Checa invariantes contra o estado REAL da página e do storage.
+   *
+   * POR QUE ISTO EXISTE, e por que não é "mais um teste": os bugs que
+   * chegaram a atrapalhar a cobrança de verdade não foram pegos pela suíte.
+   * Foram pegos quando o usuário exportou a fila e alguém olhou --
+   * a régua reordenando errado, o grupo de controle nunca alcançando o fim
+   * da fila, o Alt+U gravando tudo duas vezes. Todos invisíveis em jsdom,
+   * porque moram em código que abre aba de fundo e depende de dado real.
+   *
+   * Esta função transforma aquele "exportar e pedir pra alguém olhar" num
+   * comando só, que o próprio operador roda. Ela não substitui os testes --
+   * cobre justamente o que eles não alcançam.
+   * --------------------------------------------------------------------- */
+
+  /**
+   * Roda as conferências e imprime o resultado no console.
+   *
+   * @returns {{problemas: string[], avisos: string[], checagens: number}}
+   */
+  function conferir() {
+    const problemas = [];
+    const avisos = [];
+    let checagens = 0;
+
+    const exigir = (condicao, mensagem) => { checagens += 1; if (!condicao) problemas.push(mensagem); };
+    const observar = (condicao, mensagem) => { checagens += 1; if (!condicao) avisos.push(mensagem); };
+
+    // --- 1. Módulos carregados ---------------------------------------
+    const flags = window.__contextoAdicionalDebug?.FLAGS_DOS_MODULOS;
+    if (flags) {
+      const faltando = flags.filter((f) => window[f] !== true);
+      exigir(faltando.length === 0, `Módulo(s) não carregado(s): ${faltando.join(', ')}. Cache antigo do Tampermonkey?`);
+    } else {
+      avisos.push('Módulo 6 não carregou -- não deu pra conferir a lista de módulos.');
+    }
+
+    // --- 2. Contrato de data entre módulos ---------------------------
+    // O Módulo 4 já comparou data de vencimento (meia-noite) com esta
+    // (meio-dia) e omitiu relatório por engano. A convenção é meio-dia.
+    const ctx = window.__contextoAdicional;
+    if (ctx?.contatoRecente?.data instanceof Date) {
+      exigir(
+        ctx.contatoRecente.data.getHours() === 12,
+        `contatoRecente.data está às ${ctx.contatoRecente.data.getHours()}h, não ao meio-dia -- ` +
+        'comparações de data entre módulos vão divergir.'
+      );
+    }
+    if (ctx) {
+      const indefinidos = Object.keys(ctx).filter((k) => ctx[k] === undefined);
+      exigir(indefinidos.length === 0, `Campos undefined no contexto: ${indefinidos.join(', ')}`);
+    }
+
+    // --- 3. Fila salva ------------------------------------------------
+    let fila = null;
+    try { fila = window.filaDebug?.obterFila?.() ?? null; } catch (erro) { fila = null; }
+
+    if (fila?.clientes?.length) {
+      const c = fila.clientes;
+
+      const cnpjs = c.map((x) => x.cnpj);
+      exigir(new Set(cnpjs).size === cnpjs.length, `A fila tem CNPJ repetido (${cnpjs.length - new Set(cnpjs).size} duplicata(s)).`);
+
+      const regua = c.filter((x) => !x.grupoControle);
+      let quebrasFaixa = 0;
+      let quebrasDias = 0;
+      for (let i = 1; i < regua.length; i += 1) {
+        if (regua[i].prioridadeTier < regua[i - 1].prioridadeTier) quebrasFaixa += 1;
+        if (regua[i].prioridadeTier === regua[i - 1].prioridadeTier && regua[i].diasAtraso > regua[i - 1].diasAtraso) quebrasDias += 1;
+      }
+      exigir(quebrasFaixa === 0, `A ordem de faixa quebra ${quebrasFaixa} vez(es) entre os clientes fora do grupo de controle.`);
+      exigir(quebrasDias === 0, `O desempate por dias de atraso quebra ${quebrasDias} vez(es) dentro de uma mesma faixa.`);
+
+      const noControle = c.filter((x) => x.grupoControle).length;
+      if (!CONFIG_DIARIO.ATIVAR_GRUPO_CONTROLE) {
+        exigir(noControle === 0, `O grupo de controle está DESLIGADO, mas ${noControle} cliente(s) na fila estão marcados como controle.`);
+      } else if (c.length >= 30) {
+        const esperado = c.length / CONFIG_DIARIO.PROPORCAO_CONTROLE;
+        observar(
+          noControle > esperado * 0.5 && noControle < esperado * 1.5,
+          `Grupo de controle com ${noControle} de ${c.length} (esperado perto de ${Math.round(esperado)}).`
+        );
+      }
+    } else {
+      avisos.push('Nenhuma fila salva pra conferir -- rode o Alt+I ou Alt+U antes.');
+    }
+
+    // --- 4. Diário de hoje --------------------------------------------
+    const hoje = chaveDia();
+    const filasHoje = lerDia(hoje).filter((e) => e.t === 'fila');
+
+    if (filasHoje.length > 0) {
+      // Uma rodada grava posições 1..N sem repetir. Posição repetida = a
+      // mesma rodada gravada duas vezes (foi exatamente o bug do Alt+U).
+      const porRodada = new Map();
+      filasHoje.forEach((e) => {
+        const n = porRodada.get(e.p) ?? 0;
+        porRodada.set(e.p, n + 1);
+      });
+      const maxRepeticao = Math.max(...porRodada.values());
+      observar(
+        maxRepeticao <= 1,
+        `A posição 1 da fila aparece ${maxRepeticao}x hoje. Se você rodou o Alt+U ${maxRepeticao}x, é normal; ` +
+        'se rodou uma vez só, a fila está sendo gravada em duplicidade.'
+      );
+
+      const semCnpj = filasHoje.filter((e) => !e.c).length;
+      exigir(semCnpj === 0, `${semCnpj} registro(s) de fila sem CNPJ -- não dá pra cruzar com contato nem com baixa.`);
+
+      const faixaInvalida = filasHoje.filter((e) => !(e.f >= 1 && e.f <= 10)).length;
+      exigir(faixaInvalida === 0, `${faixaInvalida} registro(s) de fila com faixa fora de 1..10.`);
+    }
+
+    // --- 5. Tamanho do diário -----------------------------------------
+    const bytes = tamanho();
+    observar(
+      bytes < CONFIG_DIARIO.LIMITE_AVISO_BYTES,
+      `O diário está com ${(bytes / 1_000_000).toFixed(1)} MB. Rode exportar() e depois limpar().`
+    );
+
+    // --- Saída ---------------------------------------------------------
+    if (problemas.length === 0 && avisos.length === 0) {
+      console.log(`%c[Conferência] ${checagens} checagens, nenhum problema.`, 'color:#1B6B4A;font-weight:bold;');
+    } else {
+      console.log(`%c[Conferência] ${checagens} checagens.`, 'font-weight:bold;');
+      problemas.forEach((p) => console.error('  ✗ ' + p));
+      avisos.forEach((a) => console.warn('  ! ' + a));
+      if (problemas.length > 0) {
+        console.log('%cOs itens com ✗ são invariantes quebrados -- vale reportar.', 'color:#A3251A;font-weight:bold;');
+      }
+    }
+
+    return { problemas, avisos, checagens };
+  }
+
+  /* ---------------------------------------------------------------------
+   * 8. INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
   limparAntigos();
 
@@ -579,9 +716,13 @@
     );
   }
 
+  // Atalho curto: é pra ser digitado no console sem consultar documentação.
+  window.__conferir = conferir;
+
   window.__diario = {
     registrar,
     registrarLote,
+    conferir,
     analisar,
     relatorio,
     ehGrupoControle,

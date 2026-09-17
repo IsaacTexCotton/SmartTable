@@ -3,7 +3,6 @@
 // fuzz-memoria/harness-snapshot.js, rodando contra o código REAL de
 // modulos/modulo6-contexto-adicional.js via window.__contextoAdicionalDebug.
 const { JSDOM } = require('jsdom');
-const fs = require('fs');
 const { textoDoModulo } = require('./helpers/dom-env');
 const { criarChecador } = require('./helpers/checar');
 

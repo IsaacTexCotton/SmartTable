@@ -100,7 +100,8 @@
 
   // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
   // deste arquivo no @require do wrapper.
-  const { toast, esperar, normalizarData, escolherTituloRepresentativo } = window.__smartTableUtil;
+  // `esperar` saiu daqui: estava importado e nunca usado (achado pelo ESLint).
+  const { toast, normalizarData, escolherTituloRepresentativo } = window.__smartTableUtil;
 
   /* ---------------------------------------------------------------------
    * 1. CONFIGURAÇÃO

@@ -119,10 +119,38 @@ vencidos. Renegociação e baixa manual dão o mesmo sinal.
 Os dados ficam no `localStorage` de cada navegador, com 120 dias de retenção
 (~3 MB no volume atual). Não se juntam sozinhos entre duas pessoas.
 
+## Autoconferência (`window.__conferir()`)
+
+Rode no console depois de um Alt+U. Ela checa **invariantes contra o estado
+real** — a fila salva, o diário de hoje, o contexto — e aponta o que estiver
+quebrado:
+
+```
+[Conferência] 14 checagens, nenhum problema.
+```
+
+**Por que existe, e por que não é "mais um teste":** as quatro falhas que
+chegaram a atrapalhar a cobrança de verdade não foram pegas pela suíte. Foram
+pegas quando o operador exportou a fila e alguém olhou — a régua reordenando
+errado, o grupo de controle nunca alcançando o fim da fila, o Alt+U gravando
+tudo duas vezes, o Alt+A não gerando relatório. Todas invisíveis em jsdom,
+porque moram em código que abre aba de fundo e depende de dado real.
+
+Ela não substitui `npm test` — cobre justamente o que ele não alcança.
+
 ## Integração contínua
 
-`.github/workflows/testes.yml` roda `npm test` em todo push para `main` e em
-todo pull request. Antes disso, as asserções só valiam se alguém lembrasse de
+`.github/workflows/testes.yml` roda `npm run lint` e `npm test` em todo push
+para `main` e em todo pull request. Localmente, `npm run verificar` roda os
+dois na mesma ordem.
+
+**Sobre o alcance do lint, sem ilusão:** das quatro falhas que chegaram a
+atrapalhar a cobrança, o ESLint não teria pegado nenhuma — são de contrato
+entre módulos e de lógica, não de sintaxe. Ele está configurado só com regras
+que apontam defeito (variável morta, global não declarada, caso duplicado,
+código inalcançável), nunca estilo, e os módulos protegidos ficam de fora das
+regras que não se pode corrigir neles. É um piso barato, não a rede
+principal. Antes disso, as asserções só valiam se alguém lembrasse de
 rodar a suíte à mão antes de empurrar.
 
 **Nota sobre a URL de atualização**: no canal de desenvolvimento,

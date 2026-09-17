@@ -3,10 +3,13 @@
   "private": true,
   "description": "Testes de regressão do userscript SmartTable (rodam contra o código real de modulos/*.js num DOM simulado com jsdom).",
   "scripts": {
+    "lint": "eslint .",
     "test": "node tests/run-all.js",
+    "verificar": "npm run lint && npm test",
     "release": "node scripts/release.js"
   },
   "devDependencies": {
-    "jsdom": "^25.0.0"
+    "jsdom": "^25.0.0",
+    "eslint": "^9.0.0"
   }
 }

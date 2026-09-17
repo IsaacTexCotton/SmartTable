@@ -1741,6 +1741,13 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.10.0', data: '17/09/2026',
+      mudancas: [
+        'Novo window.__conferir() no console: checa a fila, o diário e o contexto contra dado REAL e aponta o que estiver inconsistente.',
+        'É a resposta aos bugs que a suíte não pegava -- eles viviam em código que abre aba de fundo e só quebra com dado de verdade.',
+      ],
+    },
+    {
       versao: '1.9.2', data: '17/09/2026',
       mudancas: [
         'Corrigido: cada Alt+U gravava a fila DUAS vezes no diário, o que dobrava "na fila" e derrubava a taxa de contato pela metade.',
