@@ -1741,6 +1741,12 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.9.1', data: '17/09/2026',
+      mudancas: [
+        'Registrado que o 5º dia de atraso cai em "Demais dias" DE PROPÓSITO -- é a régua como foi desenhada, não uma faixa esquecida.',
+      ],
+    },
+    {
       versao: '1.9.0', data: '17/09/2026',
       mudancas: [
         'Novo atalho Alt+L: mostra este log de atualização, com o que chegou desde a sua última leitura marcado como NOVO.',

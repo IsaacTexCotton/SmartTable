@@ -173,7 +173,12 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
   checar('NEGATIVADO_SCPC dia 10 NÃO é P7 (cai no resto -> P10)', dp(registro('NEGATIVADO_SCPC', 10), 'SCPC', 'Normal') === 10);
   checar('P9: EM_ATRASO dia 3', dp(registro('EM_ATRASO', 3), 'CARTORIO', 'Normal') === 9);
   checar('P9: EM_ATRASO dia 4', dp(registro('EM_ATRASO', 4), 'CARTORIO', 'Normal') === 9);
-  checar('EM_ATRASO dia 5 NÃO é atraso inicial (cai no resto -> P10)', dp(registro('EM_ATRASO', 5), 'CARTORIO', 'Normal') === 10);
+  // CONFIRMADO com o usuário (perguntado explicitamente ao conferir uma fila
+  // real de 92 clientes, onde 14 eram dia 5): a lacuna entre o dia 2 (faixa
+  // própria, P3) e os dias 3-4 (P9) é INTENCIONAL -- o 5º dia cai em "Demais
+  // dias" por decisão, não por esquecimento. Se este teste falhar, alguém
+  // mexeu na régua: leve pro usuário antes de "corrigir".
+  checar('EM_ATRASO dia 5 NÃO é atraso inicial, DE PROPÓSITO (cai no resto -> P10)', dp(registro('EM_ATRASO', 5), 'CARTORIO', 'Normal') === 10);
   checar('P10: EM_CARTORIO no meio do caminho (nenhuma faixa específica)', dp(registro('EM_CARTORIO', 12), 'CARTORIO', 'Normal') === 10);
   checar('P10: PRAZO_FINAL', dp(registro('PRAZO_FINAL', 6), 'CARTORIO', 'Normal') === 10);
   checar('cluster com espaços/maiúsculas ainda reconhece "Novo"', dp(registro('EM_ATRASO', 3), 'CARTORIO', '  NOVO  ') === 2);

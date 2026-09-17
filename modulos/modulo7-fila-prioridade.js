@@ -115,6 +115,14 @@
     // Prioridade 3: dia 2 de EM_ATRASO, sozinho (faixa própria, contato bem cedo).
     DIA_PRIORIDADE_SEGUNDO_DIA: 2,
     // Prioridade 9: 3º ao 4º dia de EM_ATRASO (dia 2 já saiu pra faixa própria acima).
+    //
+    // O 5º DIA FICA DE FORA DE PROPÓSITO -- CONFIRMADO com o usuário depois de
+    // conferir uma fila real, onde 14 dos 92 clientes eram justamente dia 5 e
+    // caíram em "Demais dias" (P10). NÃO é lacuna esquecida entre o dia 2 e os
+    // dias 3-4: é a régua como ela foi desenhada. Quem for "consertar" isso
+    // acrescentando o 5 aqui vai derrubar o teste
+    // "EM_ATRASO dia 5 NÃO é atraso inicial" em tests/fila-prioridade.test.js,
+    // e deve trazer a mudança pro usuário em vez de tratar como bug.
     DIAS_PRIORIDADE_ATRASO_INICIAL: [3, 4],
     // Prioridade 8: última movimentação há mais desse tanto de dias corridos
     // (CONFIRMADO com o usuário: 30 dias, mesmo padrão já usado noutro ponto

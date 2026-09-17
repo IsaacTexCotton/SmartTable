@@ -194,7 +194,10 @@ decisões, armadilhas e itens em aberto.
    da posição pela faixa — sem isso, comparar faixa 3 com faixa 9 mede o
    cliente, não a régua. Carrega logo depois do Módulo 0; os módulos 3, 6 e 7
    dependem dele. Análise em `window.__diario.relatorio()`.
-7. `modulo7-fila-prioridade.js` — monta uma fila de atendimento ordenada por
+7. `modulo7-fila-prioridade.js` — a régua tem uma lacuna **intencional**: o
+   5º dia de atraso não pertence a nenhuma faixa própria (o dia 2 tem a P3, os
+   dias 3-4 têm a P9) e cai em "Demais dias". Confirmado com o usuário; não
+   tratar como bug. Monta uma fila de atendimento ordenada por
    uma régua de prioridade de negócio (Alt+U), visitando cada candidato em
    aba de fundo pra classificar a situação real do título e a promessa de
    pagamento ativa (quem prometeu pagar hoje ou quebrou a promessa sobe na
