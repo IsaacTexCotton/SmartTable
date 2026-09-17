@@ -707,8 +707,45 @@
         return 'Consegue regularizar hoje para eu confirmar a baixa da restrição?';
       }
       default: // EM_ATRASO, PRAZO_FINAL -- estágio inicial, sem pressão
-        return 'Podemos agendar para hoje o pagamento do débito em aberto?';
+        return obterPerguntaFinalConsiderandoPromessa();
     }
+  }
+
+  /**
+   * Pergunta final do estágio inicial (EM_ATRASO/PRAZO_FINAL), levando em
+   * conta a promessa ativa.
+   *
+   * BUG REAL (relatado pelo usuário): a pergunta olhava SÓ a situação do
+   * título e ignorava a promessa. Cliente que combinou pagar HOJE recebia
+   * "Lembramos que hoje é o dia combinado para o pagamento do título X."
+   * e, três linhas abaixo, "Podemos agendar para hoje o pagamento do débito
+   * em aberto?" -- pedindo pra agendar o que já estava agendado. A promessa
+   * é o compromisso mais recente e mais específico, então é ela que decide o
+   * pedido final.
+   *
+   * Só troca a pergunta GENÉRICA. As perguntas de ULTIMO_DIA, EM_CARTORIO e
+   * NEGATIVADO_SCPC continuam valendo mesmo com promessa ativa: elas nomeiam
+   * uma consequência real e pedem AÇÃO ("consegue regularizar hoje"), não
+   * agendamento -- não há contradição com ter prometido pagar hoje.
+   *
+   * QUEBRADA não passa por aqui: a linha dela já termina em pergunta ("Já
+   * foi realizado?..."), então nenhuma pergunta final é acrescentada.
+   *
+   * @returns {string}
+   */
+  function obterPerguntaFinalConsiderandoPromessa() {
+    const tipo = window.__contextoAdicional?.promessa?.tipo;
+
+    // CONFIRMADO com o usuário: presume boa-fé -- trata o pagamento como algo
+    // que vai acontecer, não como algo a renegociar -- e o comprovante é o
+    // que fecha o ciclo (é ele que permite dar baixa).
+    if (tipo === 'DIA_DA_PROMESSA') return 'Assim que efetuar, pode me enviar o comprovante?';
+
+    // CONFIRMADO com o usuário: reconhece implicitamente que já houve
+    // pagamento, em vez de falar do débito como se nada tivesse sido pago.
+    if (tipo === 'PARCIAL') return 'Consegue quitar o restante hoje?';
+
+    return 'Podemos agendar para hoje o pagamento do débito em aberto?';
   }
 
   /* ---------------------------------------------------------------------
@@ -1881,6 +1918,7 @@
     concordarTitulos,
     acionarGerarRelatorio,
     encontrarBotaoRelatorio,
+    obterPerguntaFinal,
     acionarAtendimentoRapido,
     abrirBuscaRapida,
     fecharBuscaRapida,

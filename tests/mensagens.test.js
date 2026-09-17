@@ -107,6 +107,20 @@ function checarIncongruencias(msg, cenario) {
     problemas.push(`Variável não resolvida na mensagem: ${vars.join(', ')}`);
   }
 
+  // BUG REAL (relatado pelo usuário): pedir pra AGENDAR o que o cliente já
+  // combinou pagar hoje. A pergunta final olhava só a situação do título e
+  // ignorava a promessa ativa, então a mensagem lembrava o dia combinado e,
+  // três linhas abaixo, propunha agendar esse mesmo pagamento.
+  if (/hoje é o dia combinado/.test(msg) && /Podemos agendar/.test(msg)) {
+    problemas.push('Lembra que hoje é o dia combinado E pede pra agendar o pagamento -- já está agendado.');
+  }
+
+  // Mesma classe: o cliente já pagou parte do combinado, e a mensagem fala do
+  // débito como se nada tivesse sido pago.
+  if (/Identificamos o pagamento parcial/.test(msg) && /Podemos agendar/.test(msg)) {
+    problemas.push('Reconhece pagamento parcial E pede pra agendar "o débito em aberto" como se nada tivesse sido pago.');
+  }
+
   if (/ainda não obtivemos retorno/.test(msg)) {
     if (/Notamos que o pagamento combinado/.test(msg) || /Identificamos o pagamento parcial/.test(msg) || /hoje é o dia combinado/.test(msg)) {
       problemas.push('Diz "ainda não obtivemos retorno" JUNTO com linguagem de promessa/pagamento na mesma mensagem.');
@@ -863,6 +877,47 @@ scpcDias.forEach((dias) => {
       problemas: ['Esperava a apresentação SEM a linha "Retomando o contato de..." na mesma mensagem.'],
       mensagem: msgCombo,
     });
+  }
+}
+
+// --- PEDIDO DO USUÁRIO: a pergunta final respeita a promessa ativa
+{
+  window.__alertaGrupo = { empresasComVencido: [] };
+  const dados = { registros: [registro('EM_ATRASO')], fluxo: 'CARTORIO' };
+
+  window.__contextoAdicional = ctxBase({ promessa: { tipo: 'DIA_DA_PROMESSA', promessa: { titulos: ['90001/1'] } } });
+  const comPromessaHoje = montar(dados);
+  total++;
+  if (!/Assim que efetuar, pode me enviar o comprovante\?/.test(comPromessaHoje || '')) {
+    achados.push({ cenario: 'promessa PRA HOJE deve pedir o comprovante, não agendar', problemas: ['Pergunta final errada.'], mensagem: comPromessaHoje });
+  }
+  total++;
+  if (/Podemos agendar/.test(comPromessaHoje || '')) {
+    achados.push({ cenario: 'promessa PRA HOJE não pode pedir pra agendar o que já está agendado', problemas: ['Contradição de volta.'], mensagem: comPromessaHoje });
+  }
+
+  window.__contextoAdicional = ctxBase({ promessa: { tipo: 'PARCIAL', promessa: { dataPrometidaTexto: '10/09/2026', titulos: ['90001/1', '90002/1'] } } });
+  const comParcial = montar(dados);
+  total++;
+  if (!/Consegue quitar o restante hoje\?/.test(comParcial || '')) {
+    achados.push({ cenario: 'pagamento parcial deve pedir o restante', problemas: ['Pergunta final errada.'], mensagem: comParcial });
+  }
+
+  // Sem promessa ativa, a pergunta genérica continua valendo.
+  window.__contextoAdicional = ctxBase({});
+  const semPromessa = montar(dados);
+  total++;
+  if (!/Podemos agendar para hoje/.test(semPromessa || '')) {
+    achados.push({ cenario: 'sem promessa, a pergunta genérica continua', problemas: ['Pergunta genérica sumiu.'], mensagem: semPromessa });
+  }
+
+  // ULTIMO_DIA mantém a CTA que nomeia a consequência real, mesmo com
+  // promessa ativa -- ela pede AÇÃO, não agendamento, então não contradiz.
+  window.__contextoAdicional = ctxBase({ promessa: { tipo: 'DIA_DA_PROMESSA', promessa: { titulos: ['90001/1'] } } });
+  const ultimoDia = montar({ registros: [registro('ULTIMO_DIA')], fluxo: 'CARTORIO' });
+  total++;
+  if (!/evitarmos o encaminhamento\?/.test(ultimoDia || '')) {
+    achados.push({ cenario: 'ULTIMO_DIA mantém a CTA de consequência mesmo com promessa ativa', problemas: ['CTA de urgência foi perdida.'], mensagem: ultimoDia });
   }
 }
 
