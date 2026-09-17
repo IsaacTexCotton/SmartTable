@@ -319,9 +319,46 @@
     }, 0);
   }
 
-  /** Baixa o diário inteiro como JSON, pra juntar os dados de duas pessoas. */
-  function exportar() {
-    const dados = { exportadoEm: new Date().toISOString(), eventos: eventos() };
+  /**
+   * Baixa o diário como JSON.
+   *
+   * CENSURADO POR PADRÃO: o diário guarda o CNPJ de cada cliente, e arquivo
+   * exportado é justamente o que acaba anexado num e-mail ou num chat. O
+   * apelido é estável, então juntar os dados de duas máquinas e detectar
+   * duplicata continua funcionando -- só não dá pra saber QUEM é.
+   *
+   * Pra exportar com CNPJ de verdade (uso interno, nunca pra fora):
+   * window.__diario.exportar({ censurado: false }).
+   *
+   * @param {object} [opcoes]
+   * @param {boolean} [opcoes.censurado] Padrão true.
+   */
+  /**
+   * Monta o conteúdo da exportação, sem baixar nada.
+   *
+   * Separado de exportar() de propósito: o que precisa de garantia é O QUE
+   * SAI, não o mecanismo de download. Grudados, só dava pra testar a censura
+   * atravessando Blob e createObjectURL -- e um teste que depende de
+   * encanamento é um teste que não protege o que importa.
+   *
+   * @param {object} [opcoes]
+   * @param {boolean} [opcoes.censurado] Padrão true.
+   * @returns {{exportadoEm: string, censurado: boolean, eventos: object[]}}
+   */
+  function montarExportacao(opcoes = {}) {
+    const censurado = opcoes.censurado !== false;
+    const lista = eventos().map((e) => {
+      if (!censurado) return e;
+      const copia = Object.assign({}, e, { c: apelido(e.c) });
+      delete copia.tt; // números de título identificam o cliente no ERP
+      return copia;
+    });
+    return { exportadoEm: new Date().toISOString(), censurado, eventos: lista };
+  }
+
+  function exportar(opcoes = {}) {
+    const dados = montarExportacao(opcoes);
+    const censurado = dados.censurado;
     const blob = new Blob([JSON.stringify(dados)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -331,7 +368,12 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    console.log(`[Diário] Exportados ${dados.eventos.length} eventos.`);
+    console.log(
+      `[Diário] Exportados ${dados.eventos.length} eventos` +
+      (censurado
+        ? ' (censurado -- sem CNPJ nem número de título).'
+        : ' SEM CENSURA -- contém CNPJ e número de título. Não envie pra fora.')
+    );
   }
 
   /** Apaga TUDO. Pede confirmação, porque dado de medição não volta. */
@@ -560,7 +602,203 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 7. AUTOCONFERÊNCIA (window.__conferir)
+   * 7. DIAGNÓSTICO CENSURADO (window.__diag)
+   * -----------------------------------------------------------------
+   * Tudo que é feito pra sair da tela e ir parar num chat, num e-mail ou num
+   * print PASSA POR AQUI. A censura não pode depender de alguém lembrar de
+   * apagar o CNPJ antes de colar -- basta esquecer uma vez.
+   *
+   * O QUE É PRESERVADO, porque é o que serve pra diagnosticar:
+   *   - identidade ESTÁVEL (o mesmo cliente vira sempre o mesmo apelido),
+   *     que é o que permite detectar duplicata e cruzar eventos -- foi
+   *     exatamente assim que o bug da fila gravada 2x apareceu;
+   *   - o FORMATO dos valores ("R$ #.###,##"), que revela erro de parsing
+   *     sem revelar o valor;
+   *   - tamanhos, contagens, situações, faixas, datas -- nada identifica.
+   *
+   * RESSALVA HONESTA: isto é PSEUDONIMIZAÇÃO, não anonimato criptográfico.
+   * O apelido é um hash com sal aleatório guardado só neste navegador, o que
+   * impede reverter por força bruta de fora -- mas o objetivo é não vazar
+   * dado de cliente por descuido, não resistir a adversário determinado.
+   * --------------------------------------------------------------------- */
+  const CHAVE_SAL_DIAG = 'smarttable_sal_diagnostico';
+
+  /**
+   * Sal aleatório por instalação. Sem ele o apelido seria só o hash do CNPJ
+   * -- e o espaço de CNPJs é pequeno o bastante pra alguém de fora testar
+   * todos e reverter. Com sal local, o apelido só faz sentido neste
+   * navegador, que é exatamente onde ele precisa fazer sentido.
+   *
+   * @returns {string}
+   */
+  function obterSalDiagnostico() {
+    try {
+      let sal = localStorage.getItem(CHAVE_SAL_DIAG);
+      if (!sal) {
+        sal = String(Math.random()).slice(2) + String(Date.now());
+        localStorage.setItem(CHAVE_SAL_DIAG, sal);
+      }
+      return sal;
+    } catch (erro) {
+      return 'sessao'; // storage bloqueado: apelidos consistentes só nesta página
+    }
+  }
+
+  /**
+   * Apelido estável e não reversível pra um identificador (CNPJ, documento).
+   *
+   * @param {string} valor
+   * @returns {string} Ex.: "cli.k3f9"
+   */
+  function apelido(valor) {
+    const texto = String(valor ?? '').trim();
+    if (!texto) return '(vazio)';
+    return 'cli.' + hashEstavel(obterSalDiagnostico() + '|' + texto).toString(36).slice(-4);
+  }
+
+  /**
+   * Troca os dígitos de um valor monetário, preservando o FORMATO -- que é
+   * o que denuncia erro de separador decimal, milhar ou moeda.
+   *
+   * @param {string} texto
+   * @returns {string} Ex.: "R$ 1.778,69" -> "R$ #.###,##"
+   */
+  function valorMascarado(texto) {
+    const original = String(texto ?? '').trim();
+    if (!original) return '(vazio)';
+    return original.replace(/\d/g, '#');
+  }
+
+  /**
+   * Oculta um nome preservando o tamanho -- útil pra flagrar truncamento ou
+   * espaço colado, sem expor o nome.
+   *
+   * @param {string} texto
+   * @returns {string} Ex.: "nome.17car"
+   */
+  function nomeMascarado(texto) {
+    const original = String(texto ?? '');
+    if (!original.trim()) return '(vazio)';
+    return 'nome.' + original.length + 'car';
+  }
+
+  /**
+   * Mantém a FORMA da URL (caminho e quais parâmetros existem) e remove os
+   * valores, que são o que identifica o cliente.
+   *
+   * @param {string} url
+   * @returns {string}
+   */
+  function urlMascarada(url) {
+    const texto = String(url ?? '');
+    if (!texto) return '(vazio)';
+    try {
+      const u = new URL(texto, location.origin);
+      const caminho = u.pathname.replace(/\d+/g, '<id>');
+      const params = [...u.searchParams.keys()].map((k) => k + '=<oculto>').join('&');
+      return u.origin + caminho + (params ? '?' + params : '');
+    } catch (erro) {
+      return '(url ilegivel)';
+    }
+  }
+
+  /**
+   * Varre texto livre atrás de CNPJ, CPF e telefone e troca por apelido.
+   * Rede de segurança pra mensagem montada em qualquer lugar -- não
+   * substitui censurar na origem, mas evita vazar por descuido.
+   *
+   * @param {string} texto
+   * @returns {string}
+   */
+  function censurarTexto(texto) {
+    return String(texto ?? '')
+      .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, (m) => apelido(m))
+      .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, (m) => apelido(m))
+      .replace(/\(?\d{2}\)?\s?9?\d{4}-?\d{4}\b/g, '(tel oculto)');
+  }
+
+  /**
+   * Relatório da fila do dia, pronto pra colar em qualquer lugar. Mesmos
+   * campos que já vinham sendo pedidos à mão -- agora sem o passo manual de
+   * apagar CNPJ e razão social.
+   *
+   * @param {object} [opcoes]
+   * @param {boolean} [opcoes.comApelido] Inclui o apelido estável de cada
+   *   cliente, que é o que permite detectar duplicata. Padrão true.
+   * @returns {object}
+   */
+  function relatorioFila(opcoes = {}) {
+    const comApelido = opcoes.comApelido !== false;
+    const hoje = chaveDia();
+    const linhas = lerDia(hoje)
+      .filter((e) => e.t === 'fila')
+      .map((e) => {
+        const linha = { p: e.p, f: e.f, k: e.k, s: e.s, a: e.a };
+        if (comApelido) linha.id = apelido(e.c);
+        return linha;
+      });
+
+    const saida = { dia: hoje, total: linhas.length, linhas };
+    console.log(JSON.stringify(saida));
+    console.log('%c^ Pode colar: sem CNPJ, sem razao social, sem valor.', 'color:#1B6B4A;font-weight:bold;');
+    return saida;
+  }
+
+  /**
+   * Relatório do alerta de grupo econômico, censurado -- inclui o estado
+   * VISUAL do banner, que é onde o último problema real estava (ele existia
+   * no DOM e mesmo assim não aparecia).
+   *
+   * @returns {object}
+   */
+  function relatorioGrupo() {
+    const grupo = window.__alertaGrupo;
+    const banner = document.getElementById('alerta-grupo-vencido');
+    const cabecalho = document.querySelector('header');
+
+    let infoBanner = { existe: false };
+    if (banner) {
+      const r = banner.getBoundingClientRect();
+      const cs = getComputedStyle(banner);
+      const alvo = document.elementFromPoint(
+        Math.round(r.left + r.width / 2),
+        Math.round(r.top + r.height / 2)
+      );
+      infoBanner = {
+        existe: true,
+        rect: { top: Math.round(r.top), altura: Math.round(r.height), largura: Math.round(r.width) },
+        estilo: { position: cs.position, top: cs.top, zIndex: cs.zIndex, display: cs.display, visibility: cs.visibility, opacity: cs.opacity },
+        quemEstaNaFrente: alvo ? alvo.tagName + '#' + (alvo.id || '-') : null,
+        ehOProprioBanner: banner.contains(alvo),
+      };
+    }
+
+    const saida = {
+      modulo5Carregado: window.__alertaGrupoCarregado === true,
+      showTabEhFuncao: typeof window.showTab === 'function',
+      empresasComVencido: (grupo && grupo.empresasComVencido ? grupo.empresasComVencido : []).map((e) => ({
+        id: apelido(e.cnpj),
+        razaoSocial: nomeMascarado(e.razaoSocial),
+        vencido: valorMascarado(e.vencido),
+        url: urlMascarada(e.url),
+      })),
+      banner: infoBanner,
+      header: cabecalho
+        ? {
+            altura: Math.round(cabecalho.getBoundingClientRect().height),
+            position: getComputedStyle(cabecalho).position,
+            zIndex: getComputedStyle(cabecalho).zIndex,
+          }
+        : null,
+    };
+
+    console.log(JSON.stringify(saida, null, 2));
+    console.log('%c^ Pode colar: sem CNPJ, sem razao social, sem valor.', 'color:#1B6B4A;font-weight:bold;');
+    return saida;
+  }
+
+  /* ---------------------------------------------------------------------
+   * 8. AUTOCONFERÊNCIA (window.__conferir)
    * -----------------------------------------------------------------
    * Checa invariantes contra o estado REAL da página e do storage.
    *
@@ -697,7 +935,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 8. INICIALIZAÇÃO
+   * 9. INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
   limparAntigos();
 
@@ -719,10 +957,22 @@
   // Atalho curto: é pra ser digitado no console sem consultar documentação.
   window.__conferir = conferir;
 
+  // Namespace curto pros diagnósticos que saem da tela. Tudo aqui já sai
+  // censurado -- a ideia é poder colar sem ter que pensar nisso.
+  window.__diag = { fila: relatorioFila, grupo: relatorioGrupo, apelido, censurar: censurarTexto };
+
   window.__diario = {
     registrar,
     registrarLote,
     conferir,
+    apelido,
+    valorMascarado,
+    nomeMascarado,
+    urlMascarada,
+    censurarTexto,
+    montarExportacao,
+    relatorioFila,
+    relatorioGrupo,
     analisar,
     relatorio,
     ehGrupoControle,

@@ -119,6 +119,29 @@ vencidos. Renegociação e baixa manual dão o mesmo sinal.
 Os dados ficam no `localStorage` de cada navegador, com 120 dias de retenção
 (~3 MB no volume atual). Não se juntam sozinhos entre duas pessoas.
 
+## Diagnóstico censurado (`window.__diag`)
+
+Qualquer informação tirada do console pra colar num chat, e-mail ou print sai
+por aqui — **já censurada**, sem depender de alguém lembrar de apagar o CNPJ:
+
+```js
+window.__diag.fila()      // a fila do dia: faixa, posição, situação, dias
+window.__diag.grupo()     // alerta de grupo econômico + estado visual do banner
+window.__diario.exportar()  // censurado por padrão
+```
+
+O que é **preservado**, porque é o que serve pra diagnosticar: identidade
+estável (o mesmo cliente vira sempre o mesmo apelido, o que permite detectar
+duplicata e cruzar eventos), o **formato** dos valores (`R$ #.###,##`, que
+revela erro de parsing sem revelar o valor), e tamanhos, contagens, situações,
+faixas e datas.
+
+**Ressalva honesta:** isto é pseudonimização, não anonimato criptográfico. O
+apelido é um hash com sal aleatório guardado só naquele navegador — o objetivo
+é não vazar dado de cliente por descuido, não resistir a adversário
+determinado. Pra exportar com CNPJ de verdade (uso interno, nunca pra fora):
+`window.__diario.exportar({ censurado: false })`.
+
 ## Autoconferência (`window.__conferir()`)
 
 Rode no console depois de um Alt+U. Ela checa **invariantes contra o estado

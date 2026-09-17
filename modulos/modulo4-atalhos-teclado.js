@@ -1741,6 +1741,13 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.11.0', data: '17/09/2026',
+      mudancas: [
+        'Novos window.__diag.fila() e window.__diag.grupo(): diagnósticos que já saem CENSURADOS, sem CNPJ, razão social nem valor.',
+        'A exportação do diário passa a ser censurada por padrão -- o arquivo é justamente o que vira anexo de e-mail.',
+      ],
+    },
+    {
       versao: '1.10.0', data: '17/09/2026',
       mudancas: [
         'Novo window.__conferir() no console: checa a fila, o diário e o contexto contra dado REAL e aponta o que estiver inconsistente.',
