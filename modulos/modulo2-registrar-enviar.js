@@ -14,10 +14,12 @@
 //      esta na caixa de observacao.
 //   3. Abre o WhatsApp com a mensagem que estava na caixa de observacao
 //      (a frase padrao que o operador escolheu manualmente) - essa caixa
-//      NAO e alterada por este script. NENHUMA aba nova e aberta -- em vez
-//      disso navega a propria aba do CRM pro protocolo do WhatsApp Desktop
-//      (whatsapp://send?...), que nao troca de pagina (pedido do usuario:
-//      Alt-Tab nao pode mais cair numa aba de WhatsApp).
+//      NAO e alterada por este script. Por padrao NENHUMA aba nova e
+//      aberta -- navega a propria aba do CRM pro protocolo do WhatsApp
+//      Desktop (whatsapp://send?...), que nao troca de pagina (pedido do
+//      usuario: Alt-Tab nao pode mais cair numa aba de WhatsApp). Com o
+//      interruptor "Enviar pelo WhatsApp Web" ligado no painel Alt+O
+//      (Modulo 9), vai pro web.whatsapp.com numa aba FIXA em vez do app.
 //
 // Depende de duas coisas que ja existem na pagina:
 //   - window.__avisoCobranca.simular()  (modulo de Aviso de Cobranca)
@@ -198,10 +200,38 @@
         return 'whatsapp://send?phone=' + telefone + '&text=' + encodeURIComponent(mensagem);
     }
 
+    // Mesma URL, mas pro WhatsApp WEB (https://web.whatsapp.com/send?...).
+    // Pura, pelo mesmo motivo da irmã acima: testável sem simular navegação.
+    //
+    // PRA QUE SERVE: atender pela conta de OUTRA pessoa sem desvincular a
+    // sua do app Desktop. O app tem uma conta logada por vez; o navegador
+    // não. Com o interruptor ligado num perfil separado do Chrome, a
+    // mensagem sai pela conta logada NAQUELE perfil, e o seu WhatsApp
+    // Desktop nunca é tocado. CONFIRMADO AO VIVO pelo usuário antes de
+    // implementar: a URL abre a conversa com o texto já preenchido.
+    function construirUrlWhatsAppWeb(urlWaMe) {
+        const urlAnalisada = new URL(urlWaMe, window.location.href);
+        const telefone = urlAnalisada.pathname.replace(/^\/+/, '');
+        const mensagem = urlAnalisada.searchParams.get('text') || '';
+        return 'https://web.whatsapp.com/send?phone=' + telefone + '&text=' + encodeURIComponent(mensagem);
+    }
+
     function abrirWhatsAppSemNovaAba() {
         const openOriginal = window.open;
 
         window.open = function (url) {
+            // O canal é lido AQUI, no clique, e não no carregamento do
+            // módulo: assim virar o interruptor no painel (Alt+O) vale na
+            // próxima mensagem, sem recarregar a página. O padrão é o
+            // comportamento de sempre (app Desktop) -- quem nunca abriu o
+            // painel não tem nada mudando embaixo dos pés, e se o Módulo 0
+            // não carregar o `?.` devolve undefined e cai no Desktop.
+            if (window.__smartTableUtil?.config?.ligado('usarWhatsAppWeb')) {
+                // Aba NOMEADA: a mesma conversa (e as seguintes) reusam
+                // sempre esta aba, em vez de empilhar uma por cliente.
+                openOriginal(construirUrlWhatsAppWeb(url), 'smarttable_zap');
+                return null;
+            }
             window.location.href = construirUrlProtocoloWhatsApp(url);
             return null; // valor de retorno não é usado por abrirWhatsAppCliente()
         };

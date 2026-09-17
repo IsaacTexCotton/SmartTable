@@ -148,6 +148,133 @@
   }
 
   // ============================================================
+  // CONFIGURAÇÕES DO USUÁRIO (interruptores do painel Alt+O)
+  // ============================================================
+  //
+  // POR QUE AQUI, e não no módulo que desenha o painel: o Módulo 0 carrega
+  // PRIMEIRO, então qualquer módulo pode ler uma configuração no momento em
+  // que precisa dela, sem depender de ordem de carregamento. O Módulo 9 só
+  // desenha o que estiver declarado aqui.
+  //
+  // PRA ACRESCENTAR UM INTERRUPTOR NOVO: basta uma entrada em DEFINICOES.
+  // O painel aparece sozinho, o teste de configuração cobre sozinho, e
+  // quem precisa do valor chama ligado('aChave'). Nada de mexer na UI.
+  //
+  // O padrão de TODO interruptor tem que ser o comportamento que já existia
+  // antes dele. Quem nunca abriu o painel não pode ter nada mudando embaixo
+  // dos pés.
+  const CHAVE_CONFIG = 'smarttable_config_v1';
+
+  const DEFINICOES = Object.freeze({
+    usarWhatsAppWeb: Object.freeze({
+      titulo: 'Enviar pelo WhatsApp Web',
+      descricao:
+        'Desligado (padrão): a mensagem abre no app do WhatsApp Desktop. ' +
+        'Ligado: abre em web.whatsapp.com, sempre na mesma aba. ' +
+        'Serve pra atender por outra conta sem desvincular a sua do app.',
+      padrao: false,
+    }),
+  });
+
+  /**
+   * Lê o objeto de configuração inteiro do localStorage.
+   *
+   * Nunca lança: localStorage pode estar cheio, bloqueado (aba anônima) ou
+   * com JSON corrompido de uma versão anterior. Em qualquer desses casos o
+   * script tem que seguir cobrando com os padrões, não parar.
+   *
+   * @returns {Record<string, boolean>} Só as chaves declaradas em DEFINICOES.
+   */
+  function lerConfigBruta() {
+    let cru = null;
+    try {
+      cru = window.localStorage.getItem(CHAVE_CONFIG);
+    } catch (erro) {
+      console.warn('[Util] Não consegui ler as configurações; usando os padrões.', erro);
+      return {};
+    }
+    if (!cru) return {};
+
+    let objeto = null;
+    try {
+      objeto = JSON.parse(cru);
+    } catch (erro) {
+      console.warn('[Util] Configurações corrompidas no localStorage; usando os padrões.', erro);
+      return {};
+    }
+    if (!objeto || typeof objeto !== 'object') return {};
+
+    // Só aceita chave declarada e valor booleano -- lixo de versão antiga
+    // (ou de alguém editando à mão) não vira comportamento.
+    const limpo = {};
+    Object.keys(DEFINICOES).forEach((chave) => {
+      if (typeof objeto[chave] === 'boolean') limpo[chave] = objeto[chave];
+    });
+    return limpo;
+  }
+
+  /**
+   * Valor atual de um interruptor.
+   *
+   * @param {string} chave Chave declarada em DEFINICOES.
+   * @returns {boolean} O valor salvo, ou o padrão da definição.
+   */
+  function configLigado(chave) {
+    const definicao = DEFINICOES[chave];
+    if (!definicao) {
+      console.warn(`[Util] Configuração desconhecida: "${chave}". Tratando como desligada.`);
+      return false;
+    }
+    const salvo = lerConfigBruta()[chave];
+    return typeof salvo === 'boolean' ? salvo : definicao.padrao;
+  }
+
+  /**
+   * Grava um interruptor.
+   *
+   * @param {string} chave Chave declarada em DEFINICOES.
+   * @param {boolean} valor
+   * @returns {boolean} true se gravou; false se a chave não existe ou o
+   *   localStorage recusou (cota cheia, modo anônimo).
+   */
+  function configDefinir(chave, valor) {
+    if (!DEFINICOES[chave]) {
+      console.warn(`[Util] Configuração desconhecida: "${chave}". Nada foi gravado.`);
+      return false;
+    }
+    const atual = lerConfigBruta();
+    atual[chave] = valor === true;
+    try {
+      window.localStorage.setItem(CHAVE_CONFIG, JSON.stringify(atual));
+      return true;
+    } catch (erro) {
+      console.warn('[Util] Não consegui gravar a configuração.', erro);
+      return false;
+    }
+  }
+
+  /**
+   * Inverte um interruptor.
+   *
+   * @param {string} chave
+   * @returns {boolean} O valor que passou a valer. Se a gravação falhar,
+   *   devolve o valor que continua valendo -- a tela nunca mente sobre o
+   *   que está em vigor.
+   */
+  function configAlternar(chave) {
+    const novo = !configLigado(chave);
+    return configDefinir(chave, novo) ? novo : configLigado(chave);
+  }
+
+  const config = {
+    DEFINICOES,
+    CHAVE_CONFIG,
+    ligado: configLigado,
+    definir: configDefinir,
+    alternar: configAlternar,
+  };
+
+  // ============================================================
   // EXPORT
   // ============================================================
   window.__smartTableUtil = {
@@ -157,6 +284,7 @@
     montarUrlCliente,
     maiorAtrasoEntre,
     escolherTituloRepresentativo,
+    config,
     DIAS_AVISO_SUSPENSAO_SCPC_MIN,
     DIAS_AVISO_SUSPENSAO_SCPC_MAX,
     DIAS_ULTIMO_DIA_SUSPENSAO_SCPC,
