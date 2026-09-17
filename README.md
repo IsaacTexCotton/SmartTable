@@ -119,9 +119,14 @@ Alt+A, fila por prioridade, snapshot de pagamento, contato recente,
 aviso de não cobrar, alerta de grupo econômico, geração de relatório de
 outras razões, resumo do "Registrar e Enviar", agendamento rápido de
 pagamento, contexto de promessa de pagamento, cliente nunca contatado
-por este negociador, omissão do relatório em recontato, e substituição de
-variáveis `{{ }}`/concordância de plural/busca rápida). Rode `npm test`
+por este negociador, omissão do relatório em recontato, substituição de
+variáveis `{{ }}`/concordância de plural/busca rápida, e classificação de
+títulos do Módulo 1 — prazos, feriados e as 6 situações). Rode `npm test`
 antes de subir qualquer mudança em `modulos/` —
+
+O que não roda no jsdom (captura de imagem, área de transferência, handoff
+pro app do WhatsApp, abas de fundo reais, bloqueio de pop-up) está em
+`tests/ROTEIRO-MANUAL.md`, como checklist passo a passo.
 esses testes já pegaram bugs reais nesta base de código (ex.: o bug crítico
 de `normalizarData` corrigido no Módulo 0).
 
