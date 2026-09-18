@@ -19,11 +19,17 @@
  *   - Depósitos          -> dinheiro recuperado por NEGOCIAÇÕES.
  *   - Promessas cumpridas-> dinheiro recuperado por PROMESSAS feitas na
  *                           cobrança.
- * Eles vêm de seções diferentes da API e medem origens diferentes. Este
- * módulo NÃO os soma num "total geral": nada confirma que sejam conjuntos
- * disjuntos, e um pagamento contado duas vezes é pior que um total ausente.
- * O que ele soma é Isaac + Bianca DENTRO de cada métrica -- aí sim são
- * pessoas diferentes, sem sobreposição possível.
+ * Eles vêm de seções diferentes da API e medem origens diferentes, e o
+ * painel mostra os dois separados. O TOTAL RECUPERADO soma os dois.
+ *
+ * Essa soma foi uma decisão explícita do usuário, revertendo a minha: eu
+ * tinha me recusado a somar porque nada na resposta da API prova que as
+ * duas sejam conjuntos disjuntos. Quem conhece o negócio definiu que são
+ * origens distintas, então somar é o certo. As parcelas continuam na tela
+ * para que dê pra conferir uma contra a outra -- se o total um dia parecer
+ * alto demais, sobreposição é o primeiro suspeito, e ela NÃO é verificável
+ * por este endpoint (ele devolve totais por usuário, não pagamento a
+ * pagamento).
  *
  * ONDE COLAR: depois do Módulo 0 (usa semanaSabadoASexta, dataIso,
  * primeiroNomeDeUsuario e formatarMoeda de lá).
@@ -192,12 +198,39 @@
       return {
         ...metrica,
         porPessoa,
-        // Soma só ENTRE PESSOAS dentro da mesma métrica: pessoas diferentes
-        // não se sobrepõem. Somar métricas diferentes é que seria chute.
         total: porPessoa.reduce((soma, p) => soma + p.valor, 0),
       };
     });
-    return { metricas, pessoas: CONFIG_RECEBIDO.PESSOAS };
+
+    // TOTAL RECUPERADO = depósitos + promessas cumpridas.
+    //
+    // DECISÃO DO USUÁRIO, e ela reverte uma minha. A primeira versão deste
+    // módulo se recusava a somar as duas métricas, porque nada na resposta
+    // da API prova que elas sejam conjuntos disjuntos -- um pagamento
+    // contado duas vezes infla o número sem deixar rastro. O usuário, que é
+    // quem conhece o negócio, definiu que são origens diferentes: depósito
+    // é o recuperado por NEGOCIAÇÕES, promessa cumprida é o recuperado por
+    // PROMESSAS feitas na cobrança. Com isso, somar é o certo.
+    //
+    // O QUE CONTINUA VALENDO, se o número um dia parecer alto demais: este
+    // é o primeiro suspeito, e a sobreposição NÃO É VERIFICÁVEL por aqui --
+    // o endpoint devolve totais por usuário, não pagamento a pagamento. As
+    // duas parcelas continuam na tela, separadas, justamente pra que dê pra
+    // conferir uma contra a outra.
+    const totalPorPessoa = CONFIG_RECEBIDO.PESSOAS.map((nome) => ({
+      nome,
+      valor: metricas.reduce(
+        (soma, m) => soma + (m.porPessoa.find((p) => p.nome === nome)?.valor ?? 0),
+        0
+      ),
+    }));
+
+    return {
+      metricas,
+      pessoas: CONFIG_RECEBIDO.PESSOAS,
+      totalPorPessoa,
+      totalGeral: totalPorPessoa.reduce((soma, p) => soma + p.valor, 0),
+    };
   }
 
   /* ---------------------------------------------------------------------
@@ -315,18 +348,61 @@
     return bloco;
   }
 
+  /**
+   * O bloco do TOTAL RECUPERADO: depósitos + promessas cumpridas, por
+   * pessoa e no conjunto. Destacado, porque é o número que a pergunta
+   * original queria.
+   *
+   * @param {object} resumo Saída de montarResumo().
+   * @returns {HTMLElement}
+   */
+  function criarBlocoTotal(resumo) {
+    const u = util();
+    const bloco = criarDiv('', {
+      marginTop: '2px', paddingTop: '10px', borderTop: `2px solid ${CORES.tinta}`,
+    });
+
+    bloco.appendChild(criarDiv('Total recuperado', {
+      color: CORES.tinta, fontWeight: '700', fontSize: '13px',
+    }));
+    // A composição fica escrita: quem olhar o total daqui a três meses
+    // sabe do que ele é feito sem precisar abrir o código.
+    bloco.appendChild(criarDiv('depósitos + promessas cumpridas', {
+      color: CORES.apagado, fontSize: '11px', marginBottom: '6px',
+    }));
+
+    resumo.totalPorPessoa.forEach((pessoa) => {
+      const linha = criarDiv('', {
+        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '3px 0',
+      });
+      linha.appendChild(criarDiv(pessoa.nome.charAt(0).toUpperCase() + pessoa.nome.slice(1), {
+        color: CORES.texto,
+      }));
+      linha.appendChild(criarDiv(u?.formatarMoeda(pessoa.valor) ?? String(pessoa.valor), {
+        fontFamily: 'ui-monospace, monospace', color: CORES.texto,
+      }));
+      bloco.appendChild(linha);
+    });
+
+    const geral = criarDiv('', {
+      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+      marginTop: '5px', paddingTop: '6px', borderTop: `1px solid ${CORES.linha}`,
+    });
+    geral.appendChild(criarDiv('Os dois', { color: CORES.tinta, fontWeight: '700', fontSize: '14px' }));
+    geral.appendChild(criarDiv(u?.formatarMoeda(resumo.totalGeral) ?? String(resumo.totalGeral), {
+      fontFamily: 'ui-monospace, monospace', color: CORES.destaque, fontWeight: '700', fontSize: '15px',
+    }));
+    bloco.appendChild(geral);
+
+    return bloco;
+  }
+
   /** @param {HTMLElement} corpo @param {object} resumo */
   function desenharResumo(corpo, resumo) {
     corpo.textContent = '';
     resumo.metricas.forEach((metrica) => corpo.appendChild(criarBlocoMetrica(metrica)));
 
-    // A ausência de um "total geral" é DELIBERADA, e a tela explica por quê.
-    // Sem esta linha, a primeira reação de quem olha é somar os dois números
-    // de cabeça -- que é exatamente o erro que o módulo evita.
-    corpo.appendChild(criarDiv(
-      'Os dois números não se somam: medem origens diferentes e podem contar o mesmo pagamento.',
-      { color: CORES.apagado, fontSize: '11px', lineHeight: '1.45', paddingTop: '2px' }
-    ));
+    corpo.appendChild(criarBlocoTotal(resumo));
   }
 
   async function abrirPainel() {

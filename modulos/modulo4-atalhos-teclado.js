@@ -1745,6 +1745,13 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.15.0', data: '18/09/2026',
+      mudancas: [
+        'O Alt+D passa a mostrar o Total recuperado: depósitos + promessas cumpridas, por pessoa e somando os dois.',
+        'As duas parcelas continuam na tela separadas, pra dar pra conferir o total contra as origens dele.',
+      ],
+    },
+    {
       versao: '1.14.0', data: '18/09/2026',
       mudancas: [
         'O banner de grupo econômico saiu: o próprio CRM passou a avisar ("1 CNPJ do grupo vencido", na página do cliente).',

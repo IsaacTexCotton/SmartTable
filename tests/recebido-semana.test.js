@@ -221,13 +221,51 @@ function fingirFetch(w, { corpo, status = 200, tipo = 'json', demorar = false } 
   checar('soma Isaac + Bianca dentro de depósitos', Math.abs(blocoDep.total - 100000.75) < 0.001, String(blocoDep.total));
   checar('soma Isaac + Bianca dentro de promessas cumpridas', Math.abs(blocoProm.total - 40001) < 0.001, String(blocoProm.total));
 
-  // NÃO somar as duas métricas, e não incluir terceiros.
   checar('o terceiro usuário da seção NÃO entra na conta', blocoDep.total !== dados.depositos.valorTotal);
-  checar(
-    'nenhuma métrica traz um total geral somando as duas (seria contar pagamento duas vezes)',
-    resultado.metricas.every((m) => !('totalGeral' in m)) && !('totalGeral' in resultado)
-  );
   checar('o resumo tem exatamente as duas métricas configuradas', resultado.metricas.length === 2);
+
+  // ===================================================================
+  // TOTAL RECUPERADO = depósitos + promessas cumpridas
+  // ===================================================================
+  // ESTA ASSERÇÃO INVERTEU UMA ANTERIOR, e o porquê fica registrado em vez
+  // de o histórico ter de ser garimpado: aqui havia um teste exigindo que
+  // NENHUM total geral existisse, porque eu tinha me recusado a somar as
+  // duas métricas -- nada na resposta da API prova que sejam conjuntos
+  // disjuntos. O usuário, que conhece o negócio, definiu que são origens
+  // diferentes (depósito = negociações, promessa cumprida = promessas da
+  // cobrança) e pediu o total. Decisão dele, e ela vale mais que a minha
+  // cautela. O que este arquivo protege agora é a ARITMÉTICA da soma.
+  const isaacDep = 80000.5;
+  const isaacProm = 30000.1;
+  const biancaDep = 20000.25;
+  const biancaProm = 10000.9;
+
+  const totalIsaac = resultado.totalPorPessoa.find((p) => p.nome === 'isaac');
+  const totalBianca = resultado.totalPorPessoa.find((p) => p.nome === 'bianca');
+
+  checar('o total de cada pessoa soma as duas métricas dela', Math.abs(totalIsaac.valor - (isaacDep + isaacProm)) < 0.001, String(totalIsaac.valor));
+  checar('e o mesmo vale pra segunda pessoa', Math.abs(totalBianca.valor - (biancaDep + biancaProm)) < 0.001, String(totalBianca.valor));
+  checar(
+    'o total geral soma as duas pessoas e as duas métricas',
+    Math.abs(resultado.totalGeral - (isaacDep + isaacProm + biancaDep + biancaProm)) < 0.001,
+    String(resultado.totalGeral)
+  );
+  checar(
+    'o total geral também é a soma dos totais das duas métricas (as duas contas fecham)',
+    Math.abs(resultado.totalGeral - (blocoDep.total + blocoProm.total)) < 0.001,
+    `geral=${resultado.totalGeral} metricas=${blocoDep.total + blocoProm.total}`
+  );
+  checar('há um total por pessoa configurada, nem mais nem menos', resultado.totalPorPessoa.length === 2);
+
+  // Quem não teve movimento entra no total como zero, não como NaN.
+  const soZeros = api.montarResumo({});
+  checar('sem dado nenhum, o total é 0 e não NaN', soZeros.totalGeral === 0, String(soZeros.totalGeral));
+  checar('e cada pessoa também', soZeros.totalPorPessoa.every((p) => p.valor === 0));
+
+  // AS PARCELAS CONTINUAM NA TELA. É o que permite conferir o total contra
+  // as origens se ele um dia parecer alto demais -- a sobreposição entre as
+  // duas métricas não é verificável por este endpoint.
+  checar('as duas métricas seguem expostas separadamente, ao lado do total', blocoDep.total > 0 && blocoProm.total > 0);
 })();
 
 // =====================================================================
@@ -293,10 +331,13 @@ function fingirFetch(w, { corpo, status = 200, tipo = 'json', demorar = false } 
   checar('depois da resposta, mostra as duas métricas', el.textContent.includes('Depósitos') && el.textContent.includes('Promessas cumpridas'));
   checar('mostra os dois nomes', /Isaac/.test(el.textContent) && /Bianca/.test(el.textContent));
   checar('formata em reais', /R\$/.test(el.textContent), el.textContent.slice(0, 120));
+  // O total tem que aparecer NA TELA, com a composição escrita ao lado --
+  // um número grande sem dizer do que é feito envelhece mal.
+  checar('mostra o Total recuperado', /Total recuperado/.test(el.textContent));
   checar(
-    'AVISA na tela que os dois números não se somam',
-    /não se somam/i.test(el.textContent),
-    'sem esse aviso, quem olha soma de cabeça e conta pagamento duas vezes'
+    'e diz de que ele é feito, ali mesmo',
+    /dep[óo]sitos \+ promessas cumpridas/i.test(el.textContent),
+    el.textContent.slice(-160)
   );
 
   api2.alternarPainel();
