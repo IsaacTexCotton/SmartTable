@@ -698,6 +698,110 @@
     return textoAvisoScpc(maisUrgente.diasAtrasoReal);
   }
 
+  /* ---------------------------------------------------------------------
+   * 2b. VARIANTES DE FRASE (rotação por cliente + dia)
+   * -----------------------------------------------------------------
+   * Cada lista tem variantes do MESMO papel, com a MESMA firmeza e o MESMO
+   * pedido. Trocar entre elas nunca pode mudar o estágio da cobrança: um
+   * CTA de último dia jamais vira um CTA leve.
+   *
+   * A escolha é determinística por (cnpj, dia) -- ver escolherVariante no
+   * Módulo 0 e o porquê de não ser sorteio.
+   *
+   * SELECIONADAS PELO USUÁRIO, uma a uma. Não acrescente frase aqui por
+   * conta própria: cada uma dessas passou pelo crivo de quem fala com o
+   * cliente do outro lado.
+   * --------------------------------------------------------------------- */
+  const FRASES = Object.freeze({
+    // EM_ATRASO / PRAZO_FINAL, sem promessa ativa. Era 83% de todas as
+    // mensagens numa frase só.
+    ctaGenerico: Object.freeze([
+      'Podemos agendar para hoje o pagamento do débito em aberto?',
+      'Consegue regularizar ainda hoje?',
+      // A única pergunta ABERTA do conjunto: não se responde com sim ou não,
+      // e é a que mais puxa retorno de quem estava sumindo.
+      'Como podemos resolver isso hoje?',
+      'Consegue me confirmar se dá para acertar hoje?',
+    ]),
+
+    ctaUltimoDia: Object.freeze([
+      'Consegue regularizar hoje para evitarmos o encaminhamento?',
+      'Conseguimos quitar isso hoje antes que o título siga para o encaminhamento?',
+      'Consegue acertar hoje para o título não seguir para encaminhamento?',
+    ]),
+
+    // EM_CARTORIO: fato já consumado. Toda variante nomeia o caminho de
+    // volta, e nenhuma promete o que não se controla.
+    ctaCartorio: Object.freeze([
+      'Consegue regularizar hoje para eu confirmar a baixa da restrição?',
+      'Assim que o pagamento for confirmado, sinalizo em nosso sistema. Consegue regularizar hoje?',
+      'Consegue fechar isso hoje? Confirmado o pagamento, já sinalizo a baixa.',
+    ]),
+
+    // SCPC 16 a 18 dias: a suspensão ainda NÃO é hoje.
+    //
+    // CORRIGIDO ANTES DE ENTRAR: a variante proposta dizia "sem a
+    // identificação do pagamento ATÉ O FIM DO DIA o cadastro é suspenso".
+    // Isso é falso nos dias 16 e 17 -- o cliente tem até o 19º. Dizer um
+    // prazo que não se cumpre queima o aviso: na próxima vez ele já sabe que
+    // não acontece nada. A frase com prazo cravado foi movida pro dia 19,
+    // onde é literalmente verdade.
+    ctaSuspensaoScpc: Object.freeze([
+      'Consegue regularizar hoje para evitarmos a suspensão do cadastro?',
+      'A suspensão do cadastro é automática se o pagamento não for identificado. Consegue resolver hoje?',
+      'Regularizando hoje, o cadastro segue ativo normalmente. Conseguimos agendar?',
+    ]),
+
+    // SCPC exatamente no 19º dia -- aqui o prazo é real.
+    ctaUltimoDiaScpc: Object.freeze([
+      'Consegue regularizar hoje, o último dia antes da suspensão?',
+      'Sem a identificação do pagamento até o fim do dia o cadastro é suspenso automaticamente. Consegue resolver hoje?',
+    ]),
+
+    // Retomada de contato.
+    //
+    // A primeira AFIRMA que o cliente não retornou, e isso fica errado
+    // quando ele respondeu e só não pagou -- são coisas diferentes. Ela
+    // continua na rotação por decisão do usuário; as outras duas não fazem
+    // nenhuma afirmação sobre o que o cliente fez.
+    retomada: Object.freeze([
+      'Retomando o contato de {{referencia}}, já que ainda não obtivemos retorno.',
+      'Voltando aqui sobre o contato de {{referencia}}.',
+      'Dando sequência ao contato de {{referencia}}.',
+    ]),
+  });
+
+  /**
+   * Semente da rotação: o cliente da página e o dia de hoje.
+   *
+   * Sem cnpj (página fora do padrão), cai numa semente só do dia -- todos os
+   * clientes recebem a mesma variante naquele dia, o que ainda é melhor que
+   * a frase única de sempre, e nunca estoura.
+   *
+   * @returns {string}
+   */
+  function sementeDaFrase() {
+    let cnpj = '';
+    try {
+      cnpj = new URLSearchParams(location.search).get('cnpj') || '';
+    } catch (erro) {
+      cnpj = '';
+    }
+    const util = window.__smartTableUtil;
+    const dia = util && typeof util.dataIso === 'function' ? util.dataIso(new Date()) : '';
+    return `${cnpj}|${dia}`;
+  }
+
+  /**
+   * @param {string[]} variantes Uma das listas de FRASES.
+   * @returns {string}
+   */
+  function frase(variantes) {
+    const util = window.__smartTableUtil;
+    if (!util || typeof util.escolherVariante !== 'function') return variantes[0];
+    return util.escolherVariante(sementeDaFrase(), variantes);
+  }
+
   // CONFIRMADO com o usuário: a pergunta final não deve ser sempre a
   // mesma ("podemos agendar...") -- perto do encaminhamento (último dia)
   // ou já negativado/em cartório, o CTA pode ser mais específico e
@@ -706,18 +810,18 @@
   function obterPerguntaFinal(escolhido) {
     switch (escolhido.situacaoKey) {
       case 'ULTIMO_DIA':
-        return 'Consegue regularizar hoje para evitarmos o encaminhamento?';
+        return frase(FRASES.ctaUltimoDia);
       case 'EM_CARTORIO':
-        return 'Consegue regularizar hoje para eu confirmar a baixa da restrição?';
+        return frase(FRASES.ctaCartorio);
       case 'NEGATIVADO_SCPC': {
         const dias = escolhido.diasAtrasoReal;
         if (dias >= DIAS_AVISO_SUSPENSAO_SCPC_MIN && dias <= DIAS_AVISO_SUSPENSAO_SCPC_MAX) {
-          return 'Consegue regularizar hoje para evitarmos a suspensão do cadastro?';
+          return frase(FRASES.ctaSuspensaoScpc);
         }
         if (dias === DIAS_ULTIMO_DIA_SUSPENSAO_SCPC) {
-          return 'Consegue regularizar hoje, o último dia antes da suspensão?';
+          return frase(FRASES.ctaUltimoDiaScpc);
         }
-        return 'Consegue regularizar hoje para eu confirmar a baixa da restrição?';
+        return frase(FRASES.ctaCartorio);
       }
       default: // EM_ATRASO, PRAZO_FINAL -- estágio inicial, sem pressão
         return obterPerguntaFinalConsiderandoPromessa();
@@ -758,7 +862,7 @@
     // pagamento, em vez de falar do débito como se nada tivesse sido pago.
     if (tipo === 'PARCIAL') return 'Consegue quitar o restante hoje?';
 
-    return 'Podemos agendar para hoje o pagamento do débito em aberto?';
+    return frase(FRASES.ctaGenerico);
   }
 
   /* ---------------------------------------------------------------------
@@ -863,7 +967,7 @@
     // semana (ex.: hoje é segunda, contato foi sexta).
     const { ehOntemLiteral, diaSemanaTexto } = ctx.contatoRecente;
     const referencia = ehOntemLiteral ? 'ontem' : diaSemanaTexto;
-    return `Retomando o contato de ${referencia}, já que ainda não obtivemos retorno.`;
+    return frase(FRASES.retomada).replace('{{referencia}}', referencia);
   }
 
   // NOVO (achado da revisão contra a skill cobrança-digna: reconhecer o
@@ -1747,6 +1851,14 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.18.0', data: '18/09/2026',
+      mudancas: [
+        'As frases da cobrança passam a variar: cada papel tem 2 a 4 versões, escolhidas por cliente e por dia.',
+        'O mesmo cliente não lê mais a mesma pergunta final todo dia -- antes 83% das mensagens terminavam igual.',
+        'Dentro do mesmo dia a frase NÃO muda: apertar Alt+A duas vezes no mesmo cliente dá o mesmo texto.',
+      ],
+    },
+    {
       versao: '1.17.0', data: '18/09/2026',
       mudancas: [
         'A classificação da fila passa a abrir 4 abas de fundo ao mesmo tempo, em vez de uma por vez: de ~4 minutos para ~1.',
@@ -2314,6 +2426,9 @@
   window.__smartTableUtil?.registrarPainel?.('ajuda', fecharPainelAjuda);
 
   window.__atalhosDebug = {
+    FRASES,
+    frase,
+    sementeDaFrase,
     montarMensagemPersonalizada,
     deveOmitirRelatorio,
     gerarRelatoriosDasOutrasRazoes,

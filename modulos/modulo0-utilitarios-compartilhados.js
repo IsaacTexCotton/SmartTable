@@ -407,6 +407,58 @@
   }
 
   // ============================================================
+  // ROTAÇÃO DE FRASES (variar sem soar aleatório)
+  // ============================================================
+  //
+  // PROBLEMA MEDIDO: 192 mensagens da matriz de cenários produziam 18
+  // distintas, e 83% terminavam na MESMA pergunta final. Com quase toda a
+  // carteira sendo contatada diariamente, o mesmo cliente lia a mesma frase
+  // todo dia -- que é quando a mensagem deixa de ser lida.
+  //
+  // A escolha é DETERMINÍSTICA por semente, não sorteada:
+  //   - mesmo cliente, dia seguinte  -> frase diferente
+  //   - mesmo cliente, mesmo dia     -> frase IDÊNTICA, mesmo apertando
+  //                                     Alt+A duas vezes (nada troca no meio
+  //                                     de uma conversa em andamento)
+  //   - clientes diferentes, mesmo dia -> frases diferentes entre si
+  //
+  // POR QUE UM HASH PRÓPRIO, e não o hashEstavel do Módulo 8: aquele decide
+  // o GRUPO DE CONTROLE do experimento da régua. Se um dia alguém ajustar o
+  // hash por causa das frases, remexe a atribuição do experimento sem
+  // perceber. São dois usos com requisitos diferentes; ficam separados de
+  // propósito.
+
+  /**
+   * Hash estável de uma string (FNV-1a). Mesmo texto, mesmo número, sempre
+   * -- inclusive entre navegadores e entre dias.
+   *
+   * @param {string} texto
+   * @returns {number} Inteiro não negativo.
+   */
+  function hashDeFrase(texto) {
+    let h = 0x811c9dc5;
+    const s = String(texto);
+    for (let i = 0; i < s.length; i += 1) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return Math.abs(h | 0);
+  }
+
+  /**
+   * Escolhe uma variante de frase de forma estável para a semente dada.
+   *
+   * @param {string} semente Normalmente `${cnpj}|${dia}`.
+   * @param {string[]} variantes Todas com a MESMA firmeza e o mesmo pedido.
+   * @returns {string} '' quando não há variante (quem chama decide o que fazer).
+   */
+  function escolherVariante(semente, variantes) {
+    if (!Array.isArray(variantes) || variantes.length === 0) return '';
+    if (variantes.length === 1) return variantes[0];
+    return variantes[hashDeFrase(semente) % variantes.length];
+  }
+
+  // ============================================================
   // EXPORT
   // ============================================================
   window.__smartTableUtil = {
@@ -419,6 +471,8 @@
     config,
     registrarPainel,
     fecharOutrosPaineis,
+    hashDeFrase,
+    escolherVariante,
     dataIso,
     semanaSabadoASexta,
     primeiroNomeDeUsuario,

@@ -43,6 +43,23 @@ if (typeof montar !== 'function') {
 // ---------------------------------------------------------------------
 // Helpers pra montar cenários realistas
 // ---------------------------------------------------------------------
+
+// ---------------------------------------------------------------------
+// Variantes de frase: a partir da v1.18.0 cada papel tem várias frases, e a
+// escolha é determinística por (cnpj, dia). Um teste que procure UMA string
+// literal passa a falhar no dia em que a rotação escolhe outra -- e o que
+// ele queria dizer nunca foi "esta frase exata", foi "o CTA deste estágio".
+//
+// As listas vêm do PRÓPRIO módulo, não copiadas aqui: assim acrescentar uma
+// variante amanhã não quebra o teste, e o teste continua falhando se um CTA
+// de estágio avançado for trocado por um leve -- que é o defeito real.
+const FRASES = window.__atalhosDebug.FRASES;
+
+/** @param {string} msg @param {string[]} variantes */
+function usaAlgumaDe(msg, variantes) {
+  return variantes.some((v) => msg.includes(v.replace('{{referencia}}', '').trim().slice(0, 40)));
+}
+
 function registro(situacaoKey, opcoes) {
   return Object.assign({
     titulo: '90001',
@@ -154,7 +171,7 @@ function checarIncongruencias(msg, cenario) {
     problemas.push('Situação já é EM_CARTORIO mas a mensagem avisa que o título "vai ser encaminhado" (como se ainda não tivesse sido).');
   }
 
-  if (['ULTIMO_DIA', 'EM_CARTORIO'].includes(cenario.situacaoEscolhida) && /Podemos agendar para hoje o pagamento do débito em aberto\?/.test(msg)) {
+  if (['ULTIMO_DIA', 'EM_CARTORIO'].includes(cenario.situacaoEscolhida) && usaAlgumaDe(msg, FRASES.ctaGenerico)) {
     problemas.push(`Situação avançada (${cenario.situacaoEscolhida}) mas usa o CTA genérico "Podemos agendar..." em vez do CTA escalado.`);
   }
 
@@ -442,7 +459,7 @@ scpcDias.forEach((dias) => {
   window.__contextoAdicional = ctxBase({});
   const msg = montar(dados);
   total++;
-  if (!/encaminhad/i.test(msg) || !/consegue regularizar hoje para evitarmos o encaminhamento/i.test(msg)) {
+  if (!/encaminhad/i.test(msg) || !usaAlgumaDe(msg, FRASES.ctaUltimoDia)) {
     achados.push({
       cenario: 'REGRESSÃO: ULTIMO_DIA deve continuar vencendo a escolha do título representante (linha principal + CTA) mesmo com NEGATIVADO_SCPC dia 19 no mesmo cliente',
       problemas: ['Mensagem deveria ter a linha principal e o CTA de ULTIMO_DIA (prazo final/encaminhamento), não os de NEGATIVADO_SCPC.'],
@@ -907,7 +924,7 @@ scpcDias.forEach((dias) => {
   window.__contextoAdicional = ctxBase({});
   const semPromessa = montar(dados);
   total++;
-  if (!/Podemos agendar para hoje/.test(semPromessa || '')) {
+  if (!usaAlgumaDe(semPromessa || '', FRASES.ctaGenerico)) {
     achados.push({ cenario: 'sem promessa, a pergunta genérica continua', problemas: ['Pergunta genérica sumiu.'], mensagem: semPromessa });
   }
 
@@ -916,7 +933,7 @@ scpcDias.forEach((dias) => {
   window.__contextoAdicional = ctxBase({ promessa: { tipo: 'DIA_DA_PROMESSA', promessa: { titulos: ['90001/1'] } } });
   const ultimoDia = montar({ registros: [registro('ULTIMO_DIA')], fluxo: 'CARTORIO' });
   total++;
-  if (!/evitarmos o encaminhamento\?/.test(ultimoDia || '')) {
+  if (!usaAlgumaDe(ultimoDia || '', FRASES.ctaUltimoDia)) {
     achados.push({ cenario: 'ULTIMO_DIA mantém a CTA de consequência mesmo com promessa ativa', problemas: ['CTA de urgência foi perdida.'], mensagem: ultimoDia });
   }
 }
