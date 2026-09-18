@@ -131,9 +131,18 @@ O plano deve conter, nesta ordem:
 
 Anotados ao longo do desenvolvimento, sem plano ainda:
 
-- **Alt+U reconstruindo**: ~140 clientes × até 8s. O caminho 1 (continuar)
-  cobriu o caso comum na v1.16.0; o Shift+Alt+U continua pagando o preço cheio.
-  Movimento 4 (paralelismo entre abas) nunca foi avaliado.
+- ~~**Alt+U reconstruindo**~~ — FECHADO. Movimento 1 (continuar) na v1.16.0,
+  movimentos 2 e 4 (cache do dia + 4 abas em paralelo) na v1.17.0: de 3–5
+  minutos para ~30–45s, e instantâneo a partir da segunda vez no dia. O
+  caminho foi achado descartando três arquiteturas melhores por dado real —
+  API de cliente (não existe), iframe (`X-Frame-Options: deny`) e
+  fetch+DOMParser (HTML vem sem conteúdo). Lição que vale pra próxima: **as
+  hipóteses caem em minutos quando testadas contra o CRM, e em meio dia
+  quando testadas contra o teclado.**
+- **HTML montado no navegador**: o fetch trouxe HTML sem a tabela e nenhuma
+  API a busca — provavelmente os dados vêm embutidos num `<script>`, como a
+  lista já faz com `window.CLIENTES`. Se um dia ~30s não bastar, é por aí.
+  Não perseguido.
 - **`Dt. pagamento` no DOM**: o Módulo 6 infere pagamento por retrato no
   `localStorage` porque a coluna não era legível. Ela apareceu no DOM em
   18/09/2026. Trocar inferência por dado real seria menos código e mais

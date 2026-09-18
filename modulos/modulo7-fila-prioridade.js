@@ -69,20 +69,47 @@
  * classificação de verdade (Módulo 1), que por sua vez depende de um campo
  * ("SCPC:") que só aparece na PÁGINA DE DETALHE de cada cliente. Promessas
  * também só existem na aba "Promessas" da página de detalhe. Por isso este
- * módulo visita cada candidato em aba de fundo (mesma técnica do Alt+A pra
- * outras razões do grupo, só que sequencial -- ver nota de popup abaixo) e
- * só monta a fila depois de classificar todo mundo.
+ * módulo visita cada candidato em aba de fundo e só monta a fila depois de
+ * classificar todo mundo.
  *
- * SOBRE POPUP: diferente do Alt+A/Alt+G (que abrem no máximo 2-3 abas, tudo
- * dentro do mesmo gesto de clique), aqui pode ser necessário visitar
- * DEZENAS de clientes -- abrir todas as abas de uma vez seria abusivo e
- * provavelmente travaria o navegador. Este módulo abre UMA aba de cada vez,
- * de forma sequencial (fecha antes de abrir a próxima). Isso significa que,
- * depois das primeiras, os `window.open` já não estão mais dentro do gesto
- * original de teclado -- SE o navegador bloquear alguma aba como pop-up,
- * aparece um aviso no console e aquele cliente fica de fora da lista (sem
- * travar o resto). Se isso acontecer na prática, a correção é permitir
- * pop-ups pra este site nas configurações do navegador (ação única).
+ * POR QUE ABA, e não algo melhor -- três alternativas testadas AO VIVO com o
+ * usuário em 18/09/2026, todas derrubadas por dado real:
+ *
+ *   - API de cliente: NÃO EXISTE. Um reload completo com Preserve log no
+ *     DevTools mostrou dois endpoints, /api/notificacoes/contagem e
+ *     /api/perfil/foto. Nada de títulos, promessa ou grupo.
+ *   - iframe oculto (seria invisível, paralelo, e não encostaria no Módulo 1
+ *     protegido, já que nossos módulos são injetados em frames): o CRM
+ *     responde X-Frame-Options: deny.
+ *   - fetch + DOMParser (X-Frame-Options não se aplica a fetch): o HTML
+ *     baixado vem SEM a tabela de títulos, sem o parágrafo do SCPC, sem
+ *     promessa e sem grupo. A hipótese não perseguida é que a página monte
+ *     o conteúdo no navegador a partir de dados embutidos num <script>,
+ *     como a lista já faz com window.CLIENTES. É por aí que se procura, se
+ *     um dia isto aqui não bastar.
+ *
+ * CONCORRÊNCIA: as abas abrem de CONFIG.CONCORRENCIA_CLASSIFICACAO em
+ * CONCORRENCIA_CLASSIFICACAO (4), não mais uma de cada vez -- com ~92
+ * candidatos, sequencial custava 3 a 5 minutos. O teto é conservador de
+ * propósito: são ~92 cargas de página contra o CRM da empresa.
+ *
+ * SOBRE POPUP: os `window.open` a partir do segundo já não estão dentro do
+ * gesto original de teclado. SE o navegador bloquear, o cliente fica de fora
+ * (sem travar o resto), e há um disjuntor: 3 bloqueios sem nenhum sucesso
+ * param tudo e avisam. Por isso a varredura AQUECE sequencialmente até o
+ * primeiro sucesso antes de paralelizar -- sem isso o disjuntor afrouxa,
+ * porque quando o 3º bloqueio é contabilizado já há outras abas em voo. A
+ * correção, quando acontece, é permitir pop-ups pra este site (ação única).
+ *
+ * CACHE DO DIA: a classificação é gravada em
+ * CONFIG.CHAVE_CACHE_CLASSIFICACAO e o Alt+U a reaproveita, então ela roda
+ * UMA vez por dia (Shift+Alt+U força outra). DECISÃO DO USUÁRIO, registrada
+ * porque é tentador "melhorar" isto depois: NÃO existe disparo automático de
+ * manhã. Chegou a ser desenhado e foi recusado quando ficaram claras as duas
+ * limitações -- userscript não roda com o navegador fechado (o horário vira
+ * "primeira carga de página a partir dele") e a classificação só funciona na
+ * página da LISTA, de onde lê os candidatos. Um Shift+Alt+U ao chegar
+ * resolve o mesmo, sem trava entre abas nem abas abrindo sozinhas.
  *
  * Onde colar: anexado ao FINAL do smart-table.js, depois do Módulo 0
  * (Utilitários Compartilhados -- usa window.__smartTableUtil.toast/esperar/
