@@ -203,6 +203,20 @@ rodar a suíte à mão antes de empurrar.
 **Nota sobre a URL de atualização**: no canal de desenvolvimento,
 `@updateURL`/`@downloadURL`/`@require` apontam para a branch `main`.
 
+## Skills de desenvolvimento
+
+`.claude/skills/` tem sete skills usadas para desenvolver este projeto — seis
+copiadas de [jeffallan/claude-skills](https://github.com/Jeffallan/claude-skills)
+sob licença MIT, e uma própria (`alternativa-mais-rapida`).
+
+**Quando usar cada uma, com exemplos reais deste repositório e as ressalvas que
+a skill não sabe sozinha** (o projeto não usa ESM, não usa Playwright, e não
+escreve ADRs em arquivo separado): ver `.claude/skills/COMO_USAR.md`.
+
+A regra que vale para todas: **skill não substitui dado real.** Os quatro bugs
+que de fato atrapalharam a cobrança nesta base foram achados por diagnóstico ao
+vivo no CRM, nenhum pela suíte de testes.
+
 ## Versionamento
 
 `@version` em `smart-table.user.js` segue `MAJOR.MINOR.PATCH`, com critério

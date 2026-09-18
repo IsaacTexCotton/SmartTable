@@ -9,10 +9,17 @@ fora do nível de código ("not code-level optimization"); e `the-fool` desafia
 decisões mas, por desenho, não propõe alternativa ("This isn't designed to
 propose alternatives").
 
+Essas duas últimas foram instaladas MESMO ASSIM, por decisão do usuário e
+para os fins que elas de fato cobrem -- decidir desenho entre módulos e
+desafiar uma decisão antes de commitá-la. O que elas não cobrem continua
+sendo trabalho da `alternativa-mais-rapida`.
+
+Como usar cada uma neste repositório: ver COMO_USAR.md nesta pasta.
+
 # Third-party skills
 
-The `javascript-pro`, `code-reviewer`, `debugging-wizard`, and `playwright-expert`
-skills in this directory were copied from
+The `javascript-pro`, `code-reviewer`, `debugging-wizard`, `playwright-expert`,
+`architecture-designer` and `the-fool` skills in this directory were copied from
 [jeffallan/claude-skills](https://github.com/jeffallan/claude-skills)
 (each carries `metadata.author: https://github.com/Jeffallan` in its own
 `SKILL.md`), used under the MIT License:
