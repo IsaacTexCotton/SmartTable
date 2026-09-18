@@ -51,6 +51,7 @@
 
   if (window.__atalhosTecladoCarregados) return;
   window.__atalhosTecladoCarregados = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Atalhos de Teclado');
 
   // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
   // deste arquivo no @require do wrapper.
@@ -1865,6 +1866,12 @@
    * porque passa a mentir sobre o que está rodando.
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
+    {
+      versao: '1.22.1', data: '18/09/2026',
+      mudancas: [
+        'Bastidores: a lista de "quais módulos existem" (usada só no diagnóstico do console) deixou de ser copiada à mão -- cada módulo se anuncia sozinho agora. Sem mudança visível pra quem usa.',
+      ],
+    },
     {
       versao: '1.22.0', data: '18/09/2026',
       mudancas: [

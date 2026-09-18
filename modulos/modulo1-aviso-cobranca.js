@@ -720,6 +720,7 @@
 
     if (window.__avisoCobrancaInstalado) return;
     window.__avisoCobrancaInstalado = true;
+    window.__smartTableUtil?.registrarModuloCarregado?.('Aviso de Cobrança');
 
     // ============================================================
     // CONFIGURACAO

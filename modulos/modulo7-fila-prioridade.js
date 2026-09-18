@@ -136,6 +136,7 @@
 
   if (window.__filaPrioridadeCarregada) return;
   window.__filaPrioridadeCarregada = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Fila por Prioridade');
 
   // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
   // deste arquivo no @require do wrapper.

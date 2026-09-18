@@ -407,6 +407,78 @@
   }
 
   // ============================================================
+  // REGISTRO DE MÓDULOS CARREGADOS
+  // ============================================================
+  //
+  // MESMO PADRÃO do registro de painéis logo acima: cada módulo se anuncia
+  // sozinho, em vez de ser listado à mão num arquivo que não tem nada a ver
+  // com ele. Antes disto, "quais módulos existem" era afirmado em TRÊS
+  // lugares independentes -- as linhas @require do wrapper, a flag que cada
+  // módulo seta (`window.__xCarregado = true`), e um array copiado à mão
+  // dentro do Módulo 6 (`FLAGS_DOS_MODULOS`) -- e o terceiro já ficou pra
+  // trás duas vezes na mesma sessão de manutenção (o Módulo 11 nunca entrou
+  // nele, sem nenhum aviso até alguém rodar a suíte de testes).
+  //
+  // ISTO NÃO ELIMINA a necessidade de um humano lembrar de anunciar um
+  // módulo novo -- MODULOS_ESPERADOS continua sendo uma lista hand-mantida,
+  // porque não há como uma página descobrir em runtime quantos @require o
+  // Tampermonkey concatenou (isso é metadado do userscript, não algo
+  // exposto pro JS). O que muda: o lugar certo de editar quando um módulo
+  // novo nasce é O PRÓPRIO ARQUIVO DELE (a mesma linha que já seta a flag),
+  // não um arquivo alheio -- e um nome que não bate com o esperado avisa NA
+  // HORA, no console, na primeira vez que a página carrega em
+  // desenvolvimento, em vez de só quando alguém lembra de rodar
+  // `npm run verificar`.
+  const MODULOS_ESPERADOS = Object.freeze([
+    'Utilitários Compartilhados',
+    'Aviso de Cobrança',
+    'Registrar e Enviar',
+    'Fila de Atendimento',
+    'Alerta do Cliente',
+    'Fila por Prioridade',
+    'Progresso da Fila',
+    'Alerta de Grupo Econômico',
+    'Atalhos de Teclado',
+    'Contexto Adicional',
+    'Diário',
+    'Painel de Configurações',
+    'Recebido na Semana',
+  ]);
+
+  const modulosCarregadosRegistrados = new Set();
+
+  /**
+   * Cada módulo chama isto na mesma linha em que já seta sua própria flag
+   * de "já carreguei" (`window.__xCarregado = true`).
+   *
+   * @param {string} nome Um dos nomes em MODULOS_ESPERADOS.
+   */
+  function registrarModuloCarregado(nome) {
+    if (!MODULOS_ESPERADOS.includes(nome)) {
+      console.warn(
+        `[Util] registrarModuloCarregado("${nome}") -- esse nome não está em MODULOS_ESPERADOS. ` +
+        'Typo, ou esqueceu de acrescentar o nome novo na lista do Módulo 0?'
+      );
+    }
+    modulosCarregadosRegistrados.add(nome);
+  }
+
+  /** @returns {string[]} Nomes que já se anunciaram, na ordem em que chegaram. */
+  function modulosCarregados() {
+    return Array.from(modulosCarregadosRegistrados);
+  }
+
+  /** @returns {string[]} Nomes esperados que ainda não se anunciaram. */
+  function modulosFaltando() {
+    return MODULOS_ESPERADOS.filter((nome) => !modulosCarregadosRegistrados.has(nome));
+  }
+
+  // Módulo 0 se anuncia igual a qualquer outro -- não é caso especial, só
+  // precisa acontecer DEPOIS de modulosCarregadosRegistrados existir (por
+  // isso aqui, e não lá em cima junto da flag __utilitariosCompartilhadosCarregados).
+  registrarModuloCarregado('Utilitários Compartilhados');
+
+  // ============================================================
   // ROTAÇÃO DE FRASES (variar sem soar aleatório)
   // ============================================================
   //
@@ -471,6 +543,10 @@
     config,
     registrarPainel,
     fecharOutrosPaineis,
+    registrarModuloCarregado,
+    modulosCarregados,
+    modulosFaltando,
+    MODULOS_ESPERADOS,
     hashDeFrase,
     escolherVariante,
     dataIso,

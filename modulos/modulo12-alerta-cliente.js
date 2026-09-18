@@ -57,6 +57,7 @@
 
   if (window.__alertaClienteCarregado) return;
   window.__alertaClienteCarregado = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Alerta do Cliente');
 
   const MS_POR_DIA = 24 * 60 * 60 * 1000;
 

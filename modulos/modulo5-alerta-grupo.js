@@ -40,6 +40,7 @@
 
   if (window.__alertaGrupoCarregado) return;
   window.__alertaGrupoCarregado = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Alerta de Grupo Econômico');
 
   // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
   // deste arquivo no @require do wrapper.

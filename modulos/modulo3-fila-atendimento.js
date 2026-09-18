@@ -48,6 +48,7 @@
   // Evita inicializar duas vezes se o arquivo for injetado/recarregado mais de uma vez.
   if (window.__filaAtendimentoCarregado) return;
   window.__filaAtendimentoCarregado = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Fila de Atendimento');
 
   // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
   // deste arquivo no @require do wrapper.

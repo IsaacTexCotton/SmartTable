@@ -24,6 +24,7 @@
 
   if (window.__painelConfiguracoesCarregado) return;
   window.__painelConfiguracoesCarregado = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Painel de Configurações');
 
   const CONFIG_PAINEL = {
     ID_PAINEL: 'smarttable-painel-config',

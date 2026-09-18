@@ -36,6 +36,7 @@
 
   if (window.__progressoFilaCarregado) return;
   window.__progressoFilaCarregado = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Progresso da Fila');
 
   const CONFIG_PROGRESSO = {
     ID_BOTAO: 'smarttable-gatilho-progresso',

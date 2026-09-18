@@ -37,6 +37,7 @@
 
     if (window.__registrarEEnviarInstalado) return;
     window.__registrarEEnviarInstalado = true;
+    window.__smartTableUtil?.registrarModuloCarregado?.('Registrar e Enviar');
 
     const ENDPOINT_CONTATOS = '/api/crm/contatos';
 

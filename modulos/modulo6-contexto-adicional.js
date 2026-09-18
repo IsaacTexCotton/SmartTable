@@ -44,6 +44,7 @@
 
   if (window.__contextoAdicionalCarregado) return;
   window.__contextoAdicionalCarregado = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Contexto Adicional');
 
   // Utilitários compartilhados (Módulo 0) -- precisa estar carregado ANTES
   // deste arquivo no @require do wrapper.
@@ -55,47 +56,36 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.22.0';
+  const VERSAO_SMARTTABLE = '1.22.1';
 
-  // Cada módulo marca sua própria flag de "já carreguei" pra não instalar
-  // duas vezes. Contar essas flags diz quantos módulos REALMENTE carregaram,
-  // que é a informação útil quando o cache do Tampermonkey serve um @require
-  // velho ou um módulo falha sozinho.
+  // Cada módulo se anuncia sozinho no Módulo 0 (registrarModuloCarregado,
+  // mesma linha em que já seta sua própria flag de "já carreguei") -- este
+  // arquivo só LÊ o registro, não mantém uma lista própria dele.
   //
-  // CORRIGIDO: o número era fixo no código ("7 módulos") e já não batia com a
-  // realidade antes mesmo do Módulo 8 entrar -- é exatamente o tipo de
-  // comentário-número que diverge em silêncio. Contado, não declarado.
-  const FLAGS_DOS_MODULOS = [
-    '__utilitariosCompartilhadosCarregados', // 0
-    '__diarioCarregado',                     // 8
-    '__avisoCobrancaInstalado',              // 1
-    '__registrarEEnviarInstalado',           // 2
-    '__filaAtendimentoCarregado',            // 3
-    '__filaPrioridadeCarregada',             // 7
-    '__alertaGrupoCarregado',                // 5
-    '__atalhosTecladoCarregados',            // 4
-    '__contextoAdicionalCarregado',          // 6
-    '__painelConfiguracoesCarregado',        // 9
-    '__recebidoSemanaCarregado',             // 10
-    '__progressoFilaCarregado',              // 11
-    '__alertaClienteCarregado',              // 12
-  ];
-
-  function contarModulosCarregados() {
-    return FLAGS_DOS_MODULOS.filter((flag) => window[flag] === true).length;
-  }
-
+  // HISTÓRICO: até a v1.22.x este arquivo tinha uma cópia própria
+  // (FLAGS_DOS_MODULOS) das flags de todos os módulos, e ela ficou pra trás
+  // duas vezes na mesma sessão de manutenção (o Módulo 11 nunca entrou
+  // nela). Antes disso, o total também já tinha sido fixo no código ("7
+  // módulos"), e igualmente ficou pra trás. Os dois eram o mesmo problema:
+  // uma verdade sobre "quais módulos existem" copiada num arquivo que não
+  // tem nada a ver com o módulo novo sendo criado. Ver Módulo 0
+  // (MODULOS_ESPERADOS / registrarModuloCarregado) pro porquê disso não
+  // resolver 100% sozinho -- ainda precisa de um humano lembrando de
+  // chamar a função no módulo novo -- mas move o lugar certo de editar pra
+  // dentro do próprio arquivo do módulo, e avisa na hora se o nome não
+  // bater.
   function avisarVersaoCarregada() {
-    const carregados = contarModulosCarregados();
-    const total = FLAGS_DOS_MODULOS.length;
+    const u = window.__smartTableUtil;
+    const carregados = u?.modulosCarregados?.() ?? [];
+    const faltando = u?.modulosFaltando?.() ?? [];
+    const total = carregados.length + faltando.length;
     console.log(
-      `%c[SmartTable] v${VERSAO_SMARTTABLE} carregado (${carregados}/${total} módulos)`,
+      `%c[SmartTable] v${VERSAO_SMARTTABLE} carregado (${carregados.length}/${total} módulos)`,
       'color:#16232F;font-weight:bold;font-size:12px;'
     );
-    if (carregados < total) {
-      const faltando = FLAGS_DOS_MODULOS.filter((flag) => window[flag] !== true);
+    if (faltando.length > 0) {
       console.warn(
-        `[SmartTable] ${total - carregados} módulo(s) NÃO carregaram: ${faltando.join(', ')}. ` +
+        `[SmartTable] ${faltando.length} módulo(s) NÃO carregaram: ${faltando.join(', ')}. ` +
         'Pode ser cache antigo do Tampermonkey ou erro em um @require -- confira o console acima.'
       );
     }
@@ -835,7 +825,5 @@
     obterCnpjDaPagina,
     contextoVazio,
     calcularContexto,
-    contarModulosCarregados,
-    FLAGS_DOS_MODULOS,
   };
 })();

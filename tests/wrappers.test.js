@@ -235,31 +235,57 @@ checar(
 );
 
 // =====================================================================
-// FLAGS_DOS_MODULOS (Módulo 6) não pode ficar pra trás
+// REGISTRO DE MÓDULOS (Módulo 0) não pode ficar pra trás
 // =====================================================================
-// DEFEITO REAL: o Módulo 11 entrou sem sua flag ser acrescentada aqui -- o
-// console de "X/13 módulos carregados" mentia (contava 12 no total, não 13)
-// sem ninguém perceber, porque nada testava essa lista contra a realidade.
-// É a MESMA classe de bug que motivou trocar "7 módulos" fixo por uma
-// contagem (ver comentário no próprio Módulo 6) -- só que a lista em si
-// também pode ficar velha, e só o disco sabe a verdade.
-const MODULO6 = fs.readFileSync(path.join(RAIZ, 'modulos', 'modulo6-contexto-adicional.js'), 'utf8');
-const flagsDeclaradas = [...MODULO6.matchAll(/'(__\w+(?:Carregad[oa]s?|Instalado))'/g)].map((m) => m[1]);
+// HISTÓRICO: até a v1.22.x isto era FLAGS_DOS_MODULOS, uma lista copiada à
+// mão dentro do Módulo 6 -- e ela ficou pra trás duas vezes na mesma sessão
+// de manutenção (o Módulo 11 nunca entrou nela; antes disso, um total fixo
+// "7 módulos" também já tinha ficado velho). Reduzido pra registro
+// (registrarModuloCarregado, Módulo 0, mesmo padrão de registrarPainel) --
+// mas o problema estrutural continua o mesmo tipo: um nome novo precisa
+// bater EXATAMENTE entre dois lugares (a chamada dentro do módulo, e
+// MODULOS_ESPERADOS dentro do Módulo 0). Esta seção trava isso.
+const MODULO0 = fs.readFileSync(path.join(RAIZ, 'modulos', 'modulo0-utilitarios-compartilhados.js'), 'utf8');
+const blocoEsperados = MODULO0.match(/MODULOS_ESPERADOS = Object\.freeze\(\[([\s\S]*?)\]\)/)?.[1] ?? '';
+const nomesEsperados = [...blocoEsperados.matchAll(/'([^']+)'/g)].map((m) => m[1]);
 
-// TODO módulo, incluindo o próprio 6, grava sua própria flag "cheguei" em
-// algum ponto do arquivo e precisa estar na lista que ele mesmo declara.
+checar('MODULOS_ESPERADOS existe e não está vazio no Módulo 0', nomesEsperados.length > 0);
+
+// TODO módulo grava sua própria flag "cheguei" E se anuncia com
+// registrarModuloCarregado, no mesmo arquivo, com um nome que bate com
+// MODULOS_ESPERADOS.
 fs.readdirSync(path.join(RAIZ, 'modulos'))
   .filter((f) => f.endsWith('.js'))
   .forEach((arquivo) => {
     const texto = fs.readFileSync(path.join(RAIZ, 'modulos', arquivo), 'utf8');
     const flagDoArquivo = texto.match(/window\.(__\w+(?:Carregad[oa]s?|Instalado)) = true/)?.[1];
-    checar(`${arquivo} tem uma flag própria de "já carreguei"`, !!flagDoArquivo, 'todo módulo precisa de uma pra entrar na contagem do Módulo 6');
-    if (flagDoArquivo) {
+    checar(`${arquivo} tem uma flag própria de "já carreguei"`, !!flagDoArquivo);
+
+    // Opcional: (?:\?\.)? -- o próprio Módulo 0 chama a função local direto
+    // (sem `window.__smartTableUtil?.`), os outros 12 chamam com optional
+    // chaining.
+    const nomeRegistrado = texto.match(/registrarModuloCarregado(?:\?\.)?\('([^']+)'\)/)?.[1];
+    checar(`${arquivo} chama registrarModuloCarregado`, !!nomeRegistrado, 'todo módulo precisa se anunciar pro diagnóstico do Módulo 6 contar certo');
+    if (nomeRegistrado) {
       checar(
-        `a flag de ${arquivo} (${flagDoArquivo}) está em FLAGS_DOS_MODULOS`,
-        flagsDeclaradas.includes(flagDoArquivo)
+        `o nome que ${arquivo} registra ("${nomeRegistrado}") está em MODULOS_ESPERADOS`,
+        nomesEsperados.includes(nomeRegistrado)
       );
     }
   });
+
+// E o caminho inverso: nada em MODULOS_ESPERADOS que nenhum módulo chama --
+// senão o diagnóstico mostraria pra sempre "1 módulo não carregou" por um
+// nome que não existe em lugar nenhum.
+const arquivosTexto = fs.readdirSync(path.join(RAIZ, 'modulos'))
+  .filter((f) => f.endsWith('.js'))
+  .map((f) => fs.readFileSync(path.join(RAIZ, 'modulos', f), 'utf8'))
+  .join('\n');
+nomesEsperados.forEach((nome) => {
+  checar(
+    `"${nome}" (declarado em MODULOS_ESPERADOS) é registrado por algum módulo de verdade`,
+    arquivosTexto.includes(`registrarModuloCarregado('${nome}')`) || arquivosTexto.includes(`registrarModuloCarregado?.('${nome}')`)
+  );
+});
 
 resumo();

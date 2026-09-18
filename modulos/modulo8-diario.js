@@ -47,6 +47,7 @@
 
   if (window.__diarioCarregado) return;
   window.__diarioCarregado = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Diário');
 
   const CONFIG_DIARIO = {
     PREFIXO_CHAVE: 'smarttable_diario_v1_',

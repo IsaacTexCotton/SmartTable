@@ -39,6 +39,7 @@
 
   if (window.__recebidoSemanaCarregado) return;
   window.__recebidoSemanaCarregado = true;
+  window.__smartTableUtil?.registrarModuloCarregado?.('Recebido na Semana');
 
   const CONFIG_RECEBIDO = {
     ENDPOINT: '/api/crm/dashboard-consolidado',
