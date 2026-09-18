@@ -1866,6 +1866,13 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.19.0', data: '18/09/2026',
+      mudancas: [
+        'Novo: um botão discreto na borda direita da tela mostra o progresso da fila de hoje, uma barra por prioridade (ex.: 23/56 cobrados).',
+        'Não é atalho de teclado de propósito -- é um botão, sempre no mesmo lugar, quase invisível até passar o mouse.',
+      ],
+    },
+    {
       versao: '1.18.1', data: '18/09/2026',
       mudancas: [
         'Corrigido: depois de terminar a fila, o Alt+U remontava a MESMA lista do dia -- incluindo todo mundo que você já tinha cobrado.',

@@ -1375,6 +1375,7 @@
     finalizarFila,
     CONFIG,
     NOMES_PRIORIDADE,
+    CORES_PRIORIDADE,
     ordenarComGrupoControle,
     compararPelaRegua,
     iniciar,

@@ -25,6 +25,9 @@ const SPECS = [
   { arquivo: 'modulo0-utilitarios-compartilhados.js' },
   { arquivo: 'modulo9-painel-configuracoes.js' },
   { arquivo: 'modulo10-recebido-na-semana.js' },
+  { arquivo: 'modulo3-fila-atendimento.js' },
+  { arquivo: 'modulo7-fila-prioridade.js' },
+  { arquivo: 'modulo11-progresso-fila.js' },
 ];
 
 function abrir() {
@@ -73,6 +76,7 @@ function abrir() {
   const w = abrir();
   const config = w.__painelConfiguracoes;
   const recebido = w.__recebidoSemana;
+  const progresso = w.__progressoFila;
 
   config.alternarPainel();
   checar('Alt+O abre o painel de configurações', config.estaAberto() === true);
@@ -81,16 +85,20 @@ function abrir() {
   checar('Alt+D abre o painel de recebimentos', recebido.estaAberto() === true);
   checar('E FECHA o de configurações (era o bug: os dois no mesmo pixel)', config.estaAberto() === false);
 
+  progresso.alternarPainel();
+  checar('o botão de progresso abre o painel dele', progresso.estaAberto() === true);
+  checar('e fecha o de recebimentos', recebido.estaAberto() === false);
+
   const naTela = w.document.querySelectorAll(
-    `#${w.__painelConfiguracoes.CONFIG_PAINEL.ID_PAINEL}, #${w.__recebidoSemana.CONFIG_RECEBIDO.ID_PAINEL}`
+    `#${w.__painelConfiguracoes.CONFIG_PAINEL.ID_PAINEL}, #${w.__recebidoSemana.CONFIG_RECEBIDO.ID_PAINEL}, #${w.__progressoFila.CONFIG_PROGRESSO.ID_PAINEL}`
   );
   checar('só um painel flutuante nosso no DOM', naTela.length === 1, String(naTela.length));
 
   config.alternarPainel();
-  checar('e o caminho inverso também vale', config.estaAberto() === true && recebido.estaAberto() === false);
+  checar('e o caminho inverso também vale', config.estaAberto() === true && progresso.estaAberto() === false);
 
   config.alternarPainel();
-  checar('fechar o último não deixa nenhum na tela', config.estaAberto() === false && recebido.estaAberto() === false);
+  checar('fechar o último não deixa nenhum na tela', config.estaAberto() === false && progresso.estaAberto() === false);
 })();
 
 // =====================================================================
@@ -110,6 +118,7 @@ function abrir() {
     'modulo4-atalhos-teclado.js': ['novidades', 'ajuda'],
     'modulo9-painel-configuracoes.js': ['configuracoes'],
     'modulo10-recebido-na-semana.js': ['recebidoSemana'],
+    'modulo11-progresso-fila.js': ['progressoFila'],
   };
 
   Object.entries(esperado).forEach(([arquivo, nomes]) => {
