@@ -8,7 +8,7 @@ direto de lá (branches `main` e `estavel`, histórico de commits, testes).
 Este documento existe pra economizar o que o `git log` não conta sozinho: as
 decisões, os fatos confirmados ao vivo e as armadilhas já pisadas.
 
-**Atualizado em**: 2026-09-18, na versão do `main` **1.21.0** (canal estável
+**Atualizado em**: 2026-09-18, na versão do `main` **1.22.0** (canal estável
 ainda em 1.18.1 até a próxima `npm run release`). Se o
 `@version` do repo for maior que isso quando você ler, o texto abaixo ainda
 descreve a arquitetura corretamente, mas pode haver módulo/atalho novo não
@@ -268,8 +268,26 @@ instantâneo depois.
 
 Pedido explícito do usuário: um **botão** na página do cliente, texto "⚠
 Alerta", visível de verdade (diferente do Módulo 11 — aqui nada foi pedido
-sobre esconder). Canto superior esquerdo, único que sobrava livre. Só
-aparece em página de cliente (precisa de `cnpj` na URL).
+sobre esconder). Só aparece em página de cliente (precisa de `cnpj` na URL).
+
+**Onde o botão fica** (v1.22.0, pedido do usuário com o HTML real do card):
+DENTRO do card de informações do cliente, logo depois do botão "Responsável
+financeiro" (`button[onclick="abrirModalResponsavel()"]`), mesmo container
+flex — herda as classes Tailwind de LAYOUT já compiladas na página (a cor
+sempre é inline, nunca uma classe Tailwind de cor que pode não estar no CSS
+compilado). Sem essa âncora na página, cai pro botão flutuante fixo de
+antes (`top: 96px; left: 16px`, abaixo do cabeçalho do CRM — ver "Achado ao
+vivo" abaixo).
+
+**Achado ao vivo, v1.21.0→1.21.1**: o botão nasceu em `top:16px` (canto
+superior esquerdo) e ficava INVISÍVEL — o cabeçalho do CRM (`#sit-header`)
+cobre a tela inteira do topo até y=80px, com z-index 50, mesmo nível dos
+modais. `document.elementFromPoint` naquele ponto devolvia o botão de
+recolher menu do próprio CRM, nunca o nosso. Corrigido descendo o botão pra
+abaixo da faixa do cabeçalho — nunca subindo o z-index pra vencê-lo (isso
+colocaria o botão no mesmo nível de um modal de verdade). A v1.22.0
+praticamente aposenta esse problema ao injetar o botão dentro do card real
+em vez de flutuar por cima da página.
 
 Abre um formulário com:
 - **Checkbox "Não cobrar"** — ao marcar, aparece um campo de intervalo em
@@ -282,12 +300,15 @@ Abre um formulário com:
   checkbox desmarcado e observação vazia REMOVE o alerta — é assim que se
   limpa.
 
-**Segunda regra, deliberadamente assimétrica**: cliente com observação MAS
-SEM "não cobrar" marcado recebe um aviso automático — um pouco acima do
-centro da tela (`top: 42%`, não os 50% exatos) — toda vez que a página dele
-é aberta. Com "não cobrar" ativo, o aviso NÃO aparece (o cliente já saiu da
-fila sozinho, não repete o aviso). Se isso não for o comportamento
-desejado, é mudança de regra a pedir explicitamente, não bug.
+**Aviso automático ao abrir a página** (v1.22.0, corrigido — ANTES era
+assimétrico: só avisava com observação SEM "não cobrar" marcado, decisão
+minha documentada como "avise se não for isso que você quer". O usuário
+relatou como errado): agora avisa **sempre** que houver alerta ativo —
+"não cobrar" e/ou observação — um pouco acima do centro da tela (`top:
+42%`). Com "não cobrar" ativo, o título muda pra "🚫 NÃO COBRAR este
+cliente" (mais urgente) e mostra até quando vale; é exatamente ao entrar
+num cliente marcado assim que o aviso mais importa, pra não ligar por
+hábito mesmo saindo da fila automática.
 
 "Não cobrar" usa timestamp corrido (`Date.now() + dias*24h`), não a
 convenção de meio-dia (`normalizarData`) do resto do projeto — de
