@@ -1866,6 +1866,13 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.21.0', data: '18/09/2026',
+      mudancas: [
+        'Novo: botão "Alerta" na página do cliente -- marca "não cobrar" por um número de dias (padrão 1, esse cliente some da fila por prioridade enquanto durar) e/ou uma observação livre.',
+        'Cliente com observação mas sem "não cobrar" marcado recebe um aviso automático, um pouco acima do centro da tela, toda vez que a página dele é aberta.',
+      ],
+    },
+    {
       versao: '1.20.0', data: '18/09/2026',
       mudancas: [
         'Corrigido: Cluster Novo com título já em cartório era excluído da fila por prioridade por causa do teto de dias de atraso -- agora aparece sempre, porque é a cobrança quem bloqueia o faturamento desse cliente.',

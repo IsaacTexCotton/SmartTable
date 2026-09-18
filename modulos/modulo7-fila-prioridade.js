@@ -34,6 +34,13 @@
  *      já tem faixa própria acima, ver item 3)
  *   10. Demais dias (tudo que não caiu em nenhuma faixa acima)
  *
+ * ANTES de qualquer faixa, um cliente pode ser suprimido de vez desta fila:
+ * o botão "Alerta" na página do cliente (Módulo 12) marca "não cobrar" por
+ * um número de dias escolhido pelo operador (padrão 1). Enquanto ativo, o
+ * cliente nem entra em filtrarPorRegrasDaLista -- é decisão humana
+ * explícita, vence até a isenção do Cluster Novo. Ver Módulo 12 pro
+ * porquê e pro formulário.
+ *
  * POR QUE AS FAIXAS 4 E 5 FICAM ACIMA DE SCPC-ÚLTIMO-DIA E DO AVISO DE
  * SUSPENSÃO (decisão explicada pro usuário): são os clientes que JÁ SE
  * COMPROMETERAM -- quem prometeu pagar hoje só converte se for lembrado
@@ -477,9 +484,18 @@
   // este filtro existe pra evitar fazer em quem não vai entrar na fila mesmo.
   function filtrarPorRegrasDaLista(candidatos) {
     const sobreviventes = [];
-    const excluidos = { dias: 0, diaUm: 0, movimentacaoHoje: 0, semDias: 0 };
+    const excluidos = { dias: 0, diaUm: 0, movimentacaoHoje: 0, semDias: 0, naoCobrarTemporario: 0 };
 
     candidatos.forEach((c) => {
+      // PEDIDO DO USUÁRIO (Módulo 12, botão "Alerta" na página do cliente):
+      // "não cobrar" marcado ali é uma decisão HUMANA explícita, e vence
+      // qualquer regra automática desta fila -- inclusive a isenção do
+      // Cluster Novo logo abaixo. Optional chaining: sem o Módulo 12
+      // carregado, ninguém é suprimido por isso (degrada, não quebra).
+      if (window.__alertaCliente?.estaSuprimidoDaPrioridade?.(c.cnpj)) {
+        excluidos.naoCobrarTemporario++;
+        return;
+      }
       if (c.diasAtraso === null || c.diasAtraso === undefined) {
         excluidos.semDias++;
         return;

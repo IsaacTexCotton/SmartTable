@@ -237,6 +237,62 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
 })();
 
 // =====================================================================
+// 5c. "NÃO COBRAR" (Módulo 12, botão "Alerta") SUPRIME DA FILA -- e VENCE
+// até a isenção do Cluster Novo, porque é decisão humana explícita.
+// =====================================================================
+(function naoCobrarTemporario() {
+  const SPECS_COM_ALERTA = [
+    { arquivo: 'modulo0-utilitarios-compartilhados.js' },
+    { arquivo: 'modulo3-fila-atendimento.js' },
+    { arquivo: 'modulo12-alerta-cliente.js' },
+    { arquivo: 'modulo7-fila-prioridade.js' },
+  ];
+
+  const cnpjSuprimido = '88888888/0001-88';
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: cnpjSuprimido, dias: 8 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: cnpjSuprimido, cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000' })];
+  const w = novaJanela({ url: 'https://texhub.texcotton.com.br/crm/clientes', bodyHtml: html, clientes, specs: SPECS_COM_ALERTA });
+
+  w.__alertaCliente.salvarAlerta(cnpjSuprimido, { naoCobrar: true, intervaloDias: 2 });
+
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  const { sobreviventes, excluidos } = w.filaPrioridadeDebug.filtrarPorRegrasDaLista(candidatos);
+  checar(
+    '"não cobrar" ativo (Módulo 12) exclui o cliente da fila, mesmo com dias elegíveis',
+    sobreviventes.length === 0 && excluidos.naoCobrarTemporario === 1,
+    JSON.stringify({ sobreviventes, excluidos })
+  );
+
+  // Vence até a isenção do Cluster Novo -- decisão humana explícita não se
+  // curva a uma regra automática de prioridade.
+  const cnpjClusterNovo = '99999999/0001-99';
+  const htmlNovo = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: cnpjClusterNovo, dias: 40 })}</tbody></table>`;
+  const clientesNovo = [clienteJson({ cnpj: cnpjClusterNovo, cluster: 'Novo', movimentacaoIso: '2026-08-01T08:00:00.000000' })];
+  const wNovo = novaJanela({ url: 'https://texhub.texcotton.com.br/crm/clientes', bodyHtml: htmlNovo, clientes: clientesNovo, specs: SPECS_COM_ALERTA });
+  wNovo.__alertaCliente.salvarAlerta(cnpjClusterNovo, { naoCobrar: true, intervaloDias: 1 });
+
+  const candidatosNovo = wNovo.filaPrioridadeDebug.candidatosEnriquecidos();
+  const { sobreviventes: sobreviventesNovo, excluidos: excluidosNovo } = wNovo.filaPrioridadeDebug.filtrarPorRegrasDaLista(candidatosNovo);
+  checar(
+    '"não cobrar" vence até a isenção do Cluster Novo -- não é a mesma exclusão',
+    sobreviventesNovo.length === 0 && excluidosNovo.naoCobrarTemporario === 1 && excluidosNovo.dias === 0,
+    JSON.stringify({ sobreviventesNovo, excluidosNovo })
+  );
+
+  // Sem o Módulo 12 carregado, ninguém é suprimido por isso -- degrada, não
+  // quebra (mesma disciplina de optional chaining do resto do projeto).
+  const wSemModulo12 = abrirLista(
+    'https://texhub.texcotton.com.br/crm/clientes',
+    `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '10101010/0001-10', dias: 8 })}</tbody></table>`,
+    [clienteJson({ cnpj: '10101010/0001-10', cluster: 'Normal', movimentacaoIso: '2026-09-01T08:00:00.000000' })]
+  );
+  const { sobreviventes: sSem } = wSemModulo12.filaPrioridadeDebug.filtrarPorRegrasDaLista(
+    wSemModulo12.filaPrioridadeDebug.candidatosEnriquecidos()
+  );
+  checar('sem o Módulo 12 carregado, filtrarPorRegrasDaLista não quebra e não suprime ninguém por isso', sSem.length === 1);
+})();
+
+// =====================================================================
 // 6. determinarPrioridade -- as 10 faixas, na ordem certa (waterfall).
 // PEDIDO DO USUÁRIO (2ª revisão): reordenou a régua inteira -- "segundo
 // dia" virou faixa própria (P3, bem no topo), SCPC-último-dia desceu de

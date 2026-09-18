@@ -234,4 +234,32 @@ checar(
   'o canal estável é branch -- `git tag` aqui é resíduo do desenho antigo'
 );
 
+// =====================================================================
+// FLAGS_DOS_MODULOS (Módulo 6) não pode ficar pra trás
+// =====================================================================
+// DEFEITO REAL: o Módulo 11 entrou sem sua flag ser acrescentada aqui -- o
+// console de "X/13 módulos carregados" mentia (contava 12 no total, não 13)
+// sem ninguém perceber, porque nada testava essa lista contra a realidade.
+// É a MESMA classe de bug que motivou trocar "7 módulos" fixo por uma
+// contagem (ver comentário no próprio Módulo 6) -- só que a lista em si
+// também pode ficar velha, e só o disco sabe a verdade.
+const MODULO6 = fs.readFileSync(path.join(RAIZ, 'modulos', 'modulo6-contexto-adicional.js'), 'utf8');
+const flagsDeclaradas = [...MODULO6.matchAll(/'(__\w+(?:Carregad[oa]s?|Instalado))'/g)].map((m) => m[1]);
+
+// TODO módulo, incluindo o próprio 6, grava sua própria flag "cheguei" em
+// algum ponto do arquivo e precisa estar na lista que ele mesmo declara.
+fs.readdirSync(path.join(RAIZ, 'modulos'))
+  .filter((f) => f.endsWith('.js'))
+  .forEach((arquivo) => {
+    const texto = fs.readFileSync(path.join(RAIZ, 'modulos', arquivo), 'utf8');
+    const flagDoArquivo = texto.match(/window\.(__\w+(?:Carregad[oa]s?|Instalado)) = true/)?.[1];
+    checar(`${arquivo} tem uma flag própria de "já carreguei"`, !!flagDoArquivo, 'todo módulo precisa de uma pra entrar na contagem do Módulo 6');
+    if (flagDoArquivo) {
+      checar(
+        `a flag de ${arquivo} (${flagDoArquivo}) está em FLAGS_DOS_MODULOS`,
+        flagsDeclaradas.includes(flagDoArquivo)
+      );
+    }
+  });
+
 resumo();
