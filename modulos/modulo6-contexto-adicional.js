@@ -55,7 +55,7 @@
   // em cache antigo). MANTER SINCRONIZADO MANUALMENTE com @version em
   // smart-table.user.js a cada bump -- é o único módulo que faz esse aviso,
   // de propósito, pra não repetir o toast em cada um dos 6 módulos.
-  const VERSAO_SMARTTABLE = '1.12.0';
+  const VERSAO_SMARTTABLE = '1.13.0';
 
   // Cada módulo marca sua própria flag de "já carreguei" pra não instalar
   // duas vezes. Contar essas flags diz quantos módulos REALMENTE carregaram,
@@ -76,6 +76,7 @@
     '__atalhosTecladoCarregados',            // 4
     '__contextoAdicionalCarregado',          // 6
     '__painelConfiguracoesCarregado',        // 9
+    '__recebidoSemanaCarregado',             // 10
   ];
 
   function contarModulosCarregados() {

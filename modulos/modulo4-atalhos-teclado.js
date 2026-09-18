@@ -81,6 +81,7 @@
     TECLA_ATENDIMENTO_RAPIDO: 'KeyA',
     TECLA_ABRIR_GRUPO_VENCIDO: 'KeyG',
     TECLA_CONFIGURACOES: 'KeyO',
+    TECLA_RECEBIDO_SEMANA: 'KeyD',
     // Tempo (ms) entre abrir a tela de contato e selecionar a frase --
     // dá tempo do modal terminar de aparecer antes de mexer nele.
     ATRASO_ATENDIMENTO_RAPIDO_MS: 150,
@@ -142,6 +143,7 @@
     { tecla: 'Alt+G', descricao: 'Abrir em nova aba as outras razões do grupo com saldo vencido' },
     { tecla: 'Alt+B', descricao: 'Busca rápida de cliente' },
     { tecla: 'Alt+L', descricao: 'Ver o que mudou nas últimas versões' },
+    { tecla: 'Alt+D', descricao: 'Quanto entrou na semana (sáb a sex), Isaac e Bianca' },
     { tecla: 'Alt+O', descricao: 'Abrir/fechar as configurações (interruptores)' },
     { tecla: 'Alt+H', descricao: 'Abrir/fechar esta ajuda' },
   ];
@@ -1743,6 +1745,14 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.13.0', data: '18/09/2026',
+      mudancas: [
+        'Novo atalho Alt+D: quanto entrou na semana vigente (sábado a sexta), seu e da Bianca, sem sair da página.',
+        'Sai do dashboard consolidado do próprio CRM -- é o primeiro número financeiro que o SmartTable mostra sem inferir nada.',
+        'São DOIS números: Depósitos (recuperado por negociações) e Promessas cumpridas (recuperado por promessas da cobrança). Eles não se somam.',
+      ],
+    },
+    {
       versao: '1.12.0', data: '17/09/2026',
       mudancas: [
         'Novo atalho Alt+O: painel de configurações com interruptores, que valem na hora e ficam salvos neste navegador.',
@@ -1897,6 +1907,20 @@
     const vista = lerUltimaVersaoVista();
     if (!vista) return new Set();
     return new Set(LOG_ATUALIZACOES.filter((e) => compararVersoes(e.versao, vista) > 0).map((e) => e.versao));
+  }
+
+  /**
+   * Ponte pro painel do Módulo 10 (Alt+D). Mesma checagem de existência da
+   * ponte do Alt+O: módulo que não carregou avisa, não derruba os outros.
+   */
+  function alternarPainelRecebido() {
+    const painel = window.__recebidoSemana;
+    if (!painel || typeof painel.alternarPainel !== 'function') {
+      console.warn('[Atalhos] O Módulo 10 (recebido na semana) não carregou -- Alt+D sem efeito.');
+      window.__smartTableUtil?.toast?.('Painel de recebimentos não carregou (veja o console).');
+      return;
+    }
+    painel.alternarPainel();
   }
 
   /**
@@ -2177,6 +2201,10 @@
         case CONFIG_ATALHOS.TECLA_CONFIGURACOES:
           e.preventDefault();
           alternarPainelConfiguracoes();
+          break;
+        case CONFIG_ATALHOS.TECLA_RECEBIDO_SEMANA:
+          e.preventDefault();
+          alternarPainelRecebido();
           break;
         case CONFIG_ATALHOS.TECLA_BUSCA_RAPIDA:
           e.preventDefault();

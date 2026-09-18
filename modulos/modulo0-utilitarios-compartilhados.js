@@ -275,6 +275,88 @@
   };
 
   // ============================================================
+  // SEMANA DE COBRANÇA (sábado a sexta) E IDENTIDADE DE USUÁRIO
+  // ============================================================
+  //
+  // A semana da cobrança NÃO é a semana do calendário: ela vai de SÁBADO a
+  // SEXTA (definição do usuário). Quando hoje é sábado, ele é o PRIMEIRO dia
+  // da semana nova, não o último da anterior.
+
+  /**
+   * Data em AAAA-MM-DD, montada campo a campo.
+   *
+   * NUNCA usar toISOString() aqui: ele converte pra UTC, e com a convenção
+   * de meio-dia deste projeto um fuso negativo devolve o dia ANTERIOR. Seria
+   * a terceira vez que data trocada de dia causa bug neste código.
+   *
+   * @param {Date} data
+   * @returns {string}
+   */
+  function dataIso(data) {
+    const ano = data.getFullYear();
+    const mes = String(data.getMonth() + 1).padStart(2, '0');
+    const dia = String(data.getDate()).padStart(2, '0');
+    return `${ano}-${mes}-${dia}`;
+  }
+
+  /**
+   * O sábado e a sexta da semana que contém a data de referência.
+   *
+   * @param {Date} [referencia] Padrão: hoje.
+   * @returns {{inicio: Date, fim: Date, inicioIso: string, fimIso: string}}
+   */
+  function semanaSabadoASexta(referencia) {
+    const base = normalizarData(referencia ?? new Date());
+    // getDay(): 0=domingo ... 6=sábado. Dias decorridos desde o sábado:
+    // sábado=0, domingo=1, segunda=2, ..., sexta=6.
+    const desdeSabado = (base.getDay() + 1) % 7;
+
+    const inicio = normalizarData(new Date(base));
+    inicio.setDate(base.getDate() - desdeSabado);
+
+    const fim = normalizarData(new Date(inicio));
+    fim.setDate(inicio.getDate() + 6);
+
+    return { inicio, fim, inicioIso: dataIso(inicio), fimIso: dataIso(fim) };
+  }
+
+  /**
+   * O primeiro nome dentro de um identificador de usuário do CRM.
+   *
+   * POR QUE ISTO EXISTE (achado ao vivo, e teria dado número errado em
+   * silêncio): a API do dashboard consolidado devolve DOIS esquemas de
+   * identificação na MESMA resposta --
+   *
+   *   depositos/acordos  -> "isaac.s"      (login: nome.inicial)
+   *   promessas/contatos -> "ISAAC.03876"  (código do CRM)
+   *
+   * Procurar por "ISAAC.03876" acharia a pessoa em duas seções e não acharia
+   * nada nas outras duas, devolvendo R$ 0,00 pra quem recebeu de verdade --
+   * sem erro na tela. O que vem antes do ponto é igual nos dois esquemas.
+   *
+   * CONFERIDO com dado real: nas quatro seções, nenhum primeiro nome se
+   * repete entre os usuários do time.
+   *
+   * @param {string|null|undefined} usuario
+   * @returns {string} Em minúsculas, ou '' se não der pra extrair.
+   */
+  function primeiroNomeDeUsuario(usuario) {
+    return String(usuario ?? '').trim().split('.')[0].toLowerCase();
+  }
+
+  /**
+   * Número em reais. Aceita null/undefined/NaN devolvendo '--' em vez de
+   * "R$ NaN" -- um painel que mostra NaN é pior que um que admite não saber.
+   *
+   * @param {number|null|undefined} valor
+   * @returns {string}
+   */
+  function formatarMoeda(valor) {
+    if (typeof valor !== 'number' || !Number.isFinite(valor)) return '--';
+    return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  // ============================================================
   // EXPORT
   // ============================================================
   window.__smartTableUtil = {
@@ -285,6 +367,10 @@
     maiorAtrasoEntre,
     escolherTituloRepresentativo,
     config,
+    dataIso,
+    semanaSabadoASexta,
+    primeiroNomeDeUsuario,
+    formatarMoeda,
     DIAS_AVISO_SUSPENSAO_SCPC_MIN,
     DIAS_AVISO_SUSPENSAO_SCPC_MAX,
     DIAS_ULTIMO_DIA_SUSPENSAO_SCPC,

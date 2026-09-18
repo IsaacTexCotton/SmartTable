@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Automação de Cobrança TexCotton
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      1.12.0
+// @version      1.13.0
 // @description  Automação do fluxo de cobrança no CRM TexCotton: classificação de títulos vencidos, relatório, registrar e enviar, fila de atendimento (normal e por prioridade), atalhos de teclado, alerta de grupo econômico e contexto adicional (promessas/contatos).
 // @author       Isaac
 // @match        https://texhub.texcotton.com.br/crm/*
@@ -11,6 +11,7 @@
 // @downloadURL  https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table.user.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo0-utilitarios-compartilhados.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo9-painel-configuracoes.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo10-recebido-na-semana.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo8-diario.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo1-aviso-cobranca.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/modulos/modulo2-registrar-enviar.js
