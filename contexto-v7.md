@@ -8,7 +8,7 @@ direto de lá (branches `main` e `estavel`, histórico de commits, testes).
 Este documento existe pra economizar o que o `git log` não conta sozinho: as
 decisões, os fatos confirmados ao vivo e as armadilhas já pisadas.
 
-**Atualizado em**: 2026-09-18, na versão do `main` **1.19.0** (canal estável
+**Atualizado em**: 2026-09-18, na versão do `main` **1.20.0** (canal estável
 ainda em 1.18.1 até a próxima `npm run release`). Se o
 `@version` do repo for maior que isso quando você ler, o texto abaixo ainda
 descreve a arquitetura corretamente, mas pode haver módulo/atalho novo não
@@ -232,7 +232,14 @@ não de inferência.
 Réguas de negócio, em ordem, primeira faixa que casar decide:
 
 1. Cartório, último dia
-2. Cluster "Novo"
+2. Cluster "Novo" — vale em QUALQUER situação de título, inclusive já em
+   cartório. É a ÚNICA faixa isenta do teto de dias de atraso
+   (`DIAS_ATRASO_MAX`, 19 dias) no filtro da lista: pedido explícito do
+   usuário, porque um Cluster Novo com título em cartório passa longe desse
+   teto e precisa continuar na fila — é a cobrança quem bloqueia o
+   faturamento desse cliente. A exceção vale pro cluster inteiro (não só
+   quem de fato está em cartório) porque o filtro roda ANTES de visitar o
+   cliente, sem saber ainda a situação real do título.
 3. Segundo dia de atraso exato
 4. Dia da promessa de pagamento (combinou pagar HOJE)
 5. Promessa quebrada/parcial sem contato desde o vencimento
