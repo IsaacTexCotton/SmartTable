@@ -11,10 +11,20 @@
  *
  * PEDIDO EXPLÍCITO DO USUÁRIO: um BOTÃO, igual ao Módulo 11 -- mas ESTE não
  * é escondido (o Módulo 11 é; aqui nada foi pedido nesse sentido). Botão
- * visível de verdade, texto "Alerta", canto superior esquerdo -- único canto
- * livre que sobrava (inferior-esquerdo tem "Continuar fila"+painéis,
- * inferior-direito tem os toasts do Módulo 7 e o gatilho do Módulo 11,
- * superior-direito tem o indicador "Fila: X/Y" do Módulo 3 enquanto ativo).
+ * visível de verdade, texto "Alerta", lado esquerdo -- inferior-esquerdo tem
+ * "Continuar fila"+painéis, inferior-direito tem os toasts do Módulo 7 e o
+ * gatilho do Módulo 11, superior-direito tem o indicador "Fila: X/Y" do
+ * Módulo 3 enquanto ativo.
+ *
+ * ACHADO AO VIVO (não estava nos meus "cantos livres" da v1.21.0, e por
+ * isso o botão nasceu invisível na primeira publicação): o cabeçalho do CRM
+ * (`#sit-header`) cobre a largura inteira da tela do topo até y=80px, com
+ * z-index 50 -- MESMO nível dos modais do CRM. `top:16px` (canto superior
+ * esquerdo "de verdade") fica embaixo dele por completo. Ver
+ * CONFIG_ALERTA.TOPO_BOTAO/TOPO_PAINEL: a correção é ficar inteiramente
+ * ABAIXO da faixa do cabeçalho (80px + folga), não subir o z-index pra
+ * vencê-lo -- isso colocaria o botão no mesmo nível de um modal de verdade,
+ * quebrando a regra que todo painel daqui segue.
  *
  * SEGUNDO COMPORTAMENTO, PEDIDO À PARTE (regra deliberadamente distinta da
  * de cima): cliente com OBSERVAÇÃO mas SEM o checkbox marcado -- ou seja,
@@ -60,6 +70,18 @@
     // modais do CRM (z-50).
     Z_INDEX: 30,
     INTERVALO_PADRAO_DIAS: 1,
+    // CONFIRMADO AO VIVO (relatado pelo usuário): o cabeçalho do CRM
+    // (`#sit-header`) cobre toda a largura da tela, do topo até y=80px, com
+    // z-index 50 -- MESMO nível dos modais do CRM. O canto superior
+    // esquerdo (top:16px, onde o botão nasceu) fica embaixo dele por
+    // completo; `document.elementFromPoint` naquele ponto devolvia o botão
+    // de recolher menu do próprio CRM (#sidebar-toggle-btn), nunca o nosso.
+    // Subir nosso z-index acima de 50 pra vencer resolveria isso, mas
+    // quebraria a regra que todo painel daqui segue: nunca competir com
+    // modal de verdade. A solução é geométrica, não de z-index: ficar
+    // inteiramente ABAIXO da faixa do cabeçalho (80px + folga).
+    TOPO_BOTAO: '96px',
+    TOPO_PAINEL: '150px',
   };
 
   const CORES = {
@@ -271,7 +293,7 @@
     painelEl.id = CONFIG_ALERTA.ID_PAINEL;
     Object.assign(painelEl.style, {
       position: 'fixed',
-      top: '60px',
+      top: CONFIG_ALERTA.TOPO_PAINEL,
       left: '16px',
       background: CORES.fundo,
       border: `1px solid ${CORES.borda}`,
@@ -367,7 +389,7 @@
     el.textContent = '⚠ Alerta';
     Object.assign(el.style, {
       position: 'fixed',
-      top: '16px',
+      top: CONFIG_ALERTA.TOPO_BOTAO,
       left: '16px',
       background: CORES.tinta,
       color: '#fff',

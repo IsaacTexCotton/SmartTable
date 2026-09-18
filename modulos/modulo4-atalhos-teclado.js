@@ -1866,6 +1866,12 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.21.1', data: '18/09/2026',
+      mudancas: [
+        'Corrigido: o botão "Alerta" nascia invisível -- o cabeçalho do CRM cobre a tela inteira até 80px do topo, no mesmo z-index dos modais, e escondia o botão por completo. Movido pra baixo do cabeçalho.',
+      ],
+    },
+    {
       versao: '1.21.0', data: '18/09/2026',
       mudancas: [
         'Novo: botão "Alerta" na página do cliente -- marca "não cobrar" por um número de dias (padrão 1, esse cliente some da fila por prioridade enquanto durar) e/ou uma observação livre.',
