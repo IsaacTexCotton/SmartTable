@@ -1,180 +1,363 @@
-# Contexto: Automação de Cobrança — CRM TexCotton (V7)
+# Contexto: Automação de Cobrança — CRM TexCotton (V7, atualizado)
 
-Documento de transição, sucessor do V6.md. Cole isto no início de um chat novo pra continuar o trabalho sem precisar reexplicar tudo. Os arquivos de código completos e validados devem ser anexados junto (ou peça pro usuário reenviar se não estiverem na conversa).
+Documento de transição. Cole isto no início de um chat novo pra continuar o
+trabalho sem precisar reexplicar tudo. **Diferente da versão original deste
+arquivo, agora não é preciso reanexar código nenhum**: tudo vive versionado
+no repositório GitHub `IsaacTexCotton/SmartTable`, público, e o chat novo lê
+direto de lá (branches `main` e `estavel`, histórico de commits, testes).
+Este documento existe pra economizar o que o `git log` não conta sozinho: as
+decisões, os fatos confirmados ao vivo e as armadilhas já pisadas.
 
-## O que é
+**Atualizado em**: 2026-09-18, na versão publicada **1.18.1**. Se o
+`@version` do repo for maior que isso quando você ler, o texto abaixo ainda
+descreve a arquitetura corretamente, mas pode haver módulo/atalho novo não
+listado — checar `smart-table.user.js` e `modulos/` antes de assumir que a
+lista está completa.
 
-Scripts JavaScript injetados via **Local Overrides do Chrome DevTools** no arquivo `smart-table.js`, servido pelo CRM interno (`texhub.texcotton.com.br`). Automatiza o fluxo de cobrança do Isaac (negociador): classifica títulos vencidos, gera relatório visual, monta mensagem personalizada por WhatsApp, registra contato, percorre uma fila de clientes sozinho, avisa sobre grupo econômico e promessas de pagamento quebradas, bloqueia cobrança indevida, e roda quase inteiramente por atalhos de teclado.
+## O que mudou desde a versão anterior deste documento (histórico, não relevante pro dia a dia)
 
-**Ainda não está hospedado como asset estático no servidor** — vive só no DevTools da máquina do Isaac. Foi discutida a migração para **Tampermonkey** (userscript) como alternativa mais robusta — resolveria tanto a praticidade de edição quanto a distribuição pro time — mas **não foi implementada ainda**, só desenhada. Ver "Itens em aberto".
+A versão original deste arquivo descrevia o projeto rodando via **Local
+Overrides do Chrome DevTools**, 6 módulos, um usuário só. Isso foi
+substituído por completo:
 
-## Estrutura atual (6 módulos, nessa ordem, colados no mesmo arquivo)
+- **Distribuição via Tampermonkey** (userscript com `@require` apontando pro
+  GitHub), não mais DevTools — resolve a praticidade de edição e permite
+  distribuir pro time sem reenviar arquivo.
+- **Dois canais** (`main` = desenvolvimento, `estavel` = o que o time
+  instala) em vez de um arquivo só — ver seção própria abaixo.
+- **11 módulos**, não 6 — a numeração histórica (1-6) foi mantida por
+  compatibilidade e os novos entraram como 7-10 fora de ordem cronológica de
+  criação.
+- Uma segunda pessoa (**Bianca**) agora também vai usar o script — ainda não
+  instalado na máquina dela até a data deste documento (ver "Itens em
+  aberto").
 
-1. **Aviso de Cobrança (v4)** — classifica títulos vencidos, gera relatório em imagem, expõe `window.__avisoCobranca`. Contém a biblioteca `SmartTable` (tabela própria da página). **Módulos 1 e 2 não foram escritos por Claude originalmente** — vieram prontos de uma sessão anterior. Editar apenas com confirmação explícita do usuário; nunca reescrever de memória.
-2. **Registrar e Enviar** — botão no modal de contato. `POST /api/crm/contatos`, depois abre WhatsApp e fecha a aba sozinho, depois `location.reload()`.
-3. **Fila de Atendimento** — percorre a lista de clientes sozinha, priorizada por urgência.
-4. **Atalhos de Teclado** — fluxo por teclado (`Alt+letra`), incluindo o Alt+A (mensagem personalizada — ver seção própria abaixo).
-5. **Alerta de Grupo Econômico** — avisa se outra empresa do mesmo grupo também tem título vencido. Agora com otimização de badge (ver "Fatos técnicos").
-6. **Contexto Adicional (NOVO nesta sessão)** — lê Promessas e Contatos ao carregar a página, expõe `window.__contextoAdicional` pro Alt+A consultar sem custo extra.
+## Como instalar / onde está o código
 
-## Fatos técnicos confirmados (não redescobrir)
+1. Tampermonkey no navegador.
+2. Instalar a partir de uma destas URLs (Tampermonkey abre a tela de
+   instalação sozinho ao acessar):
+   - **Desenvolvimento** (Isaac, quem mexe no código):
+     `https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table.user.js`
+   - **Estável** (resto do time):
+     `https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table-estavel.user.js`
+3. `@grant none` — o script roda no mesmo `window` da página (confirmado em
+   uso real, isso já não é mais suposição).
 
-### Já conhecidos do V6
+**Por que dois canais**: antes só existia `main`, e todo `git push` ia pro
+navegador de todo mundo na checagem seguinte do Tampermonkey — sem
+homologação, sem rollback. Agora o canal estável só anda quando alguém roda
+`npm run release -- X.Y.Z` de propósito; trabalho do dia a dia em `main` não
+chega lá.
+
+**Por que branch e não tag** (decisão registrada, custo aceito): tag seria
+imutável e mais correta num mundo sem atrito, mas esta sessão de manutenção
+consegue mover branches e **não consegue criar tags** (403 do GitHub,
+verificado ao vivo) — com tag, toda publicação dependeria de um comando
+manual do usuário. Em troca da imutabilidade, `scripts/release.js` recusa
+publicar uma versão que não seja **estritamente maior** que a já publicada,
+pra "publicar" nunca significar "voltar atrás em silêncio".
+
+### Publicar uma versão nova
+
+```
+npm run release -- 1.19.0
+npm run release -- 1.19.0 --local     # prepara sem empurrar
+```
+
+Recusa se: árvore suja, `@version` do wrapper ≠ `VERSAO_SMARTTABLE` do
+Módulo 6 (ficam em lockstep, sempre), versão não maior que a publicada, ou
+`npm run verificar` falhar. Passando por tudo, regenera os `@require` do
+canal estável, empurra `main` primeiro (é de lá que o Tampermonkey lê
+`@version` para o aviso de atualização), depois `estavel` — com retentativa
+exponencial (2/4/8/16s) em falha de rede.
+
+## Estrutura atual (11 módulos, `modulos/*.js`, nesta ordem de carregamento)
+
+Ordem real dos `@require` (importa: módulos posteriores dependem de
+`window.__X` publicado pelos anteriores):
+
+**0 → 9 → 10 → 8 → 1 → 2 → 3 → 7 → 5 → 4 → 6**
+
+| # | Nome do arquivo | Função | Atalho |
+|---|---|---|---|
+| 0 | `modulo0-utilitarios-compartilhados.js` | Base de tudo: config (`localStorage`), cálculo de semana sáb-sex, hash/rotação de frases, registro de painéis (fecha um ao abrir outro), `normalizarData` (meio-dia), constantes SCPC. Não é numerado por acaso — carrega primeiro. | — |
+| 1 | `modulo1-aviso-cobranca.js` | Classifica títulos vencidos, relatório em imagem. **PROTEGIDO** — não veio de mim originalmente, editar só com confirmação explícita do usuário. | Alt+R (relatório) |
+| 2 | `modulo2-registrar-enviar.js` | Registra contato no CRM, abre WhatsApp (app ou web, conforme config), fecha a aba sozinho, recarrega. **PROTEGIDO**, mesma regra do Módulo 1. | Alt+S |
+| 3 | `modulo3-fila-atendimento.js` | Fila de atendimento original, por dias de atraso. Dono de `obterAtendidosHoje()` (quem já foi contatado hoje) — o Módulo 7 usa essa função em vez de ler `localStorage` direto. | Alt+I |
+| 4 | `modulo4-atalhos-teclado.js` | Todos os atalhos, mensagem personalizada do Alt+A, rotação de frases (`FRASES`), aviso de novidades/ajuda. | (dono do mapa de teclas) |
+| 5 | `modulo5-alerta-grupo.js` | Hoje é só um **detector**, sem UI própria — `window.__alertaGrupo.empresasComVencido`. O banner que ele desenhava foi removido na v1.14.0 quando o CRM real passou a mostrar isso sozinho na tela do cliente. Consumido por Alt+G, pela frase do relatório, pela fila de prioridade e pelo diário. | Alt+G |
+| 6 | `modulo6-contexto-adicional.js` | Lê Promessas/Contatos pré-carregados no HTML, expõe `window.__contextoAdicional` (promessa, contato recente, nunca-contatado-por-mim, nome do negociador logado). | — |
+| 7 | `modulo7-fila-prioridade.js` | Fila ordenada por régua de negócio de 10 faixas (não só dias de atraso), com cache do dia e classificação em paralelo. Ver seção própria. | Alt+U (Shift+Alt+U reconstrói) |
+| 8 | `modulo8-diario.js` | Instrumentação: grava eventos de fila/contato/baixa por dia, pra medir se a régua de prioridade funciona. Ver "Itens em aberto" — decisão de shipar pro time ainda em jogo. | — |
+| 9 | `modulo9-painel-configuracoes.js` | Painel genérico de interruptores (Alt+O). Não conhece nenhuma config específica — só desenha o que está declarado em `DEFINICOES` no Módulo 0. | Alt+O |
+| 10 | `modulo10-recebido-na-semana.js` | Total recebido na semana vigente (sáb-sex) por depósito e por promessa cumprida, Isaac e Bianca, vindo de dado real de API — não inferência. | Alt+D |
+
+## Convenções obrigatórias (não redescobrir)
+
+- **Módulos 1 e 2 são protegidos.** Nunca editar sem pedir confirmação
+  explícita antes. Testar mudança hipotética só injetando lógica extra em
+  memória (nunca escrevendo no arquivo real) até o usuário confirmar.
+- **Convenção de meio-dia em toda data**: `window.__smartTableUtil.normalizarData`
+  seta `setHours(12,0,0,0)`. Qualquer data nova, em qualquer módulo, passa
+  por ela — comparar meia-noite com meio-dia já causou bug de silêncio uma
+  vez (ver "Armadilhas").
+- **Privacidade — regra permanente e literal do usuário**: *"Para todos os
+  codigos no devstool, codifique de uma maneira que as informações
+  sensíveis sejam censuradas."* Aplicada no Módulo 8: `exportar({censurado:
+  true})` é o padrão, e todo diagnóstico que sai daqui pro console/relatório
+  segue essa régua.
+- **Versionamento** (`@version` do wrapper e `VERSAO_SMARTTABLE` do Módulo 6,
+  sempre em lockstep):
+  - **PATCH** (`1.0.x`) — correção de bug, ajuste de texto/frase.
+  - **MINOR** (`1.x.0`) — atalho novo, botão novo, critério de faixa/prioridade
+    novo, ou qualquer reordenação/redesenho.
+  - **MAJOR** (`x.0.0`) — só quando exige atenção do usuário ANTES de
+    continuar usando (ex.: passaria a enviar sem revisão manual). Nunca por
+    acúmulo de MINORs.
+  - **Em dúvida entre duas categorias, sempre a mais alta.**
+- **Commits**: em português, terminando com a atribuição do Claude e a
+  sessão (formato já usado em todo o histórico — ver `git log`). Sempre
+  `git fetch origin main` antes; push direto em `main` (o canal estável só
+  se move via `npm run release`).
+- **Mutação como prática padrão**: toda correção é verificada reintroduzindo
+  o bug de propósito e confirmando que o teste voz a acusar.
+- **Nunca adivinhar DOM/regra de negócio** — pedir/gerar diagnóstico de
+  console real antes de escrever lógica de extração. Todo fato "confirmado"
+  listado abaixo veio assim, não de suposição.
+
+## Fatos confirmados sobre o CRM (não redescobrir)
+
 - Stack: jQuery + DataTables 2.x + ColReorder + Tailwind. Não é React.
 - URL de cliente: `/crm/clientes/grupo/{grupoId}?cnpj={cnpj}`.
-- `window.location.reload` é protegido pelo navegador — não dá pra sobrescrever.
-- Aba "Grupo": via `window.showTab('grupo')`, dados carregados de forma assíncrona (só ela, não as outras abas — ver abaixo).
-
-### Novos, confirmados nesta sessão
-- **`window.__TITULOS_ABERTOS__`** existe na página (array de objetos com todos os campos crus do título: `numeroTitulo`, `sequencia`, `valorEmAberto`, `dataVencimento`, `posicaoDescricao`, `portadorDescricao`, `sitCobrancaDescricao`, etc.) — mais confiável que ler célula por célula, mas o Módulo 1 **ainda lê via DOM da tabela** (não migrado pra essa fonte; ver "Itens em aberto", já era conhecido desde V6 e continua pendente).
-- **Colunas confirmadas da tabela de títulos** (`data-key`): `numeroTitulo`, `sequencia`, `razaoSocial`, `dataEmissao`, `dataVencimento`, `portadorDescricao`, `posicaoDescricao`, `valorOriginal`, `valorEmAberto`, `diasAtraso`, `dataPagamento`, `historicoBaixa`, `colecao`, `representanteCodigo`, `sitCobrancaDescricao`.
-- **`posicaoDescricao` tem pelo menos 4 valores confirmados**: `COBRANCA` (normal), `CARTORIO` (já protestado), `NAO COBRAR` e `CARTEIRA` (ambos = não deve ser cobrado, confirmado com o usuário — ver "Proteção não cobrar" abaixo). Se aparecer um valor novo, perguntar antes de tratar como normal.
-- **Portador Itaú demora a atualizar posição pra CARTORIO** mesmo com o título já protestado de fato — regra de negócio confirmada, tratada no Módulo 1 (ver seção própria).
-- **Abas "Promessas" e "Contatos" vêm PRÉ-CARREGADAS no HTML** desde o início (diferente da aba "Grupo", que só carrega ao abrir) — confirmado testando `document.querySelectorAll('#content-promessas .promessa-item').length` sem nunca ter clicado na aba. Isso permite o Módulo 6 ler direto, sem trocar de aba e sem o "flash" visual que o Módulo 5 tem.
-- **Botão `#tab-grupo` ganha um `<span class="... rounded-full ...">` com o número de empresas do grupo quando são 2+.** Quando é só 1 empresa (ou sem grupo), esse span não existe. O Módulo 5 usa isso pra pular a etapa inteira (nem abre a aba) no caso mais comum.
-- **Estrutura real da tela de Promessas** (`#content-promessas .promessa-item`): `data-status` (`QUEBRADA`, `PENDENTE`, `PARCIAL`, e por dropdown de filtro também existem `CUMPRIDA`/`CUMPRIDA PARCIAL` mas sem exemplo real confirmado), valor prometido, data prometida, e lista de títulos no formato `numero/parcela` (ex.: `901968/4`).
-- **Estrutura real da tela de Contatos** (`#content-contatos .contato-item`): tudo em atributos `data-*` do próprio elemento — `data-data` ("10/09/2026 16:08"), `data-resumo`, `data-resultado-enum`, `data-efetivo` ("true"/"false"), sem precisar ler texto renderizado.
-- **Cada `.contato-item` traz também `data-usuario` com o código do negociador que fez aquele contato** (ex.: `ISAAC.03876`, `BIANCA.03665`) — confirmado ao vivo no HTML real. É o que permite saber se ESTE negociador já falou com o cliente alguma vez.
-- **O negociador logado sai do header, no botão `#user-menu-btn`**: dentro dele há um `<div>` folha com o código no formato `NOME.NUMERO` (ex.: `ISAAC.03876`). Confirmado ao vivo tanto na lista quanto na página do cliente. **A parte antes do ponto é o primeiro nome da pessoa** (confirmado com o usuário) — é daí que sai o nome usado na frase de apresentação.
-- **`window.open(url, '_blank', 'noopener,noreferrer')` sempre retorna `null`** — não dá pra recuperar a referência da aba pra fechar depois. Contornado interceptando `window.open` temporariamente (ver Módulo 2).
-- **CSP do CRM bloqueia (mas só como *report-only*, não trava de verdade) o carregamento do `html2canvas-pro` via unpkg** — aparece um aviso no console (`violates Content Security Policy`), mas não impede o funcionamento. Não é bug nosso, não perseguir isso como causa de erro.
-- **Erro 404 em `/api/perfil/foto/...`** aparece рotineiramente no console — é do próprio CRM (foto de perfil ausente), não relacionado a nada do que construímos.
+- `window.__TITULOS_ABERTOS__` existe na página com todos os campos crus do
+  título; o Módulo 1 ainda lê a tabela via DOM (débito técnico conhecido,
+  não migrado).
+- `posicaoDescricao`: `COBRANCA` (normal), `CARTORIO` (protestado), `NAO
+  COBRAR` e `CARTEIRA` (os dois = não cobrar — proteção de segurança no
+  Módulo 1, banner sem botão de fechar, motivado por bug real de cobrança
+  indevida em produção).
+- Portador **Itaú** demora a atualizar posição pra `CARTORIO` mesmo já
+  protestado de fato — tratado no Módulo 1 via
+  `PORTADORES_CARTORIO_LENTO_PARA_ATUALIZAR`.
+- Abas "Promessas" e "Contatos" vêm pré-carregadas no HTML; "Grupo" só
+  carrega ao clicar — por isso o Módulo 5 evita abrir essa aba quando o
+  badge `#tab-grupo` já diz que só há 1 empresa no grupo.
+- Cada `.contato-item` traz `data-usuario` com o código do negociador
+  (`ISAAC.03876`, `BIANCA.03665`) — permite saber se ESTE negociador já
+  falou com o cliente. Premissa não confirmada: assume-se que o primeiro
+  item da lista é o mais recente.
+- **Não existe API de detalhe de cliente.** Só `/api/notificacoes/contagem`
+  e `/api/perfil/foto/...`. Confirmado tentando via `fetch` direto.
+- **`X-Frame-Options: deny`** — carregar a página em iframe é impossível,
+  confirmado ao vivo (bloqueio do navegador, não contornável).
+- **HTML buscado por `fetch` vem sem a tabela de títulos/SCPC/promessa/grupo**
+  — a página provavelmente monta isso no navegador a partir de dado inline
+  (`<script>`), do jeito que a lista já faz com `window.CLIENTES`. Hipótese
+  não perseguida — ver "Alvos conhecidos" na skill de otimização.
+- **`GET /api/crm/dashboard-consolidado?inicio=AAAA-MM-DD&fim=AAAA-MM-DD`**
+  devolve `depositos`, `acordos`, `promessas`, `contatos`, `valoresAcordo`
+  agregados por usuário — é a fonte do Módulo 10. **Duas nomenclaturas de
+  usuário na MESMA resposta**: `isaac.s` (login) em depósitos/acordos,
+  `ISAAC.03876` (código CRM) em promessas/contatos — a união é o texto antes
+  do ponto.
+- Limiares de SCPC (Módulo 0): aviso de suspensão entre os dias **16 e 18**,
+  suspensão de fato no dia **19** — uma frase que cravasse "suspenso hoje"
+  nos dias 16-18 seria factualmente falsa (bug já cometido e corrigido, ver
+  "Armadilhas").
+- `window.open` sempre retorna `null` — não dá pra recuperar referência da
+  aba; contornado interceptando `window.open` temporariamente no Módulo 2.
 
 ## Armadilhas já encontradas (não repetir)
 
-### Já conhecidas do V6
-Ver V6 pra lista completa (navegação mata timers, simulação de clique, localStorage sem schema, MutationObserver sem debounce, nunca usar innerHTML com texto interpolado, F5 obrigatório após colar módulo novo, Alt+letra em vez de Ctrl+letra).
+- **Data à meia-noite vs. meio-dia**: comparar as duas dava `false` e anulava
+  em silêncio uma correção de `>=`. Toda data nova passa por
+  `normalizarData`, sem exceção.
+- **Fixture de teste escrita à mão mente**: um teste de regressão passava
+  porque a fixture também tinha o mesmo bug da meia-noite. Fixtures de
+  contexto agora saem do módulo real (`tests/helpers/contexto-real.js`).
+- **Retrato de títulos consumido de forma destrutiva**: rodava a cada
+  carregamento de página e um F5 apagava sinal de pagamento pra sempre. A
+  detecção agora persiste até o contato de hoje ser registrado.
+- **Corrida entre `location.reload()` e fechamento assíncrono de aba**:
+  resolvido com Promise que só resolve após `.close()`, atrasando o fluxo em
+  ~1,5s de propósito (trade-off aceito).
+- **Frase com prazo cravado num dia em que ele é falso** (dias 16-18 do
+  aviso SCPC dizendo "suspenso ao fim do dia", que só é verdade no dia 19) —
+  movida pro slot certo, testes travam os dois extremos.
+- **Quatro painéis desenhados no mesmo pixel** (Ajuda/Novidades/Config/Alt+D),
+  nenhum fechando o outro. Corrigido estruturalmente com um registro central
+  de painéis no Módulo 0 (`registrarPainel`/`fecharOutrosPaineis`), não
+  reposicionando (reposicionar só moveria o bug pro próximo painel novo).
+- **`localStorage`/`fetch`/`location` como identificador livre em teste
+  jsdom** resolvem pra globals do Node (última `window` criada), não pra
+  janela simulada — corrigido usando `window.fetch`/`window.AbortController`
+  explícitos e ordenando os blocos de teste.
+- **Paralelismo afrouxando o disjuntor de pop-up**: com 4 abas simultâneas
+  na classificação da fila, o disjuntor (limite de 3 tentativas) chegava a 6
+  antes de desistir. Corrigido com aquecimento sequencial até o primeiro
+  sucesso, mantendo o paralelismo só depois.
+- **Self-review encontrou 2 defeitos reais sem teste** ao revisar a
+  implementação do cache da fila: o cache reservia clientes já contatados
+  hoje, e duas chamadas duplicavam o registro no diário. Lição: adicionar um
+  SEGUNDO caminho pro mesmo resultado tende a esquecer regra de negócio que
+  o primeiro caminho aplicava de graça.
 
-### Novas, descobertas nesta sessão
-- **Convenção de horário nas datas é MEIO-DIA, e vale entre módulos.** O Módulo 4 construía a data de vencimento à meia-noite (`new Date(a, m, d)`) enquanto o Módulo 6 normaliza ao meio-dia. Comparar as duas dava `00:00 >= 12:00` = false e anulava em silêncio a correção do `>=` em `deveOmitirRelatorio`. Qualquer data nova passa por `window.__smartTableUtil.normalizarData`, sem exceção.
-- **Fixture de teste escrita à mão mente.** O teste de regressão desse mesmo bug existia, com o nome certo, e passava — porque a fixture também era meia-noite. Fixture de contexto agora sai do módulo real (`tests/helpers/contexto-real.js`).
-- **O retrato de títulos era consumido de forma destrutiva.** `verificarESalvarSnapshotTitulos` roda a cada CARREGAMENTO de página, e sobrescrevia o retrato antes de o operador apertar Alt+A — um F5 apagava o agradecimento de pagamento pra sempre. A detecção agora fica grudada no retrato pelo resto do dia; some sozinha quando o contato de hoje é registrado (aí `contatoRecente` vira null).
-1. **Corrida entre `location.reload()` e fechamento assíncrono de aba.** O Módulo 2 chama `reload()` quase instantaneamente após abrir o WhatsApp. Um `setTimeout` pra fechar a aba do WhatsApp NUNCA disparava, porque o reload matava o timer antes. Solução: a função que fecha a aba (`chamarWhatsAppEFecharAbaAutomaticamente`) retorna uma **Promise** que só resolve depois do `.close()`, e o chamador usa `await` antes de seguir pro reload. Isso atrasa o fluxo inteiro em ~1,5s de propósito — trade-off aceito pelo usuário.
-2. **Fechar aba de WhatsApp só funciona se ele abrir como aba do navegador.** Se o Chrome entrega a navegação pro app desktop do WhatsApp (janela separada do SO), não existe solução via JavaScript — é bloqueio de segurança do sistema operacional, não do site. Testado e confirmado: o caso real do usuário é aba de navegador mesmo, então a solução via `window.open` interceptado se aplica.
-3. **Teste de fechamento de aba precisa ser via clique de verdade, não `window.open()` direto no console** — o bloqueador de pop-up do Chrome trata chamadas fora de um gesto do usuário de forma diferente, dando falsos resultados.
-4. **jsdom/cheerio não estão disponíveis no ambiente de teste do Claude, e não há acesso de rede pra instalar.** Playwright + Chromium (já disponíveis) resolvem isso — dá pra testar parsing de HTML real e não só simulação de clique/teclado, criando fixtures com `page.setContent()` e chamando as funções internas via um hook de debug temporário (ver "Metodologia").
+## Painel de configurações — Alt+O (Módulo 9)
 
-## Sistema de substituição de variáveis `{{ }}` (Módulo 4)
+Genérico: lê `DEFINICOES` do Módulo 0 e desenha sozinho. Hoje só existe uma
+configuração:
 
-Frases padrão do CRM (48+ frases reais do usuário, catalogadas com `data-id`) usam variáveis tipo `{{cliente_nome}}`. Antes desta sessão, o Módulo 4 escrevia o texto cru na caixa, sem substituir nada (bug original). Agora:
+- **`usarWhatsAppWeb`** (padrão `false`) — desligado abre no app Desktop do
+  WhatsApp; ligado abre em `web.whatsapp.com`, sempre na mesma aba. Serve
+  pra atender pela conta de outra pessoa (ex.: cobrar pelos clientes da
+  colega) sem deslogar o próprio app e perder mensagens. Lido no momento do
+  clique (Módulo 2), então o toggle vale sem precisar recarregar a página.
 
-- `substituirVariaveisDaFrase(texto, dadosPreCalculados?)` acha `{{variavel}}` via regex e substitui usando um mapa `RESOLVEDORES_VARIAVEL`.
-- Variáveis com resolvedor: `cliente_nome`, `quantidade_titulos_vencidos`, `quantidade_titulos_protestados`, `valor_total_vencido`, `saudacao` (Bom dia/Boa tarde/Boa noite pelo horário do relógio), `data_vencimento` (do título "representativo", ver abaixo — formato curto `DD/MM`, sem ano).
-- Variáveis **sem** resolvedor (`responsavel_nome`, `chave_pix`, `valor_protestado_atualizado` — decisão consciente do usuário, não são dado que o CRM expõe automaticamente) ficam com o `{{...}}` visível na própria caixa + aviso no console, em vez de arriscar um valor errado. Isso vale pra qualquer variável nova que apareça em frase futura sem resolvedor ainda.
-- Datas em mensagem pro cliente usam formato curto (`01/09`, sem ano) — decisão do usuário, "data completa fica estranho".
+Adicionar config nova = uma entrada em `DEFINICOES`; o painel não precisa
+mudar.
 
-## Sistema de mensagem personalizada do Alt+A (Módulo 4)
+## Recebido na semana — Alt+D (Módulo 10)
 
-Alt+A não seleciona mais "a primeira frase da lista" — monta uma mensagem sob medida. Sequência:
+Sáb-sex vigente, Isaac e Bianca, dois números que **não são candidatos ao
+mesmo total** (decisão explícita do usuário): depósitos (negociação) e
+promessas cumpridas (promessa feita na cobrança), mais o **total combinado**
+dos dois. Primeira métrica financeira do projeto vinda de dado real de API,
+não de inferência.
 
-1. Clica em "Gerar Relatório" (igual Alt+R) — **exceto** no caso de "primeiro contato" (ver abaixo), que pula esse passo.
-2. 150ms depois, abre a tela de contato (igual Alt+C).
-3. Mais 150ms depois, monta a mensagem e escreve na caixa. **Para aí** — Alt+S continua sendo passo separado e consciente.
+## Fila por prioridade — Alt+U / Shift+Alt+U (Módulo 7)
 
-### Escolha do título "representativo"
-Regra confirmada com o usuário, **igual à que o Módulo 2 já usa** pro resumo do CRM (duplicada de propósito, Módulo 2 não pode ser editado sem confirmação): entre os títulos do cliente, se algum estiver em `ULTIMO_DIA`, esse sempre vence (mesmo que outro já esteja em cartório/negativado); senão, o de maior atraso real, seja qual for a situação.
+Réguas de negócio, em ordem, primeira faixa que casar decide:
 
-### Molde da mensagem
-```
-{{saudacao}}
+1. Cartório, último dia
+2. Cluster "Novo"
+3. Segundo dia de atraso exato
+4. Dia da promessa de pagamento (combinou pagar HOJE)
+5. Promessa quebrada/parcial sem contato desde o vencimento
+6. SCPC, último dia
+7. Aviso final antes da suspensão SCPC (dia 19 exato)
+8. Última movimentação há mais de 30 dias corridos
+9. Atraso inicial, dias 3-4 (dia 1 fica de fora; dia 2 já é a faixa 3)
+10. Demais dias
 
-[linha de contato recente, se aplicável -- fixo "ontem"]
-[linha de promessa, se aplicável]
+**Comportamento do atalho** (decisão do usuário, v1.16.0/1.17.0): Alt+U virou
+"me leva pra fila" — instantâneo, continua a fila de hoje se já existir em
+vez de reclassificar tudo de novo. **Shift+Alt+U** é quem reconstrói do
+zero. A fila do dia fica em cache (`localStorage`); ao continuar, filtra
+clientes já contatados hoje via `Módulo3.obterAtendidosHoje()` (nunca lê a
+chave de storage direto). Classificação usa 4 abas em paralelo, com
+aquecimento sequencial até o primeiro sucesso pra não afrouxar o disjuntor
+de pop-up. Ganho medido: de 3-5 minutos pra ~30-45s na primeira vez do dia,
+instantâneo depois.
 
-Segue o relatório atualizado do débito em aberto na razão social {{cliente_nome}}:
+## Diário — instrumentação (Módulo 8)
 
-[linha da situação do título, se aplicável]
+Grava três tipos de evento por dia (`fila`, `contato`, `baixa`) numa chave de
+`localStorage` por dia, tudo em try/catch (nunca pode derrubar o fluxo de
+cobrança). Existe pra responder "a régua de prioridade do Alt+U funciona de
+verdade?" — e documenta no próprio cabeçalho que **não é prova de causa**,
+só instrumentação. Exportação sempre censurada por padrão
+(`exportar({censurado: true})`).
 
-Podemos agendar para hoje o pagamento do débito em aberto?
-```
+## Rotação de frases (Módulo 0 + Módulo 4)
 
-### Linha de contexto por situação do título (extraída das frases reais do usuário, não inventada do zero)
-| Situação (código) | Linha |
-|---|---|
-| `EM_ATRASO` | nenhuma (vai direto pro fechamento) |
-| `PRAZO_FINAL` (raro — 6º dia caiu em fim de semana/feriado) | nenhuma, tratado igual `EM_ATRASO` |
-| `ULTIMO_DIA` + cartório | "Lembramos que o título vencido em {{data_vencimento}} está no prazo final antes de ser encaminhado para cartório." |
-| `ULTIMO_DIA` + SCPC | "...antes de ser encaminhado ao SCPC." |
-| `NEGATIVADO_SCPC` | "Lembramos que a regularização dos débitos negativados no SCPC permite a baixa das restrições." |
-| `EM_CARTORIO` | "Os títulos já em cartório aparecem destacados no relatório abaixo -- o restante ainda está dentro do prazo para pagamento via boleto." |
-| `VERIFICAR_POSICAO` | **nenhuma mensagem gerada** — situação incerta demais (prazo passou, CRM ainda não confirmou cartório), decisão do usuário foi não afirmar nada errado pro cliente. |
+Medido antes de mexer: 192 mensagens da matriz produziam só 18 distintas,
+83% terminando na mesma pergunta. Com a carteira quase toda contatada todo
+dia, o mesmo cliente lia a mesma frase todo dia. Corrigido com
+`escolherVariante(semente, variantes)` — hash FNV-1a sobre `cnpj|data`,
+**deliberadamente separado** do `hashEstavel` do Módulo 8 (que decide o
+grupo de controle do experimento e não pode ser afetado por isso).
 
-### Caso especial: primeiro contato
-Se `window.__contextoAdicional.semContatoAnterior` for `true` (zero registros na aba Contatos), a mensagem vira só identificação — ignora relatório, situação, promessa:
-```
-{{saudacao}}
-
-Sou o Isaac do financeiro da Tex Cotton referente as marcas Animê, Bimbi, Youccie, Authoria e Momi
-Este é o contato responsável pela razão social {{cliente_nome}}?
-```
-E o Alt+A **pula o Alt+R** nesse caso (mensagem não menciona relatório).
-
-## Módulo 6: Contexto Adicional (novo)
-
-Roda ao carregar a página do cliente (sem trocar de aba — Promessas/Contatos já vêm no HTML). Calcula e expõe em `window.__contextoAdicional`:
-
-- **`promessa`**: `{tipo: 'DIA_DA_PROMESSA'|'QUEBRADA'|'PARCIAL', promessa: {...}}` ou `null`. Regra confirmada: só entra na mensagem **no dia combinado** (se ainda `PENDENTE`) ou **no 1º dia útil depois** (se `QUEBRADA` ou `PARCIAL`). `PENDENTE` no dia útil seguinte fica **de propósito sem mensagem** (sem frase aprovada pra esse caso). `CUMPRIDA`/`CUMPRIDA PARCIAL` são ignoradas sempre.
-- **`contatoRecente`**: `{dataTexto}` ou `null`. Só quando o contato mais recente foi efetivo (`data-efetivo="true"`) e caiu exatamente no dia útil anterior a hoje.
-- **`semContatoAnterior`**: `true` se a lista de Contatos vier vazia.
-- **`nuncaContatadoPorMim`**: `true` quando o cliente JÁ tem contatos, mas nenhum deles é do negociador logado (compara `data-usuario` de cada contato com o código lido do `#user-menu-btn`, os dois normalizados em maiúsculas). Cliente com ZERO contatos fica `false` de propósito — esse caso já é o `semContatoAnterior`, que também se apresenta; contar os dois juntos duplicaria a apresentação na mesma mensagem.
-- **`nomeNegociador`**: primeiro nome do negociador logado, capitalizado (`BIANCA.03665` → `Bianca`). Fora do formato `NOME.NUMERO` devolve string vazia e quem chama cai no padrão, em vez de mandar mensagem com nome errado. Se o header não existir na página, cai no `CONFIG_CONTEXTO.USUARIO_NEGOCIADOR` (fallback) e avisa uma vez no console.
-- **`calcularTitulosPendentes(titulosDaPromessa)`**: cruza títulos de uma promessa Parcial com os que ainda aparecem em aberto no Módulo 1 (via `tituloCompleto`) — o que sumiu, presume-se pago.
-
-**Premissa não confirmada, documentada no próprio código**: assume que o primeiro `.contato-item` da lista é sempre o mais recente — só testado com 1 contato de exemplo, nunca com lista de vários pra confirmar a ordem real.
-
-**Cálculo de "dia útil anterior"** é novo (Módulo 1 só tinha "próximo dia útil"/"a partir de", sempre pra frente no tempo) — reaproveita `window.__avisoCobranca.feriados(ano)` pros feriados, mas a aritmética de andar pra trás é só do Módulo 6.
-
-## Proteção "Não Cobrar" / "Carteira" (Módulo 1) — SEGURANÇA, não só feature
-
-**Motivação**: bug real em produção — cliente foi cobrado por engano porque tinha título marcado pra não cobrar no CRM, por falta de atenção do operador.
-
-- `posicaoDescricao` igual a `NAO COBRAR` ou `CARTEIRA` (confirmado que os dois significam "não cobrar", lista em `POSICOES_EXCLUIDAS_DE_COBRANCA`) faz o título **nunca entrar em `registros`** — fora do relatório, da mensagem do Alt+A, da nota do Módulo 2, não importa os dias de atraso. Fica só no bucket separado `naoCobrar`, exposto em `simular().naoCobrar`.
-- **Banner vermelho fixo no topo da página, SEM botão de fechar** (de propósito — o bug foi justamente algo "fechável"/ignorável passar despercebido), aparece sozinho ao carregar a página se o cliente tiver qualquer título nessas posições. Mostra título + motivo de cada um.
-- Se aparecer um valor de posição novo (além de `COBRANCA`/`CARTORIO`/`NAO COBRAR`/`CARTEIRA`), perguntar ao usuário antes de assumir que é "normal" — não adicionar à lista de exclusão nem tratar como cobrança comum sem confirmar.
-
-## Correção Itaú (Módulo 1)
-
-Regra de negócio confirmada: quando o prazo de pagamento já passou, o fluxo é cartório, e a posição ainda mostra `COBRANCA` (não confirmado como `CARTORIO` no CRM), mas o **portador é Itaú**, classifica como `EM_CARTORIO` mesmo sem essa confirmação — esse banco especificamente demora mais de um dia útil pra atualizar o sistema, mesmo com o título já protestado de fato. Lista extensível em `PORTADORES_CARTORIO_LENTO_PARA_ATUALIZAR` (hoje só `['ITAU']`, comparação sem acento/caixa via `normalizarTexto`).
+Papéis com variantes: `ctaGenerico`, `ctaUltimoDia`, `ctaCartorio`,
+`ctaSuspensaoScpc`, `ctaUltimoDiaScpc`, `retomada` — todas escolhidas junto
+com o usuário (ver `tests/rotacao-frases.test.js` pras propriedades
+travadas: estável no dia, muda entre dias, nunca um CTA escalado soa como
+genérico, nenhum prazo cravado num dia em que é falso).
 
 ## Tabela de atalhos atual (Módulo 4)
 
 | Tecla | Ação |
 |---|---|
-| Alt+I | Iniciar Fila de Atendimento |
+| Alt+I | Iniciar Fila de Atendimento (original, por dias de atraso) |
+| **Alt+U** | **Fila por prioridade — continua a de hoje se existir** |
+| **Shift+Alt+U** | **Reconstrói a fila por prioridade do zero** |
 | Alt+R | Gerar Relatório |
 | Alt+C | Entrar na tela de contato |
 | Alt+F | Selecionar a 1ª frase padrão (com substituição de `{{variável}}`) |
-| **Alt+A** | **Atendimento rápido — relatório + contato + mensagem PERSONALIZADA (não é mais "primeira frase"), ver seção própria acima** |
-| Alt+S | Registrar e Enviar (agora fecha a aba do WhatsApp sozinho, ~1,5s depois) |
-| Alt+P | Ir para o próximo da fila |
+| Alt+A | Atendimento rápido — relatório + contato + mensagem personalizada, com rotação de frase |
+| Alt+S | Registrar e Enviar (fecha a aba do WhatsApp sozinho) |
+| Alt+P | Próximo da fila |
+| Alt+V | Voltar na fila |
 | Alt+B | Busca rápida de cliente |
-| Alt+H | Abrir/fechar painel de ajuda |
+| Alt+G | Abrir outras razões do grupo com vencido |
+| Alt+H | Painel de ajuda |
+| Alt+L | Painel de novidades (changelog) |
+| **Alt+O** | **Painel de configurações** |
+| **Alt+D** | **Recebido na semana** |
 
-## Metodologia que funcionou bem (reforçada nesta sessão)
+## Skills do projeto (`.claude/skills/`)
 
-- **Nunca adivinhar estrutura sem confirmação** — pedir diagnóstico de console ou `outerHTML` real antes de escrever lógica de extração. Rendeu retrabalho toda vez que isso foi pulado.
-- **Testar de verdade antes de entregar**, com ferramenta adequada ao tipo de lógica:
-  - Lógica pura (parsers, cálculo de data, resolução de variável) → teste Node direto, sem DOM.
-  - Lógica que depende de DOM real (parsing de HTML, querySelector encadeado) → **Playwright + Chromium** com `page.setContent()` simulando o HTML real confirmado, não mock manual de `document`.
-  - Pra testar funções internas de um módulo (que não são expostas em `window`), usar um **hook de debug temporário**: copiar o arquivo pra uma versão `-teste-temp.js`, inserir `window.__debugX = { funcaoInterna }` só nessa cópia, nunca no arquivo entregue.
-  - Cuidado com mocks de `document`/`window` incompletos: `document.body` ausente ou `MutationObserver` não definida podem causar loop infinito de `setTimeout` (já aconteceu, travou um teste por 300s).
-- **Reproduzir o bug antes de "corrigir na teoria"** — a causa raiz da corrida do reload só apareceu testando de verdade com instrumentação (`[DIAG-REAL]`), não foi deduzida de antemão.
+Sete skills instaladas, com instruções de uso específicas pro SmartTable em
+`.claude/skills/COMO_USAR.md` (ler esse arquivo antes de invocar qualquer
+uma — tem ressalvas que a skill genérica não sabe: nada de ESM aqui, sem
+Playwright configurado, decisões de arquitetura vão no cabeçalho do módulo e
+na mensagem de commit, não em documento separado):
+
+- **`alternativa-mais-rapida`** — projeto próprio (não veio do
+  jeffallan.github.io/claude-skills), pra planejar caminho mais rápido pra
+  algo que já funciona, com a MESMA saída. Regra central: "suíte passando
+  sem nenhum teste editado" é a única prova de equivalência aceita.
+- **`architecture-designer`**, **`the-fool`**, **`code-reviewer`**,
+  **`debugging-wizard`**, **`javascript-pro`**, **`playwright-expert`** —
+  do catálogo público, adaptadas nesse `COMO_USAR.md`.
 
 ## Itens em aberto / decisões pendentes
 
-- **Migrar pra Tampermonkey** — desenhado em conversa, não implementado. Precisa testar se `window.showTab`, `window.abrirWhatsAppCliente` e as variáveis trocadas entre módulos (`window.__avisoCobranca`, `window.__contextoAdicional`) continuam visíveis nesse modelo antes de migrar de verdade.
-- **Distribuir pro time** (Ana, Jadir, Tarciso, Larissa, Bianca) — segue pendente; Tampermonkey facilitaria bastante isso.
-- **Migrar leitura de títulos pra `window.__TITULOS_ABERTOS__`** em vez de ler célula por célula do DOM — ainda não feito, continua como débito técnico conhecido desde o V6.
-- **Confirmar ordem real da lista de Contatos** (mais recente primeiro?) — Módulo 6 assume isso sem confirmação real com lista de vários itens.
-- **Testar em produção, de verdade, pelo usuário**: a correção da corrida reload/fechamento de aba (Módulo 2) e a proteção Não Cobrar/Carteira (Módulo 1) foram entregues e testadas isoladamente (Playwright/Node), mas **ainda não confirmadas pelo usuário em uso real** no momento deste documento.
-- **Configuração duplicada entre Módulos 2 e 4** (prioridade de título "representativo") — débito técnico conhecido e aceito, mesmo motivo do V6 (Módulo 2 não editável sem confirmação).
-- Quarta-feira de cinzas (dia útil ou não) — ainda pendente desde o V5/V6, baixa prioridade.
-- Endpoint de rede real por trás da aba "Grupo" — ainda pendente, precisa de diagnóstico de Network tab.
+- **Módulo 8 (diário) no canal estável, ainda sem decisão final**: publicado
+  na 1.18.1, o que significa que a partir da instalação da Bianca o
+  navegador dela vai gravar dados de cliente em `localStorage`. Reversível
+  com outra publicação, mas nada chega na máquina dela até ela instalar —
+  pendência levantada desde a v1.11.2, nunca fechada.
+- **Instalar `smart-table-estavel.user.js` na máquina da Bianca** e conferir
+  ao vivo se `@grant none` realmente expõe o `window` da página nessa outra
+  máquina (o README trata isso como confirmado só na máquina do Isaac).
+  Confirmar também que o console mostra `11/11 módulos` carregados.
+  Se vier menos que 11, é cache do Tampermonkey, não bug.
+- **Toggle de liga/desliga do diário** e **marcar configuração não-padrão
+  no Alt+O / badge de versão** — recomendados, ainda não construídos.
+- **Réplica do grupo econômico deveria contar pra `nuncaContatadoPorMim`?**
+  — em aberto.
+- **Faixa 8 (movimentação +1 mês) nunca dispara?** — suspeita de que
+  `movimentacaoDataIso` não está chegando no Módulo 7 como esperado, não
+  investigado a fundo ainda.
+- **`Dt. pagamento` apareceu no DOM** (18/09/2026) — poderia substituir a
+  inferência por retrato do Módulo 6, mas isso muda a saída, então é
+  feature, não otimização (fora do escopo da skill de velocidade).
+- **Migrar leitura de títulos pra `window.__TITULOS_ABERTOS__`** em vez de
+  DOM célula por célula — débito técnico conhecido, não crítico.
+- **"HTML montado no navegador"** como única rota conhecida pra baixar o
+  Alt+U de ~30-45s — não perseguido, seria mudança de arquitetura, não de
+  otimização.
 
-## Confirmar sempre antes de propor uma feature nova
+## Metodologia que funcionou (reforçar sempre)
 
-Perguntar: (1) de onde vem o dado (já existe em algum `window.__X` exposto, ou precisa ler do DOM?); (2) qual o texto/estrutura real do elemento envolvido, se ainda não confirmado; (3) se a mudança é reversível/de baixo risco o suficiente pra implementar direto, ou se envolve enviar mensagem de verdade pro cliente ou decisão de segurança (ex.: não cobrar) — nesse caso, sempre checar explicitamente antes de construir, e considerar testar contra fixture real antes de entregar.
+- **Medir antes de mexer**, com número — vale tanto pra performance (Alt+U:
+  3-5min → 30-45s) quanto pra qualidade de frase (192→18 distintas antes de
+  escrever qualquer coisa nova).
+- **Descartar hipótese de arquitetura contra o CRM real, não contra o
+  teclado**: três arquiteturas melhores pro Alt+U morreram em minutos
+  testadas ao vivo (API de cliente, iframe, fetch+DOMParser) — teriam levado
+  meio dia se só fossem discutidas.
+- **Mutação em toda correção**: reintroduzir o bug de propósito e confirmar
+  que o teste acusa, senão a prova de que o teste cobre não vale nada.
+- **Self-review do próprio código do dia** encontrou defeitos reais que a
+  suíte grande não via — vale repetir depois de qualquer feature que
+  adicione um SEGUNDO caminho pro mesmo resultado.
 
-## Onde está o código
+## Onde está tudo, de fato
 
-Os 6 arquivos completos e validados (`node --check`, e os que dependem de DOM também testados via Playwright) devem estar anexados nesta mesma entrega, junto com este documento. Se precisar recuperar os arquivos e eles não estiverem mais disponíveis, peça pro usuário reenviar — o conteúdo completo não persiste fora da conversa onde foi gerado.
+Repositório `IsaacTexCotton/SmartTable` (público, GitHub). `main` é
+desenvolvimento; `estavel` é o que o time instala. `npm run verificar` roda
+lock + lint + suíte completa (27 arquivos em `tests/`). `README.md` tem o
+detalhe operacional de publicação; este documento é o resumo de decisões e
+fatos que não estão em nenhum commit isolado.
