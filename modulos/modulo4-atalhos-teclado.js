@@ -1747,6 +1747,14 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.17.0', data: '18/09/2026',
+      mudancas: [
+        'A classificação da fila passa a abrir 4 abas de fundo ao mesmo tempo, em vez de uma por vez: de ~4 minutos para ~1.',
+        'O resultado fica guardado no dia. Alt+U monta a fila do que já foi classificado, sem revisitar ninguém.',
+        'Shift+Alt+U continua refazendo tudo do zero quando você quiser.',
+      ],
+    },
+    {
       versao: '1.16.0', data: '18/09/2026',
       mudancas: [
         'Alt+U agora CONTINUA a fila de hoje em vez de refazer tudo -- ele volta direto pro cliente onde você parou.',

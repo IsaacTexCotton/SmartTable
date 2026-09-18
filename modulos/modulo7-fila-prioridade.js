@@ -140,6 +140,21 @@
     // Módulo 6 carregados) -- mesma ordem de grandeza do Alt+A.
     TIMEOUT_CLASSIFICACAO_MS: 8000,
     INTERVALO_POLL_MS: 200,
+    // Quantas abas de fundo abrem AO MESMO TEMPO.
+    //
+    // Era 1 (estritamente sequencial). Com ~92 sobreviventes e 1-3s por
+    // página, isso dava 3 a 5 minutos -- e a única forma de ver a fila era
+    // pagar esse preço inteiro.
+    //
+    // 4 é conservador de propósito: são 92 cargas de página contra o CRM da
+    // empresa, e acelerar demais transforma uma automação de cobrança em
+    // algo que o servidor pode legitimamente achar abusivo. Subir isso é
+    // decisão de operação, não de código.
+    CONCORRENCIA_CLASSIFICACAO: 4,
+    // Cache da classificação do dia. SEPARADO da fila de propósito: gravar
+    // por cima da fila destruiria a posição em que você parou -- o mesmo bug
+    // que a v1.16.0 acabou de consertar.
+    CHAVE_CACHE_CLASSIFICACAO: 'smarttable_classificacao_v1',
   };
 
   const NOMES_PRIORIDADE = {
@@ -839,9 +854,176 @@
     return true;
   }
 
+  /* ---------------------------------------------------------------------
+   * 5b. CLASSIFICAÇÃO EM LOTE E CACHE DO DIA
+   * --------------------------------------------------------------------- */
+
+  /**
+   * Classifica vários clientes com N abas abertas ao mesmo tempo.
+   *
+   * A ordem do RESULTADO acompanha a ordem da ENTRADA, não a de chegada --
+   * `resultados[i]` corresponde a `clientes[i]`. Isso não é detalhe: a fila
+   * final é ordenada pela régua logo depois, e uma ordem de entrada instável
+   * faria duas execuções do mesmo dia produzirem filas diferentes entre
+   * empates, contaminando o diário e o grupo de controle.
+   *
+   * @param {object[]} clientes
+   * @param {(feitos: number, total: number) => void} aoProgredir
+   * @param {(cliente: object) => Promise<object>} [classificar] Costura de
+   *   teste: a concorrência e o disjuntor são o ponto desta função, e sem
+   *   poder substituir o classificador eles ficariam sem cobertura -- abrir
+   *   aba de verdade não acontece no jsdom. Em produção nunca é passado.
+   * @returns {Promise<{resultados: object[], abortouPorPopup: boolean}>}
+   */
+  async function classificarEmLote(clientes, aoProgredir, classificar) {
+    const classificarUm = classificar || classificarCliente;
+    const resultados = new Array(clientes.length);
+    let proximo = 0;
+    let feitos = 0;
+    let bloqueados = 0;
+    let sucessos = 0;
+    let abortouPorPopup = false;
+
+    // DISJUNTOR DE POP-UP, adaptado do laço sequencial. Lá a regra era "3
+    // bloqueios SEGUIDOS"; em paralelo "seguidos" perde o sentido, porque a
+    // ordem de chegada é indeterminada. A regra equivalente e sem ambiguidade
+    // é: 3 bloqueios e NENHUM sucesso -- o que caracteriza bloqueio
+    // sistemático, que é o que o disjuntor existe pra detectar cedo.
+    const LIMITE_BLOQUEIOS = 3;
+
+    async function umCliente() {
+      if (abortouPorPopup) return false;
+      const i = proximo;
+      proximo += 1;
+      if (i >= clientes.length) return false;
+
+      const resultado = await classificarUm(clientes[i]);
+      resultados[i] = resultado;
+
+      if (resultado.erro === 'popup-bloqueado') {
+        bloqueados += 1;
+        if (bloqueados >= LIMITE_BLOQUEIOS && sucessos === 0) {
+          abortouPorPopup = true;
+          return false;
+        }
+      } else if (!resultado.erro) {
+        sucessos += 1;
+      }
+
+      feitos += 1;
+      aoProgredir(feitos, clientes.length);
+      return true;
+    }
+
+    async function trabalhador() {
+      for (;;) {
+        const seguiu = await umCliente();
+        if (!seguiu) return;
+      }
+    }
+    trabalhador.chamadaUnica = umCliente;
+
+    // AQUECIMENTO SEQUENCIAL, até o primeiro sucesso.
+    //
+    // Sem isto, o disjuntor afrouxa: com 4 trabalhadores, quando o 3º bloqueio
+    // é contabilizado já há outras abas em voo, e o laço tenta ~6 antes de
+    // desistir -- foi exatamente o que o teste do disjuntor pegou.
+    //
+    // Abrir UMA aba primeiro também é mais educado com o servidor e mais
+    // honesto com o navegador: prova que pop-up está liberado antes de pedir
+    // quatro de uma vez. Custa uma carga de página no caminho feliz.
+    while (sucessos === 0 && !abortouPorPopup && proximo < clientes.length) {
+      await trabalhador.chamadaUnica();
+    }
+
+    if (abortouPorPopup || proximo >= clientes.length) {
+      return { resultados: resultados.filter(Boolean), abortouPorPopup };
+    }
+
+    const quantos = Math.max(1, Math.min(CONFIG.CONCORRENCIA_CLASSIFICACAO, clientes.length - proximo));
+    await Promise.all(Array.from({ length: quantos }, trabalhador));
+
+    return { resultados: resultados.filter(Boolean), abortouPorPopup };
+  }
+
+  /**
+   * O cache guarda só os campos que o pipeline DEPOIS da classificação
+   * consome. Guardar o resultado inteiro seria mais fácil e pior: ele tem
+   * Date, que não sobrevive ao JSON, e campos que ninguém lê -- convidando
+   * o caminho do cache a divergir do caminho fresco sem ninguém perceber.
+   *
+   * Há teste travando que os dois caminhos produzem a MESMA fila.
+   *
+   * @param {object} r Resultado de classificarCliente.
+   */
+  function paraOCache(r) {
+    return {
+      cliente: r.cliente,
+      prioridade: r.prioridade,
+      empresasComVencido: r.empresasComVencido || [],
+      escolhido: {
+        diasAtrasoReal: r.escolhido.diasAtrasoReal,
+        situacaoKey: r.escolhido.situacaoKey,
+      },
+    };
+  }
+
+  /** @param {object[]} resultados */
+  function gravarCacheClassificacao(resultados) {
+    try {
+      localStorage.setItem(CONFIG.CHAVE_CACHE_CLASSIFICACAO, JSON.stringify({
+        dia: window.__smartTableUtil.dataIso(new Date()),
+        geradoEm: Date.now(),
+        resultados: resultados.map(paraOCache),
+      }));
+      return true;
+    } catch (erro) {
+      console.warn('[Fila Prioridade] Não consegui gravar o cache da classificação.', erro);
+      return false;
+    }
+  }
+
+  /**
+   * @returns {{resultados: object[], geradoEm: number}|null} null quando não
+   *   há cache, ele é de outro dia, ou está corrompido.
+   */
+  function lerCacheClassificacao() {
+    let cru = null;
+    try {
+      cru = localStorage.getItem(CONFIG.CHAVE_CACHE_CLASSIFICACAO);
+    } catch (erro) {
+      return null;
+    }
+    if (!cru) return null;
+
+    let dados;
+    try {
+      dados = JSON.parse(cru);
+    } catch (erro) {
+      console.warn('[Fila Prioridade] Cache da classificação corrompido -- descartando.');
+      return null;
+    }
+
+    if (!dados || dados.dia !== window.__smartTableUtil.dataIso(new Date())) return null;
+    if (!Array.isArray(dados.resultados) || dados.resultados.length === 0) return null;
+
+    // Defesa contra formato antigo: se faltar campo que o pipeline usa, é
+    // melhor reclassificar do que montar uma fila silenciosamente errada.
+    const valido = dados.resultados.every(
+      (r) => r && r.cliente && typeof r.cliente.cnpj === 'string' &&
+        r.prioridade != null && r.escolhido && r.escolhido.diasAtrasoReal != null
+    );
+    if (!valido) {
+      console.warn('[Fila Prioridade] Cache da classificação em formato antigo -- descartando.');
+      return null;
+    }
+
+    return { resultados: dados.resultados, geradoEm: dados.geradoEm };
+  }
+
   /**
    * @param {{reconstruir?: boolean}} [opcoes] reconstruir: true ignora a
-   *   fila de hoje e refaz do zero (Shift+Alt+U).
+   *   fila de hoje E o cache, e refaz do zero (Shift+Alt+U).
    */
   async function iniciar(opcoes) {
     if (classificandoEmAndamento) {
@@ -856,6 +1038,21 @@
     // hoje": ele vem de graça do construirFilaAPartirDaPagina() do Módulo 3,
     // que pula quem está em atendidosHoje. Não existe filtro duplicado aqui.
     if (!opcoes?.reconstruir && retomarFilaDeHoje()) return;
+
+    // SEGUNDO atalho, antes de gastar as ~92 visitas: a classificação de hoje
+    // já pode estar pronta. Monta a fila do cache e pronto -- instantâneo.
+    //
+    // A ordem importa: fila em andamento > cache do dia > classificar agora.
+    // Pular direto pro cache descartaria a posição em que você parou.
+    if (!opcoes?.reconstruir) {
+      const cache = lerCacheClassificacao();
+      if (cache) {
+        const minutos = Math.round((Date.now() - cache.geradoEm) / 60000);
+        toast(`Montando a fila da classificação de hoje (${minutos} min atrás). Shift+Alt+U refaz.`);
+        finalizarFila(cache.resultados, {}, null);
+        return;
+      }
+    }
 
     const candidatos = candidatosEnriquecidos();
     if (candidatos === null) return; // aviso já foi ao console
@@ -890,61 +1087,61 @@
     atualizarIndicadorProgresso(`Classificando 0/${sobreviventes.length}...`);
 
     const resultados = [];
-    let excluidosPorPromessa = 0;
-    let excluidosPorNaoCobrar = 0;
-    let comPopupBloqueado = 0;
-    let comOutroErro = 0;
-    let popupsBloqueadosSeguidos = 0;
-
-    // BUG REAL (relatado pelo usuário, primeiro teste ao vivo): a partir da
-    // SEGUNDA aba, window.open() já não está mais dentro do gesto original
-    // do Alt+U (cada chamada seguinte vem depois de um await) -- o Chrome
-    // bloqueia todas elas como pop-up, e o laço varria os 30-60 candidatos
-    // inteiros só pra descobrir isso no final, um por um, sem avisar nada
-    // no meio do caminho. Com esse disjuntor, 3 bloqueios seguidos já para
-    // tudo e avisa na hora -- é inútil continuar tentando abrir aba se o
-    // navegador está bloqueando de forma consistente.
-    const LIMITE_POPUPS_BLOQUEADOS_SEGUIDOS = 3;
-
-    for (let i = 0; i < sobreviventes.length; i++) {
-      const cliente = sobreviventes[i];
-      atualizarIndicadorProgresso(`Classificando ${i + 1}/${sobreviventes.length}: ${cliente.label}`);
-
-      const resultado = await classificarCliente(cliente);
-      if (resultado.excluidoPorPromessaFutura) {
-        excluidosPorPromessa++;
-        popupsBloqueadosSeguidos = 0;
-      } else if (resultado.excluidoPorNaoCobrar) {
-        excluidosPorNaoCobrar++;
-        popupsBloqueadosSeguidos = 0;
-      } else if (resultado.erro === 'popup-bloqueado') {
-        comPopupBloqueado++;
-        popupsBloqueadosSeguidos++;
-        if (popupsBloqueadosSeguidos >= LIMITE_POPUPS_BLOQUEADOS_SEGUIDOS) {
-          removerIndicadorProgresso();
-          classificandoEmAndamento = false;
-          console.warn(
-            `[Fila Prioridade] Parando cedo: ${popupsBloqueadosSeguidos} pop-ups bloqueados seguidos ` +
-            `(${i + 1}/${sobreviventes.length} candidatos verificados).`
-          );
-          toast(
-            '⚠️ O navegador está bloqueando as abas de fundo. Permita pop-ups para texhub.texcotton.com.br ' +
-            '(ícone na barra de endereço, ou chrome://settings/content/popups) e tente Alt+U de novo.',
-            9000
-          );
-          return;
-        }
-      } else if (resultado.erro) {
-        comOutroErro++;
-        popupsBloqueadosSeguidos = 0;
-      } else {
-        resultados.push(resultado);
-        popupsBloqueadosSeguidos = 0;
-      }
-    }
+    const { resultados: todos, abortouPorPopup } = await classificarEmLote(
+      sobreviventes,
+      (feitos, total) => atualizarIndicadorProgresso(`Classificando ${feitos}/${total}...`)
+    );
 
     removerIndicadorProgresso();
     classificandoEmAndamento = false;
+
+    if (abortouPorPopup) {
+      console.warn('[Fila Prioridade] Parando cedo: pop-ups bloqueados de forma sistemática.');
+      toast(
+        '⚠️ O navegador está bloqueando as abas de fundo. Permita pop-ups para texhub.texcotton.com.br ' +
+        '(ícone na barra de endereço, ou chrome://settings/content/popups) e tente Shift+Alt+U de novo.',
+        9000
+      );
+      return;
+    }
+
+    const contadores = {
+      excluidosPorPromessa: todos.filter((r) => r.excluidoPorPromessaFutura).length,
+      excluidosPorNaoCobrar: todos.filter((r) => r.excluidoPorNaoCobrar).length,
+      comPopupBloqueado: todos.filter((r) => r.erro === 'popup-bloqueado').length,
+      comOutroErro: todos.filter((r) => r.erro && r.erro !== 'popup-bloqueado').length,
+    };
+    todos.filter((r) => !r.erro && !r.excluidoPorPromessaFutura && !r.excluidoPorNaoCobrar)
+      .forEach((r) => resultados.push(r));
+
+    // Grava o cache ANTES de montar a fila: se a montagem falhar por algum
+    // motivo, o trabalho caro (as ~92 visitas) não se perde.
+    gravarCacheClassificacao(resultados);
+
+    finalizarFila(resultados, contadores, excluidos);
+  }
+
+  /**
+   * Tudo que acontece DEPOIS da classificação: dedupe de grupo econômico,
+   * ordenação pela régua, diário, gravação da fila e navegação.
+   *
+   * Extraída de iniciar() porque agora tem DOIS caminhos de entrada -- o
+   * fresco (abas de fundo) e o do cache do dia. Se cada um montasse a fila
+   * do seu jeito, eles divergiriam em silêncio, e "a fila do cache" deixaria
+   * de ser a mesma fila. Há teste travando que os dois produzem saída
+   * idêntica.
+   *
+   * @param {object[]} resultados Classificados com sucesso.
+   * @param {object} contadores Para o resumo na tela (zeros vindo do cache).
+   * @param {object} excluidos Exclusões da lista, para o mesmo resumo.
+   */
+  function finalizarFila(resultados, contadores, excluidos) {
+    const {
+      excluidosPorPromessa = 0,
+      excluidosPorNaoCobrar = 0,
+      comPopupBloqueado = 0,
+      comOutroErro = 0,
+    } = contadores || {};
 
     // Uma chamada só -- a união-find do grupo econômico não é barata.
     // `let` porque a ordenação com grupo de controle devolve uma lista nova.
@@ -952,7 +1149,7 @@
     const { excluidosPorGrupo } = filtradoPorGrupo;
     let resultadosSemDuplicataDeGrupo = filtradoPorGrupo.sobreviventes;
 
-    console.log('[Fila Prioridade] Detalhamento da classificação (abas de fundo):', JSON.stringify({
+    console.log('[Fila Prioridade] Detalhamento da classificação:', JSON.stringify({
       classificados_com_sucesso: resultados.length,
       excluidos_por_promessa_futura: excluidosPorPromessa,
       excluidos_por_nao_cobrar: excluidosPorNaoCobrar,
@@ -1018,7 +1215,7 @@
     window.filaDebug.salvarFila(fila);
 
     const resumoPartes = [`▶ Fila por prioridade: ${clientesDaFila.length} cliente(s)`];
-    if (excluidos.dias || excluidos.diaUm || excluidos.movimentacaoHoje) {
+    if (excluidos && (excluidos.dias || excluidos.diaUm || excluidos.movimentacaoHoje)) {
       resumoPartes.push(
         `${excluidos.dias + excluidos.diaUm + excluidos.movimentacaoHoje} excluído(s) pela lista (dias/dia 1/movimentação hoje)`
       );
@@ -1102,6 +1299,11 @@
     ehFilaDePrioridade,
     alvoDeRetomada,
     retomarFilaDeHoje,
+    classificarEmLote,
+    lerCacheClassificacao,
+    gravarCacheClassificacao,
+    paraOCache,
+    finalizarFila,
     CONFIG,
     NOMES_PRIORIDADE,
     ordenarComGrupoControle,
