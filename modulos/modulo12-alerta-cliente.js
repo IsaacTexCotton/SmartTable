@@ -10,32 +10,31 @@
  *   - botão Confirmar.
  *
  * PEDIDO EXPLÍCITO DO USUÁRIO: um BOTÃO, igual ao Módulo 11 -- mas ESTE não
- * é escondido (o Módulo 11 é; aqui nada foi pedido nesse sentido). Botão
- * visível de verdade, texto "Alerta", lado esquerdo -- inferior-esquerdo tem
- * "Continuar fila"+painéis, inferior-direito tem os toasts do Módulo 7 e o
- * gatilho do Módulo 11, superior-direito tem o indicador "Fila: X/Y" do
- * Módulo 3 enquanto ativo.
+ * é escondido (o Módulo 11 é; aqui nada foi pedido nesse sentido).
  *
- * ACHADO AO VIVO (não estava nos meus "cantos livres" da v1.21.0, e por
- * isso o botão nasceu invisível na primeira publicação): o cabeçalho do CRM
- * (`#sit-header`) cobre a largura inteira da tela do topo até y=80px, com
- * z-index 50 -- MESMO nível dos modais do CRM. `top:16px` (canto superior
- * esquerdo "de verdade") fica embaixo dele por completo. Ver
- * CONFIG_ALERTA.TOPO_BOTAO/TOPO_PAINEL: a correção é ficar inteiramente
- * ABAIXO da faixa do cabeçalho (80px + folga), não subir o z-index pra
- * vencê-lo -- isso colocaria o botão no mesmo nível de um modal de verdade,
- * quebrando a regra que todo painel daqui segue.
+ * ONDE O BOTÃO FICA (v1.21.2, pedido do usuário com o HTML real do card do
+ * cliente): DENTRO do card de informações do cliente, logo depois do botão
+ * "Responsável financeiro" (`button[onclick="abrirModalResponsavel()"]`) --
+ * mesmo container flex, herda as classes Tailwind já compiladas na página
+ * (rounded-lg/border/text-[11px]/font-medium/etc., confirmadas ao vivo no
+ * mesmo trecho de HTML) pra não depender de cor Tailwind que pode não estar
+ * no CSS compilado da página; a cor em si é sempre inline. SE essa âncora
+ * não existir na página (layout diferente, ainda não carregou), cai pro
+ * botão flutuante fixo de antes (abaixo do cabeçalho -- ver próximo
+ * parágrafo) em vez de simplesmente não aparecer.
  *
- * SEGUNDO COMPORTAMENTO, PEDIDO À PARTE (regra deliberadamente distinta da
- * de cima): cliente com OBSERVAÇÃO mas SEM o checkbox marcado -- ou seja,
- * "não cobrar" não está ativo -- recebe um alerta automático ao ABRIR a
- * página dele, um pouco ACIMA do centro da tela, mostrando a observação.
- * Isso é INTENCIONALMENTE assimétrico: com "não cobrar" ativo o cliente já
- * sai da fila sozinho, então não repetimos o aviso toda vez que a página
- * dele é aberta; sem "não cobrar", a única forma de lembrar o operador é
- * avisar na cara toda vez que ele entrar nesse cliente. Se isso não for o
- * comportamento desejado (ex.: também avisar com "não cobrar" ativo), é
- * mudança de regra, não bug -- avise antes de eu tocar aqui de novo.
+ * ACHADO AO VIVO na v1.21.0 (histórico -- só importa pro fallback acima): o
+ * cabeçalho do CRM (`#sit-header`) cobre a largura inteira da tela do topo
+ * até y=80px, com z-index 50 -- MESMO nível dos modais do CRM. `top:16px`
+ * (canto superior esquerdo "de verdade") ficava embaixo dele por completo.
+ * Ver CONFIG_ALERTA.TOPO_BOTAO/TOPO_PAINEL.
+ *
+ * O AVISO AUTOMÁTICO AO ABRIR A PÁGINA (v1.21.2, corrigido -- ANTES só
+ * avisava com observação SEM "não cobrar" marcado, de propósito; relatado
+ * pelo usuário como errado): agora avisa sempre que existir alerta ativo
+ * pra este cliente, "não cobrar" ou observação ou os dois -- é exatamente
+ * ao entrar num cliente marcado "não cobrar" que o aviso mais importa, pra
+ * não ligar por hábito mesmo saindo da fila automática.
  *
  * ARMAZENAMENTO: um objeto por CNPJ em localStorage, sobrescrito inteiro a
  * cada "Confirmar" (não é um log -- é o estado ATUAL do alerta desse
@@ -82,6 +81,11 @@
     // inteiramente ABAIXO da faixa do cabeçalho (80px + folga).
     TOPO_BOTAO: '96px',
     TOPO_PAINEL: '150px',
+    // Confirmado ao vivo com o usuário (HTML real do card do cliente): o
+    // onclick é o identificador mais estável desse botão -- não depende de
+    // classe Tailwind (que pode mudar em redesign visual) nem de texto
+    // (que pode ser traduzido/reformulado).
+    SELETOR_ANCORA: 'button[onclick="abrirModalResponsavel()"]',
   };
 
   const CORES = {
@@ -98,6 +102,7 @@
   let painelEl = null;
   let avisoEl = null;
   let botaoEl = null;
+  let botaoInjetadoNoDom = false;
 
   function cnpjDaPagina() {
     try {
@@ -218,15 +223,31 @@
     if (!botaoEl) return;
     const alerta = obterAlerta(cnpj);
     const ativo = !!alerta;
-    botaoEl.style.background = ativo ? CORES.alerta : CORES.tinta;
+    if (botaoInjetadoNoDom) {
+      // Aqui o botão herda classes Tailwind da página (layout) -- só a cor
+      // é nossa, e sempre inline (nunca uma classe de cor Tailwind que
+      // pode não estar no CSS compilado desta página).
+      Object.assign(botaoEl.style, ativo
+        ? { background: '#FEF3E2', borderColor: CORES.alerta, color: CORES.alerta }
+        : { background: '#ffffff', borderColor: CORES.borda, color: CORES.texto });
+    } else {
+      botaoEl.style.background = ativo ? CORES.alerta : CORES.tinta;
+    }
     botaoEl.title = ativo
       ? 'Alerta do cliente (ativo) -- clique pra ver ou editar'
       : 'Alerta do cliente';
   }
 
-  function mostrarAviso(cnpj, texto) {
+  /**
+   * @param {string} cnpj
+   * @param {{observacao: string, naoCobrarAte: number|null}} alerta
+   * @param {boolean} naoCobrarAtivo
+   */
+  function mostrarAviso(cnpj, alerta, naoCobrarAtivo) {
     window.__smartTableUtil?.fecharOutrosPaineis?.('alertaCliente');
     fecharPainel();
+
+    const cor = naoCobrarAtivo ? CORES.perigo : CORES.alerta;
 
     avisoEl = document.createElement('div');
     avisoEl.id = CONFIG_ALERTA.ID_AVISO;
@@ -238,7 +259,7 @@
       transform: 'translate(-50%, -50%)',
       background: CORES.fundo,
       border: `1px solid ${CORES.borda}`,
-      borderLeft: `5px solid ${CORES.alerta}`,
+      borderLeft: `5px solid ${cor}`,
       borderRadius: '10px',
       padding: '16px 18px',
       boxShadow: '0 10px 34px rgba(0,0,0,0.28)',
@@ -249,12 +270,23 @@
       maxWidth: '90vw',
     });
 
-    avisoEl.appendChild(criarDiv('⚠ Observação deste cliente', {
-      color: CORES.alerta, fontWeight: '700', fontSize: '13px', marginBottom: '8px',
+    avisoEl.appendChild(criarDiv(naoCobrarAtivo ? '🚫 NÃO COBRAR este cliente' : '⚠ Observação deste cliente', {
+      color: cor, fontWeight: '700', fontSize: '13px', marginBottom: '8px',
     }));
-    avisoEl.appendChild(criarDiv(texto, {
-      color: CORES.texto, lineHeight: '1.5', marginBottom: '12px', whiteSpace: 'pre-wrap',
-    }));
+
+    if (naoCobrarAtivo) {
+      const ate = new Date(alerta.naoCobrarAte).toLocaleString('pt-BR', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+      });
+      avisoEl.appendChild(criarDiv(`Marcado pra não cobrar até ${ate}.`, {
+        color: CORES.texto, lineHeight: '1.5', marginBottom: alerta.observacao ? '6px' : '12px', fontWeight: '600',
+      }));
+    }
+    if (alerta.observacao) {
+      avisoEl.appendChild(criarDiv(alerta.observacao, {
+        color: CORES.texto, lineHeight: '1.5', marginBottom: '12px', whiteSpace: 'pre-wrap',
+      }));
+    }
 
     const botaoOk = document.createElement('button');
     botaoOk.type = 'button';
@@ -270,13 +302,19 @@
     void cnpj; // não usado no texto -- mantido no parâmetro por simetria com o resto do módulo
   }
 
+  /**
+   * Avisa SEMPRE que houver alerta ativo pra este cliente -- "não cobrar"
+   * ativo ou observação, os dois, ou só um. Antes da v1.21.2 só avisava com
+   * observação sem "não cobrar" (assimetria); relatado pelo usuário como
+   * errado: entrar num cliente marcado "não cobrar" é exatamente o momento
+   * em que o aviso mais importa, pra não ligar por hábito.
+   */
   function mostrarAvisoSeNecessario(cnpj) {
     const alerta = obterAlerta(cnpj);
-    if (!alerta || !alerta.observacao) return;
-    // Regra assimétrica documentada no cabeçalho: só avisa quando "não
-    // cobrar" NÃO está ativo agora.
-    if (alerta.naoCobrarAte != null && Date.now() < alerta.naoCobrarAte) return;
-    mostrarAviso(cnpj, alerta.observacao);
+    if (!alerta) return;
+    const naoCobrarAtivo = alerta.naoCobrarAte != null && Date.now() < alerta.naoCobrarAte;
+    if (!naoCobrarAtivo && !alerta.observacao) return;
+    mostrarAviso(cnpj, alerta, naoCobrarAtivo);
   }
 
   function abrirPainel(cnpj) {
@@ -382,27 +420,58 @@
     document.body.appendChild(painelEl);
   }
 
+  /**
+   * Tenta encaixar o botão dentro do card do cliente, logo depois do botão
+   * "Responsável financeiro" -- mesmo container flex, mesma linha. Devolve
+   * true se conseguiu (o elemento já está no DOM nesse caso).
+   *
+   * @param {HTMLElement} el
+   * @returns {boolean}
+   */
+  function inserirNoCardDoCliente(el) {
+    const ancora = document.querySelector(CONFIG_ALERTA.SELETOR_ANCORA);
+    if (!ancora || !ancora.parentElement) return false;
+    ancora.insertAdjacentElement('afterend', el);
+    return true;
+  }
+
   function criarBotao(cnpj) {
     const el = document.createElement('button');
     el.type = 'button';
     el.id = CONFIG_ALERTA.ID_BOTAO;
     el.textContent = '⚠ Alerta';
-    Object.assign(el.style, {
-      position: 'fixed',
-      top: CONFIG_ALERTA.TOPO_BOTAO,
-      left: '16px',
-      background: CORES.tinta,
-      color: '#fff',
-      border: 'none',
-      borderRadius: '8px',
-      padding: '7px 14px',
-      fontSize: '12.5px',
-      fontWeight: '600',
-      cursor: 'pointer',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      boxShadow: '0 4px 14px rgba(0,0,0,0.2)',
-      zIndex: CONFIG_ALERTA.Z_INDEX,
-    });
+
+    botaoInjetadoNoDom = inserirNoCardDoCliente(el);
+
+    if (botaoInjetadoNoDom) {
+      // Classes de LAYOUT copiadas do botão vizinho (garantidas presentes
+      // no CSS compilado da página, porque ele mesmo já as usa). A cor
+      // nunca vem daqui -- ver atualizarBadgeDoBotao.
+      el.className = 'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition';
+      Object.assign(el.style, { cursor: 'pointer', fontFamily: 'inherit', borderStyle: 'solid', borderWidth: '1px' });
+    } else {
+      // Sem a âncora nesta página (layout diferente, ou ainda não
+      // carregou) -- cai pro botão flutuante de antes, abaixo do
+      // cabeçalho do CRM (ver TOPO_BOTAO). Nunca fica sem opção nenhuma.
+      Object.assign(el.style, {
+        position: 'fixed',
+        top: CONFIG_ALERTA.TOPO_BOTAO,
+        left: '16px',
+        background: CORES.tinta,
+        color: '#fff',
+        border: 'none',
+        borderRadius: '8px',
+        padding: '7px 14px',
+        fontSize: '12.5px',
+        fontWeight: '600',
+        cursor: 'pointer',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.2)',
+        zIndex: CONFIG_ALERTA.Z_INDEX,
+      });
+      document.body.appendChild(el);
+    }
+
     el.addEventListener('click', () => {
       if (painelEl) {
         fecharPainel();
@@ -410,7 +479,6 @@
       }
       abrirPainel(cnpj);
     });
-    document.body.appendChild(el);
     return el;
   }
 

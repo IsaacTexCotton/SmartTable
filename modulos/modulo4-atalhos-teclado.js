@@ -1866,6 +1866,13 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.22.0', data: '18/09/2026',
+      mudancas: [
+        'O botão "Alerta" agora entra dentro do card do cliente, logo depois do botão "Responsável financeiro" -- some o problema de posição de vez. Sem essa referência na página, ainda cai pro botão flutuante de antes.',
+        'Corrigido: entrar num cliente marcado "não cobrar" não mostrava aviso nenhum. Agora o aviso aparece sempre que houver "não cobrar" e/ou observação ativos -- antes só avisava com observação sozinha.',
+      ],
+    },
+    {
       versao: '1.21.1', data: '18/09/2026',
       mudancas: [
         'Corrigido: o botão "Alerta" nascia invisível -- o cabeçalho do CRM cobre a tela inteira até 80px do topo, no mesmo z-index dos modais, e escondia o botão por completo. Movido pra baixo do cabeçalho.',

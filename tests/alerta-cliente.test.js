@@ -1,12 +1,18 @@
 // Botão "Alerta" na página do cliente (Módulo 12).
 //
-// DUAS REGRAS, DELIBERADAMENTE ASSIMÉTRICAS (ver cabeçalho do módulo):
+// DUAS REGRAS:
 //   1. "Não cobrar" (checkbox + dias, padrão 1) suprime o cliente da fila
 //      por prioridade (Módulo 7) enquanto o intervalo não expira.
-//   2. Observação SEM "não cobrar" ativo dispara um aviso automático, um
-//      pouco acima do centro da tela, toda vez que a página do cliente
-//      abre. COM "não cobrar" ativo, o aviso NÃO aparece -- o cliente já
-//      saiu da fila sozinho.
+//   2. Qualquer alerta ativo -- "não cobrar" e/ou observação -- dispara um
+//      aviso automático, um pouco acima do centro da tela, toda vez que a
+//      página do cliente abre. Até a v1.21.1 isto era assimétrico (só
+//      avisava com observação SEM "não cobrar"); corrigido na v1.21.2 a
+//      pedido do usuário -- entrar num cliente marcado "não cobrar" é
+//      exatamente quando o aviso mais importa.
+//
+// O BOTÃO tenta se encaixar dentro do card do cliente, logo depois do botão
+// "Responsável financeiro" real da página; sem essa âncora, cai pro botão
+// flutuante fixo (ver seção 9).
 const { novaJanela } = require('./helpers/dom-env');
 const { criarChecador } = require('./helpers/checar');
 
@@ -19,6 +25,22 @@ const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
 const abrirCliente = (cnpj = CNPJ) => novaJanela({ url: `https://texhub.texcotton.com.br/crm/clientes/grupo/1?cnpj=${encodeURIComponent(cnpj)}`, specs: SPECS });
 const abrirLista = () => novaJanela({ url: URL_LISTA, specs: SPECS });
+
+// HTML real do card do cliente (recorte relevante, colado pelo usuário ao
+// vivo) -- é a âncora onde o botão deve se encaixar.
+const HTML_CARD_COM_ANCORA = `
+  <div class="flex items-center justify-between mb-3">
+    <h3 class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Informações de Contato</h3>
+    <button type="button" onclick="abrirModalResponsavel()" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-[11px] font-medium text-gray-600 hover:text-gray-900 transition">
+      Responsável financeiro
+    </button>
+  </div>
+`;
+const abrirClienteComCard = (cnpj = CNPJ) => novaJanela({
+  url: `https://texhub.texcotton.com.br/crm/clientes/grupo/1?cnpj=${encodeURIComponent(cnpj)}`,
+  bodyHtml: HTML_CARD_COM_ANCORA,
+  specs: SPECS,
+});
 
 // =====================================================================
 // 1. SÓ EXISTE NA PÁGINA DO CLIENTE
@@ -148,50 +170,65 @@ const abrirLista = () => novaJanela({ url: URL_LISTA, specs: SPECS });
 })();
 
 // =====================================================================
-// 6. O AVISO AUTOMÁTICO -- só quando NÃO há "não cobrar" ativo
+// 6. O AVISO AUTOMÁTICO -- SEMPRE que houver alerta ativo
 // =====================================================================
 // mostrarAvisoSeNecessario é chamada de dentro de aoCarregar -- a seção 6b
 // confirma essa ligação no código-fonte. Aqui testamos a DECISÃO em si
 // (mesmo padrão da seção "esc": chamar a função exportada direto, sem
 // precisar recriar duas janelas com localStorage compartilhado entre elas
 // só pra provar uma ligação de uma linha).
+//
+// ATÉ A v1.21.1 isto era assimétrico (só avisava com observação SEM "não
+// cobrar"). RELATADO PELO USUÁRIO como errado -- entrar num cliente
+// marcado "não cobrar" é exatamente quando o aviso mais importa. Corrigido
+// na v1.21.2: agora avisa sempre.
 (function avisoAutomatico() {
-  // Cenário A: observação sem "não cobrar" -- aviso aparece.
+  // Cenário A: observação sem "não cobrar" -- aviso aparece, tom "atenção".
   const wA = abrirCliente();
   wA.__alertaCliente.salvarAlerta(CNPJ, { naoCobrar: false, observacao: 'atenção: cliente já reclamou de cobrança errada' });
   wA.__alertaCliente.mostrarAvisoSeNecessario(CNPJ);
   checar('observação sem "não cobrar": mostrarAvisoSeNecessario abre o aviso', wA.__alertaCliente.avisoEstaAberto() === true);
-  const avisoEl = wA.document.getElementById(wA.__alertaCliente.CONFIG_ALERTA.ID_AVISO);
-  checar('o texto da observação aparece no aviso', avisoEl.textContent.includes('cliente já reclamou'), avisoEl.textContent);
-  checar('o aviso fica um pouco ACIMA do centro (top < 50%)', parseFloat(avisoEl.style.top) < 50, avisoEl.style.top);
+  const avisoA = wA.document.getElementById(wA.__alertaCliente.CONFIG_ALERTA.ID_AVISO);
+  checar('o texto da observação aparece no aviso', avisoA.textContent.includes('cliente já reclamou'), avisoA.textContent);
+  checar('o título NÃO é o de "não cobrar" (não está ativo aqui)', !avisoA.textContent.includes('NÃO COBRAR'), avisoA.textContent);
+  checar('o aviso fica um pouco ACIMA do centro (top < 50%)', parseFloat(avisoA.style.top) < 50, avisoA.style.top);
 
-  // Cenário B: "não cobrar" ativo -- SEM aviso, mesmo com observação
-  // preenchida (a assimetria documentada no cabeçalho do módulo).
+  // Cenário B: "não cobrar" ativo -- AGORA avisa também (correção pedida),
+  // com título de urgência e a data até quando vale.
   const wB = abrirCliente();
   const CNPJ_B = '55555555/0001-55';
-  wB.__alertaCliente.salvarAlerta(CNPJ_B, { naoCobrar: true, intervaloDias: 2, observacao: 'nota junto do não cobrar' });
+  const agoraB = Date.now();
+  wB.__alertaCliente.salvarAlerta(CNPJ_B, { naoCobrar: true, intervaloDias: 2, observacao: 'nota junto do não cobrar' }, agoraB);
   wB.__alertaCliente.mostrarAvisoSeNecessario(CNPJ_B);
-  checar(
-    '"não cobrar" ativo: aviso NÃO aparece, mesmo com observação (assimetria pedida)',
-    wB.__alertaCliente.avisoEstaAberto() === false
-  );
+  checar('"não cobrar" ativo: o aviso aparece (correção pedida pelo usuário)', wB.__alertaCliente.avisoEstaAberto() === true);
+  const avisoB = wB.document.getElementById(wB.__alertaCliente.CONFIG_ALERTA.ID_AVISO);
+  checar('o título é o de "não cobrar" (urgência maior)', avisoB.textContent.includes('NÃO COBRAR'), avisoB.textContent);
+  checar('a observação continua aparecendo junto', avisoB.textContent.includes('nota junto do não cobrar'), avisoB.textContent);
+
+  // Cenário B2: "não cobrar" ativo SEM observação -- ainda avisa, só com o
+  // título de urgência.
+  const wB2 = abrirCliente();
+  const CNPJ_B2 = '88888888/0001-88';
+  wB2.__alertaCliente.salvarAlerta(CNPJ_B2, { naoCobrar: true, intervaloDias: 1 });
+  wB2.__alertaCliente.mostrarAvisoSeNecessario(CNPJ_B2);
+  checar('"não cobrar" ativo sem observação: aviso aparece do mesmo jeito', wB2.__alertaCliente.avisoEstaAberto() === true);
 
   // Cenário C: nada salvo -- nada aparece, e não lança exceção.
   const wC = abrirCliente();
   wC.__alertaCliente.mostrarAvisoSeNecessario('66666666/0001-66');
   checar('cliente sem alerta nenhum: sem aviso', wC.__alertaCliente.avisoEstaAberto() === false);
 
-  // Cenário D: "não cobrar" já expirado -- o aviso volta a valer, sem
-  // nenhuma ação manual (mesma lógica de estaSuprimidoDaPrioridade).
+  // Cenário D: "não cobrar" já expirado, com observação -- o aviso volta a
+  // valer com o tom de observação, não mais o de urgência (sem nenhuma
+  // ação manual, mesma lógica de estaSuprimidoDaPrioridade).
   const wD = abrirCliente();
   const CNPJ_D = '77777777/0001-77';
   const passado = Date.now() - 10 * MS_POR_DIA;
   wD.__alertaCliente.salvarAlerta(CNPJ_D, { naoCobrar: true, intervaloDias: 1, observacao: 'nota antiga' }, passado);
   wD.__alertaCliente.mostrarAvisoSeNecessario(CNPJ_D);
-  checar(
-    '"não cobrar" já expirado: o aviso da observação volta a aparecer',
-    wD.__alertaCliente.avisoEstaAberto() === true
-  );
+  checar('"não cobrar" já expirado: o aviso ainda aparece (pela observação)', wD.__alertaCliente.avisoEstaAberto() === true);
+  const avisoD = wD.document.getElementById(wD.__alertaCliente.CONFIG_ALERTA.ID_AVISO);
+  checar('mas o título já não é mais o de urgência (expirou de verdade)', !avisoD.textContent.includes('NÃO COBRAR'), avisoD.textContent);
 })();
 
 // =====================================================================
@@ -239,6 +276,50 @@ const abrirLista = () => novaJanela({ url: URL_LISTA, specs: SPECS });
   checar('clique no botão abre o painel', a.estaAberto() === true);
   botaoEl.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
   checar('clique de novo fecha o painel', a.estaAberto() === false);
+})();
+
+// =====================================================================
+// 9. ONDE O BOTÃO FICA: dentro do card (âncora real) ou fallback fixo
+// =====================================================================
+// Cada bloco fica numa IIFE própria, e nada cria uma SEGUNDA janela no meio
+// de interagir com a primeira -- é a armadilha de jsdom já documentada no
+// projeto (identificador livre dentro do código do módulo resolve pra
+// última janela criada, não pra que criou o elemento). Ver
+// tests/helpers/dom-env.js.
+(function botaoComAncora() {
+  // Com a âncora real na página (HTML colado pelo usuário): o botão entra
+  // logo depois do "Responsável financeiro", como irmão no mesmo container
+  // flex -- não como elemento flutuante.
+  const w = abrirClienteComCard();
+  const ancora = w.document.querySelector('button[onclick="abrirModalResponsavel()"]');
+  const botaoInjetado = w.document.getElementById(w.__alertaCliente.CONFIG_ALERTA.ID_BOTAO);
+
+  checar('com a âncora presente, o botão existe', botaoInjetado !== null);
+  checar('o botão fica logo depois do "Responsável financeiro" (mesmo pai)', botaoInjetado.previousElementSibling === ancora);
+  checar('nessa forma o botão NÃO é position:fixed (flui no card, não flutua)', botaoInjetado.style.position !== 'fixed');
+
+  // A cor de "tem alerta ativo" funciona também nesse caminho -- pelo fluxo
+  // real da UI (clicar no botão, preencher, confirmar), não pela API direta,
+  // porque é o clique em "Confirmar" quem chama atualizarBadgeDoBotao.
+  const corAntes = botaoInjetado.style.background;
+  botaoInjetado.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  const painel = w.document.getElementById(w.__alertaCliente.CONFIG_ALERTA.ID_PAINEL);
+  painel.querySelector('textarea').value = 'nota';
+  const confirmar = [...painel.querySelectorAll('button')].find((b) => b.textContent === 'Confirmar');
+  confirmar.click();
+  checar('botão injetado no card muda de cor quando há alerta ativo', botaoInjetado.style.background !== corAntes, botaoInjetado.style.background);
+})();
+
+(function botaoSemAncoraCaiPraFallback() {
+  // Sem a âncora (páginas antigas, layout diferente) -- cai pro botão
+  // flutuante de antes, sem ficar sem opção nenhuma.
+  const w = abrirCliente();
+  const botaoFallback = w.document.getElementById(w.__alertaCliente.CONFIG_ALERTA.ID_BOTAO);
+  checar('sem a âncora, ainda existe um botão (fallback)', botaoFallback !== null);
+  checar(
+    'e esse fallback É position:fixed, abaixo do cabeçalho do CRM',
+    botaoFallback.style.position === 'fixed' && botaoFallback.style.top === w.__alertaCliente.CONFIG_ALERTA.TOPO_BOTAO
+  );
 })();
 
 resumo();
