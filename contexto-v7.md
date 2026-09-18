@@ -8,7 +8,7 @@ direto de lá (branches `main` e `estavel`, histórico de commits, testes).
 Este documento existe pra economizar o que o `git log` não conta sozinho: as
 decisões, os fatos confirmados ao vivo e as armadilhas já pisadas.
 
-**Atualizado em**: 2026-09-18, na versão do `main` **1.20.0** (canal estável
+**Atualizado em**: 2026-09-18, na versão do `main` **1.21.0** (canal estável
 ainda em 1.18.1 até a próxima `npm run release`). Se o
 `@version` do repo for maior que isso quando você ler, o texto abaixo ainda
 descreve a arquitetura corretamente, mas pode haver módulo/atalho novo não
@@ -26,8 +26,8 @@ substituído por completo:
   distribuir pro time sem reenviar arquivo.
 - **Dois canais** (`main` = desenvolvimento, `estavel` = o que o time
   instala) em vez de um arquivo só — ver seção própria abaixo.
-- **12 módulos**, não 6 — a numeração histórica (1-6) foi mantida por
-  compatibilidade e os novos entraram como 7-11 fora de ordem cronológica de
+- **13 módulos**, não 6 — a numeração histórica (1-6) foi mantida por
+  compatibilidade e os novos entraram como 7-12 fora de ordem cronológica de
   criação.
 - Uma segunda pessoa (**Bianca**) agora também vai usar o script — ainda não
   instalado na máquina dela até a data deste documento (ver "Itens em
@@ -73,12 +73,12 @@ canal estável, empurra `main` primeiro (é de lá que o Tampermonkey lê
 `@version` para o aviso de atualização), depois `estavel` — com retentativa
 exponencial (2/4/8/16s) em falha de rede.
 
-## Estrutura atual (12 módulos, `modulos/*.js`, nesta ordem de carregamento)
+## Estrutura atual (13 módulos, `modulos/*.js`, nesta ordem de carregamento)
 
 Ordem real dos `@require` (importa: módulos posteriores dependem de
 `window.__X` publicado pelos anteriores):
 
-**0 → 9 → 10 → 8 → 1 → 2 → 3 → 7 → 11 → 5 → 4 → 6**
+**0 → 9 → 10 → 8 → 1 → 2 → 3 → 12 → 7 → 11 → 5 → 4 → 6**
 
 | # | Nome do arquivo | Função | Atalho |
 |---|---|---|---|
@@ -94,6 +94,7 @@ Ordem real dos `@require` (importa: módulos posteriores dependem de
 | 9 | `modulo9-painel-configuracoes.js` | Painel genérico de interruptores (Alt+O). Não conhece nenhuma config específica — só desenha o que está declarado em `DEFINICOES` no Módulo 0. | Alt+O |
 | 10 | `modulo10-recebido-na-semana.js` | Total recebido na semana vigente (sáb-sex) por depósito e por promessa cumprida, Isaac e Bianca, vindo de dado real de API — não inferência. | Alt+D |
 | 11 | `modulo11-progresso-fila.js` | Botão discreto (não atalho de teclado, pedido explícito) que abre um painel com uma barra por faixa de prioridade da fila de hoje: cobrados/total (ex.: "23/56"). Não recalcula nada — agrupa a mesma fila que o Alt+U já grava. Ver seção própria. | (botão na borda direita da tela) |
+| 12 | `modulo12-alerta-cliente.js` | Botão visível "Alerta" na página do cliente: checkbox "não cobrar" (com intervalo em dias, padrão 1) + observação livre. "Não cobrar" ativo suprime o cliente da fila por prioridade (vence até o Cluster Novo). Observação sem "não cobrar" dispara um aviso automático, um pouco acima do centro da tela, toda vez que a página do cliente abre. Ver seção própria. | (botão canto superior esquerdo) |
 
 ## Convenções obrigatórias (não redescobrir)
 
@@ -229,6 +230,10 @@ não de inferência.
 
 ## Fila por prioridade — Alt+U / Shift+Alt+U (Módulo 7)
 
+ANTES de qualquer faixa: um cliente pode ser suprimido de vez desta fila
+pelo botão "Alerta" (Módulo 12) — "não cobrar" ativo (decisão humana
+explícita) vence até a isenção do Cluster Novo abaixo.
+
 Réguas de negócio, em ordem, primeira faixa que casar decide:
 
 1. Cartório, último dia
@@ -258,6 +263,41 @@ chave de storage direto). Classificação usa 4 abas em paralelo, com
 aquecimento sequencial até o primeiro sucesso pra não afrouxar o disjuntor
 de pop-up. Ganho medido: de 3-5 minutos pra ~30-45s na primeira vez do dia,
 instantâneo depois.
+
+## Alerta do cliente — botão visível, não escondido (Módulo 12)
+
+Pedido explícito do usuário: um **botão** na página do cliente, texto "⚠
+Alerta", visível de verdade (diferente do Módulo 11 — aqui nada foi pedido
+sobre esconder). Canto superior esquerdo, único que sobrava livre. Só
+aparece em página de cliente (precisa de `cnpj` na URL).
+
+Abre um formulário com:
+- **Checkbox "Não cobrar"** — ao marcar, aparece um campo de intervalo em
+  DIAS (padrão 1). Enquanto o intervalo não expira, o cliente é excluído da
+  fila por prioridade (só dela — o Alt+I original não foi mencionado no
+  pedido e não muda).
+- **Observação** (texto livre).
+- **Confirmar** — grava os dois campos por CNPJ em `localStorage`, como
+  estado ATUAL (não um log): confirmar de novo sobrescreve. Confirmar com o
+  checkbox desmarcado e observação vazia REMOVE o alerta — é assim que se
+  limpa.
+
+**Segunda regra, deliberadamente assimétrica**: cliente com observação MAS
+SEM "não cobrar" marcado recebe um aviso automático — um pouco acima do
+centro da tela (`top: 42%`, não os 50% exatos) — toda vez que a página dele
+é aberta. Com "não cobrar" ativo, o aviso NÃO aparece (o cliente já saiu da
+fila sozinho, não repete o aviso). Se isso não for o comportamento
+desejado, é mudança de regra a pedir explicitamente, não bug.
+
+"Não cobrar" usa timestamp corrido (`Date.now() + dias*24h`), não a
+convenção de meio-dia (`normalizarData`) do resto do projeto — de
+propósito: aqui é uma DURAÇÃO rolante, não uma data de calendário.
+
+**Achado consertado nesta mesma leva**: a lista `FLAGS_DOS_MODULOS` do
+Módulo 6 (conta "X/13 módulos carregados" no console) tinha ficado pra trás
+— o Módulo 11 nunca tinha entrado nela. Corrigido junto, e agora há um
+teste (`wrappers.test.js`) que trava todo módulo novo contra essa lista,
+pra não se repetir.
 
 ## Progresso da fila — botão discreto, não atalho (Módulo 11)
 
@@ -398,6 +438,6 @@ na mensagem de commit, não em documento separado):
 
 Repositório `IsaacTexCotton/SmartTable` (público, GitHub). `main` é
 desenvolvimento; `estavel` é o que o time instala. `npm run verificar` roda
-lock + lint + suíte completa (28 arquivos em `tests/`). `README.md` tem o
+lock + lint + suíte completa (29 arquivos em `tests/`). `README.md` tem o
 detalhe operacional de publicação; este documento é o resumo de decisões e
 fatos que não estão em nenhum commit isolado.
