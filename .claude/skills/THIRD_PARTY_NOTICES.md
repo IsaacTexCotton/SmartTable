@@ -1,3 +1,14 @@
+# Skills deste diretório
+
+`alternativa-mais-rapida` é skill PRÓPRIA deste projeto, escrita aqui, não
+copiada de lugar nenhum. As 67 skills do repositório jeffallan/claude-skills
+foram avaliadas para esse fim e nenhuma servia: as marcadas como performance
+(SQL Pro, Postgres Pro, Database Optimizer, C++/PHP Pro) são de stacks que
+não existem neste projeto; `architecture-designer` declara-se explicitamente
+fora do nível de código ("not code-level optimization"); e `the-fool` desafia
+decisões mas, por desenho, não propõe alternativa ("This isn't designed to
+propose alternatives").
+
 # Third-party skills
 
 The `javascript-pro`, `code-reviewer`, `debugging-wizard`, and `playwright-expert`
