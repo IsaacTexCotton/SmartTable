@@ -406,6 +406,8 @@
   }
 
   async function abrirPainel() {
+    window.__smartTableUtil?.fecharOutrosPaineis?.('recebidoSemana');
+
     const u = util();
     if (!u || typeof u.semanaSabadoASexta !== 'function') {
       painelEl = criarDiv('O Módulo 0 não carregou — não dá pra calcular a semana.', {
@@ -453,6 +455,8 @@
   document.addEventListener('keydown', (e) => {
     if (e.code === 'Escape' && painelEl) fecharPainel();
   });
+
+  window.__smartTableUtil?.registrarPainel?.('recebidoSemana', fecharPainel);
 
   window.__recebidoSemana = {
     alternarPainel,

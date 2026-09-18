@@ -182,6 +182,10 @@
   }
 
   function abrirPainel() {
+    // Só um painel flutuante nosso na tela por vez (ver registrarPainel no
+    // Módulo 0 e o defeito que motivou isso).
+    window.__smartTableUtil?.fecharOutrosPaineis?.('configuracoes');
+
     const config = obterConfig();
 
     painelEl = document.createElement('div');
@@ -261,6 +265,8 @@
   document.addEventListener('keydown', (e) => {
     if (e.code === 'Escape' && painelEl) fecharPainel();
   });
+
+  window.__smartTableUtil?.registrarPainel?.('configuracoes', fecharPainel);
 
   window.__painelConfiguracoes = {
     alternarPainel,

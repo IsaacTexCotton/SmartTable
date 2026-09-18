@@ -357,6 +357,56 @@
   }
 
   // ============================================================
+  // PAINÉIS FLUTUANTES: SÓ UM ABERTO POR VEZ
+  // ============================================================
+  //
+  // DEFEITO REAL que motivou isto: quatro painéis nossos (Ajuda/Alt+H,
+  // Novidades/Alt+L, Configurações/Alt+O, Entrou na semana/Alt+D) abriam
+  // todos em bottom:112px left:16px. Nenhum fechava os outros, então abrir
+  // dois empilhava um por cima do outro -- e fechar o de cima revelava um
+  // painel que a pessoa não lembrava de ter aberto.
+  //
+  // A causa foi copiar coordenadas de um painel pro seguinte. O conserto
+  // não é reposicionar (aí a próxima cópia repete o erro num canto novo):
+  // é tornar o espaço EXCLUSIVO. Só um painel flutuante nosso na tela, e
+  // abrir qualquer um fecha os demais.
+  //
+  // Isto também é o orçamento de tela do projeto, em código: enquanto todo
+  // painel novo passar por aqui, a quantidade de coisa simultânea na tela
+  // não cresce, por mais painéis que a gente acrescente.
+  const paineisRegistrados = new Map();
+
+  /**
+   * Registra o fechador de um painel flutuante.
+   *
+   * @param {string} nome Identificador do painel (ex.: 'configuracoes').
+   * @param {() => void} fechar Função que fecha esse painel.
+   */
+  function registrarPainel(nome, fechar) {
+    paineisRegistrados.set(nome, fechar);
+  }
+
+  /**
+   * Fecha todos os painéis flutuantes MENOS o que está abrindo.
+   *
+   * Chamado pelo painel no momento em que ele abre. Erro no fechador de um
+   * painel não pode impedir a abertura do outro -- daí o try/catch por
+   * item.
+   *
+   * @param {string} nomeQueAbre
+   */
+  function fecharOutrosPaineis(nomeQueAbre) {
+    paineisRegistrados.forEach((fechar, nome) => {
+      if (nome === nomeQueAbre) return;
+      try {
+        fechar();
+      } catch (erro) {
+        console.warn(`[Util] Falha ao fechar o painel "${nome}".`, erro);
+      }
+    });
+  }
+
+  // ============================================================
   // EXPORT
   // ============================================================
   window.__smartTableUtil = {
@@ -367,6 +417,8 @@
     maiorAtrasoEntre,
     escolherTituloRepresentativo,
     config,
+    registrarPainel,
+    fecharOutrosPaineis,
     dataIso,
     semanaSabadoASexta,
     primeiroNomeDeUsuario,

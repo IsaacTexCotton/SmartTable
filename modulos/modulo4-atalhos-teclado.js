@@ -1745,6 +1745,13 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.15.1', data: '18/09/2026',
+      mudancas: [
+        'Corrigido: os painéis de Ajuda, Novidades, Configurações e Entrou na semana abriam todos no mesmo canto, um por cima do outro.',
+        'Agora abrir um fecha os outros -- só um painel flutuante na tela por vez.',
+      ],
+    },
+    {
       versao: '1.15.0', data: '18/09/2026',
       mudancas: [
         'O Alt+D passa a mostrar o Total recuperado: depósitos + promessas cumpridas, por pessoa e somando os dois.',
@@ -1956,12 +1963,19 @@
     painel.alternarPainel();
   }
 
+  function fecharPainelNovidades() {
+    if (!painelNovidadesEl) return;
+    painelNovidadesEl.remove();
+    painelNovidadesEl = null;
+  }
+
   function alternarPainelNovidades() {
     if (painelNovidadesEl) {
-      painelNovidadesEl.remove();
-      painelNovidadesEl = null;
+      fecharPainelNovidades();
       return;
     }
+    // Só um painel flutuante nosso por vez (registrarPainel, Módulo 0).
+    window.__smartTableUtil?.fecharOutrosPaineis?.('novidades');
 
     const naoLidas = versoesNaoLidas();
 
@@ -2056,12 +2070,18 @@
   /* ---------------------------------------------------------------------
    * 3.3 PAINEL DE AJUDA (Alt+H) — lista visual dos atalhos, liga/desliga
    * --------------------------------------------------------------------- */
+  function fecharPainelAjuda() {
+    if (!painelAjudaEl) return;
+    painelAjudaEl.remove();
+    painelAjudaEl = null;
+  }
+
   function alternarPainelAjuda() {
     if (painelAjudaEl) {
-      painelAjudaEl.remove();
-      painelAjudaEl = null;
+      fecharPainelAjuda();
       return;
     }
+    window.__smartTableUtil?.fecharOutrosPaineis?.('ajuda');
 
     painelAjudaEl = document.createElement('div');
     Object.assign(painelAjudaEl.style, {
@@ -2253,6 +2273,11 @@
   // window.__contextoAdicionalDebug no Módulo 6) -- expõe a montagem da
   // mensagem personalizada do Alt+A pra validação automatizada sem precisar
   // simular o atalho de teclado inteiro.
+  // Os dois painéis deste módulo entram no mesmo registro dos painéis do
+  // Módulo 9 e do Módulo 10 -- abrir qualquer um fecha os outros três.
+  window.__smartTableUtil?.registrarPainel?.('novidades', fecharPainelNovidades);
+  window.__smartTableUtil?.registrarPainel?.('ajuda', fecharPainelAjuda);
+
   window.__atalhosDebug = {
     montarMensagemPersonalizada,
     deveOmitirRelatorio,
