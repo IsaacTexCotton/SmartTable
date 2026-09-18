@@ -1745,6 +1745,14 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.14.0', data: '18/09/2026',
+      mudancas: [
+        'O banner de grupo econômico saiu: o próprio CRM passou a avisar ("1 CNPJ do grupo vencido", na página do cliente).',
+        'A detecção continua igual -- o Alt+G, a frase do relatório e a fila por prioridade não mudam em nada.',
+        'O que o aviso do CRM não diz (quem e quanto) continua a uma tecla: Alt+G abre todas as razões com vencido.',
+      ],
+    },
+    {
       versao: '1.13.0', data: '18/09/2026',
       mudancas: [
         'Novo atalho Alt+D: quanto entrou na semana vigente (sábado a sexta), seu e da Bianca, sem sair da página.',

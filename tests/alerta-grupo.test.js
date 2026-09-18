@@ -1,12 +1,27 @@
-// Testes do banner de alerta de grupo econômico (Módulo 5) -- BUGS REAIS
-// relatados pelo usuário: (1) o banner às vezes ficava por cima do header
-// do CRM (timing -- a medição da altura podia acontecer antes do layout
-// do header assentar) e (2) ficava por cima de modais do CRM (ex.:
-// "Registrar Contato"), cortando o modal ao meio, porque o z-index do
-// banner (999996) era muito maior que o do backdrop do modal (confirmado
-// via diagnóstico ao vivo: #modal-contato usa z-index 50, convenção
-// Tailwind "z-50"). Roda contra o código REAL de
-// modulos/modulo5-alerta-grupo.js via window.__alertaGrupoDebug.
+// Testes do Módulo 5 — DETECÇÃO de grupo econômico com título vencido.
+//
+// O banner que este módulo desenhava saiu na v1.14.0: o próprio CRM passou a
+// avisar ("1 CNPJ do grupo vencido", na página do cliente, ao lado do
+// grupo). Com ele foram embora ~220 linhas de posicionamento -- z-index,
+// acompanhar a barra de navegação rápida, ResizeObserver -- que sozinhas
+// causaram três bugs. Os testes daquela parte foram embora junto, e
+// tests/banner-posicao.test.js deixou de existir.
+//
+// O QUE SOBROU É O QUE IMPORTA MAIS, e passou a ser a razão de o módulo
+// existir. window.__alertaGrupo.empresasComVencido alimenta:
+//
+//   - Módulo 4, Alt+G                     -> abre as outras razões com vencido.
+//   - Módulo 4, temOutraRazaoComVencido() -> muda a frase do relatório na
+//     MENSAGEM QUE O CLIENTE RECEBE.
+//   - Módulo 7, fila por prioridade       -> só a razão mais urgente do
+//     grupo entra na fila. Sem isso, o mesmo grupo econômico é cobrado em
+//     duplicidade -- e em silêncio.
+//   - Módulo 8, conferir().
+//
+// Nada disso tem aviso na tela quando quebra. Por isso a detecção é testada
+// contra a estrutura REAL da tabela, conferida ao vivo em 18/09/2026:
+// colunas [CNPJ, Razão Social, Cidade/UF, Vencido, A Vencer, Ações], com a
+// linha do cliente atual marcada por bg-yellow-50.
 const { novaJanela } = require('./helpers/dom-env');
 const { criarChecador } = require('./helpers/checar');
 
@@ -14,206 +29,175 @@ const { checar, resumo } = criarChecador('alerta-grupo');
 
 const SPECS = [{ arquivo: 'modulo0-utilitarios-compartilhados.js' }, { arquivo: 'modulo5-alerta-grupo.js' }];
 
-function abrirPagina(bodyHtmlExtra) {
+/**
+ * Monta a página do cliente com a tabela de grupo na estrutura real.
+ *
+ * @param {{cnpj: string, razao: string, vencido: string, atual?: boolean}[]} linhas
+ */
+function paginaComGrupo(linhas) {
+  const corpo = linhas
+    .map(
+      (l) => `
+      <tr class="${l.atual ? 'bg-yellow-50' : ''}">
+        <td>${l.cnpj}</td>
+        <td><span>${l.razao}</span></td>
+        <td>SÃO PAULO/SP</td>
+        <td>${l.vencido}</td>
+        <td>R$ 10.000,00</td>
+        <td>Ver detalhes</td>
+      </tr>`
+    )
+    .join('');
+
+  // Duas coisas da página real que o teste PRECISA reproduzir, senão ele
+  // mede outra coisa:
+  //
+  //   1. O badge em #tab-grupo com a quantidade de empresas. iniciar() usa
+  //      ele pra pular a etapa inteira quando o grupo tem só o próprio
+  //      cliente -- sem o badge, a detecção nem chega a rodar. Foi
+  //      exatamente o que aconteceu na primeira versão deste arquivo: todas
+  //      as asserções de conteúdo davam lista vazia, e o teste "passava"
+  //      pelo motivo errado nas que esperavam vazio.
+  //   2. O aninhamento <h3> -> div.mb-4 -> container -> table, porque
+  //      encontrarTabelaDoGrupo() sobe do título pro div pai e procura a
+  //      tabela no container comum. Achatar isto faria o teste passar
+  //      contra um DOM que não é o do CRM.
+  return `
+    <button id="tab-grupo" class="tab-btn">Grupo <span class="rounded-full">${linhas.length}</span></button>
+    <div>
+      <div class="mb-4"><h3>Clientes do grupo</h3></div>
+      <div class="overflow-x-auto">
+        <table>
+          <thead><tr>
+            <th>CNPJ</th><th>Razão Social</th><th>Cidade/UF</th>
+            <th>Vencido</th><th>A Vencer</th><th>Ações</th>
+          </tr></thead>
+          <tbody>${corpo}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function abrirPagina(bodyHtml) {
   return novaJanela({
-    url: 'https://texhub.texcotton.com.br/crm/clientes/grupo/0?cnpj=AAA',
-    bodyHtml: bodyHtmlExtra || '',
+    url: 'https://texhub.texcotton.com.br/crm/clientes/grupo/42?cnpj=11111111%2F0001-11',
+    bodyHtml: bodyHtml || '',
     specs: SPECS,
   });
 }
 
-function criarHeaderFixo(w, altura) {
-  const header = w.document.createElement('header');
-  header.style.position = 'fixed';
-  header.getBoundingClientRect = () => ({ width: 1000, height: altura, top: 0, left: 0, right: 1000, bottom: altura });
-  w.document.body.appendChild(header);
-  return header;
-}
+// =====================================================================
+// 1. O MÓDULO NÃO DESENHA MAIS NADA
+// =====================================================================
+(function naoDesenha() {
+  const w = abrirPagina(paginaComGrupo([
+    { cnpj: '11111111/0001-11', razao: 'CLIENTE ATUAL LTDA', vencido: 'R$ 500,00', atual: true },
+    { cnpj: '22222222/0001-22', razao: 'OUTRA RAZAO LTDA', vencido: 'R$ 2.500,00' },
+  ]));
 
-function empresa(overrides) {
-  return Object.assign({ cnpj: '99999999/0001-99', razaoSocial: 'OUTRA EMPRESA LTDA', vencido: 'R$ 1.000,00', url: 'https://x' }, overrides || {});
-}
-
-// 1. obterAlturaHeaderFixo -- sem header, retorna 0.
-(function () {
-  const w = abrirPagina();
-  checar('sem <header> na página, altura é 0', w.__alertaGrupoDebug.obterAlturaHeaderFixo() === 0);
-})();
-
-// 2. obterAlturaHeaderFixo -- header existe mas NÃO é fixed/sticky, retorna 0.
-(function () {
-  const w = abrirPagina();
-  const header = w.document.createElement('header');
-  header.style.position = 'static';
-  header.getBoundingClientRect = () => ({ width: 1000, height: 80, top: 0, left: 0, right: 1000, bottom: 80 });
-  w.document.body.appendChild(header);
-  checar('header não-fixo -- altura é 0 (não conta como header fixo)', w.__alertaGrupoDebug.obterAlturaHeaderFixo() === 0);
-})();
-
-// 3. obterAlturaHeaderFixo -- header fixed, retorna a altura real.
-(function () {
-  const w = abrirPagina();
-  criarHeaderFixo(w, 80);
-  checar('header fixed de 80px -- altura detectada é 80', w.__alertaGrupoDebug.obterAlturaHeaderFixo() === 80);
-})();
-
-// 4. criarBanner -- posiciona logo abaixo do header (top = altura dele).
-(function () {
-  const w = abrirPagina();
-  criarHeaderFixo(w, 80);
-  w.__alertaGrupoDebug.criarBanner([empresa()]);
-  const banner = w.document.getElementById('alerta-grupo-vencido');
-  checar('banner é criado', !!banner);
-  checar('banner posicionado logo abaixo do header (top=80px)', banner && banner.style.top === '80px', banner && banner.style.top);
-})();
-
-// 5. BUG REAL: z-index do banner fica ABAIXO do padrão de modal do CRM
-// (z-50 confirmado via diagnóstico ao vivo) -- garante que qualquer modal
-// desse padrão renderiza por cima do banner, em vez do contrário.
-(function () {
-  const w = abrirPagina();
-  w.__alertaGrupoDebug.criarBanner([empresa()]);
-  const banner = w.document.getElementById('alerta-grupo-vencido');
-  const zIndexBanner = Number(banner.style.zIndex);
-  checar('z-index do banner é menor que o do modal confirmado (z-50)', zIndexBanner < 50, zIndexBanner);
-})();
-
-// 6. Chamar criarBanner duas vezes não duplica.
-(function () {
-  const w = abrirPagina();
-  w.__alertaGrupoDebug.criarBanner([empresa()]);
-  w.__alertaGrupoDebug.criarBanner([empresa()]);
-  const banners = w.document.querySelectorAll('#alerta-grupo-vencido');
-  checar('chamar duas vezes não duplica o banner', banners.length === 1, banners.length);
-})();
-
-// 7. Banner cita a(s) empresa(s) e o valor vencido.
-(function () {
-  const w = abrirPagina();
-  w.__alertaGrupoDebug.criarBanner([empresa({ razaoSocial: 'FILIAL TESTE LTDA', vencido: 'R$ 2.500,00' })]);
-  const banner = w.document.getElementById('alerta-grupo-vencido');
-  checar('banner cita a razão social e o valor vencido', /FILIAL TESTE LTDA/.test(banner.textContent) && /2\.500,00/.test(banner.textContent), banner.textContent);
-})();
-
-// 8. BUG REAL (diagnosticado ao vivo no CRM): o banner EXISTIA, estava
-// visível, com opacity 1 -- e mesmo assim ninguém via. A medição olhava só a
-// altura do <header> (80px), mas dentro dele existe uma barra de navegação
-// rápida POSICIONADA que transborda até 157px. Como ela é descendente do
-// header, pinta no contexto de empilhamento dele (z-50) e cobre este banner,
-// que é z-30 de propósito pra não cortar os modais (também z-50). Não existe
-// z-index válido -- a correção é ficar abaixo da área fixa INTEIRA.
-(function () {
-  const w = abrirPagina();
-
-  const header = w.document.createElement('header');
-  header.style.position = 'fixed';
-  header.getBoundingClientRect = () => ({ width: 1000, height: 80, top: 0, left: 0, right: 1000, bottom: 80 });
-
-  // A barra que transborda o header, igual ao #sit-quicknav do CRM real.
-  const barra = w.document.createElement('div');
-  barra.style.position = 'absolute';
-  barra.getBoundingClientRect = () => ({ width: 1000, height: 77, top: 80, left: 0, right: 1000, bottom: 157 });
-  header.appendChild(barra);
-  w.document.body.appendChild(header);
-
-  checar('só o <header> mediria 80px', w.__alertaGrupoDebug.obterAlturaHeaderFixo() === 80);
+  checar('nenhum banner é criado na página', w.document.getElementById('alerta-grupo-vencido') === null);
   checar(
-    'REGRESSÃO: a área fixa considera a barra que transborda (157px)',
-    w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior() === 157,
-    String(w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior())
+    'nada é acrescentado ao body além do que a página já tinha',
+    w.document.querySelectorAll('[id^="alerta-grupo"]').length === 0
   );
-
-  w.__alertaGrupoDebug.criarBanner([empresa()]);
-  const banner = w.document.getElementById('alerta-grupo-vencido');
-  checar('o banner nasce abaixo da área fixa inteira, não só do header', banner.style.top === '157px', banner.style.top);
-  checar('e continua abaixo dos modais do CRM (z-index 30)', banner.style.zIndex === '30', banner.style.zIndex);
+  checar('o hook de teste não expõe mais nada de banner', !('criarBanner' in w.__alertaGrupoDebug));
+  checar('nem as funções de medir área fixa', !('obterAlturaHeaderFixo' in w.__alertaGrupoDebug) && !('obterFimDaAreaFixaSuperior' in w.__alertaGrupoDebug));
+  checar('a config não carrega mais a duração da animação do banner', !('DURACAO_SEGUIR_ANIMACAO_MS' in w.__alertaGrupoDebug.CONFIG_GRUPO));
 })();
 
-(function () {
-  // Barra FECHADA (display:none) não empurra o banner -- senão ele ficaria
-  // com um vão permanente quando o usuário fecha a navegação rápida.
-  const w = abrirPagina();
-  const header = w.document.createElement('header');
-  header.style.position = 'fixed';
-  header.getBoundingClientRect = () => ({ width: 1000, height: 80, top: 0, left: 0, right: 1000, bottom: 80 });
+// =====================================================================
+// 2. MAS CONTINUA PUBLICANDO O DADO — é disso que 3 módulos dependem
+// =====================================================================
+(function publicaODado() {
+  const w = abrirPagina(paginaComGrupo([
+    { cnpj: '11111111/0001-11', razao: 'CLIENTE ATUAL LTDA', vencido: 'R$ 500,00', atual: true },
+    { cnpj: '22222222/0001-22', razao: 'OUTRA RAZAO LTDA', vencido: 'R$ 2.500,00' },
+    { cnpj: '33333333/0001-33', razao: 'TERCEIRA RAZAO LTDA', vencido: '—' },
+  ]));
 
-  const barra = w.document.createElement('div');
-  barra.style.position = 'absolute';
-  barra.style.display = 'none';
-  barra.getBoundingClientRect = () => ({ width: 1000, height: 77, top: 80, left: 0, right: 1000, bottom: 157 });
-  header.appendChild(barra);
-  w.document.body.appendChild(header);
+  const grupo = w.__alertaGrupo;
+  checar('window.__alertaGrupo existe', !!grupo);
+  checar('e sempre traz a lista, mesmo que vazia', Array.isArray(grupo?.empresasComVencido));
 
-  checar('barra fechada não é contada', w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior() === 80, String(w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior()));
+  checar('acha a outra razão com vencido', grupo.empresasComVencido.length === 1, String(grupo.empresasComVencido.length));
+
+  const achada = grupo.empresasComVencido[0];
+  checar('com o CNPJ da coluna 0', achada.cnpj === '22222222/0001-22', achada.cnpj);
+  checar('a razão social da coluna 1', achada.razaoSocial === 'OUTRA RAZAO LTDA', achada.razaoSocial);
+  checar('o vencido da coluna 3', achada.vencido === 'R$ 2.500,00', achada.vencido);
+  checar('e a URL montada com o grupoId da página', /grupo\/42/.test(achada.url || '') && /2222/.test(achada.url || ''), String(achada.url));
+
+  // A linha do próprio cliente NÃO entra: avisar sobre quem você já está
+  // olhando encheria a mensagem e faria o Alt+G abrir a página atual.
+  checar(
+    'a linha do cliente atual (bg-yellow-50) é ignorada',
+    !grupo.empresasComVencido.some((e) => e.cnpj === '11111111/0001-11')
+  );
+  checar('e a razão sem vencido também fica de fora', !grupo.empresasComVencido.some((e) => e.cnpj === '33333333/0001-33'));
 })();
 
-(function () {
-  // Descendente em fluxo normal (static) não transborda o pai -- não conta.
-  const w = abrirPagina();
-  const header = w.document.createElement('header');
-  header.style.position = 'fixed';
-  header.getBoundingClientRect = () => ({ width: 1000, height: 80, top: 0, left: 0, right: 1000, bottom: 80 });
-  const dentro = w.document.createElement('div');
-  dentro.getBoundingClientRect = () => ({ width: 1000, height: 40, top: 20, left: 0, right: 1000, bottom: 60 });
-  header.appendChild(dentro);
-  w.document.body.appendChild(header);
-  checar('filho estático não altera a medição', w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior() === 80);
+// =====================================================================
+// 3. OS CASOS EM QUE NÃO HÁ NADA A PUBLICAR
+// =====================================================================
+(function semGrupo() {
+  const semTabela = abrirPagina('<div><h3>Outra coisa qualquer</h3></div>');
+  checar('página sem tabela de grupo publica lista vazia, não undefined', Array.isArray(semTabela.__alertaGrupo?.empresasComVencido) && semTabela.__alertaGrupo.empresasComVencido.length === 0);
+
+  const soOAtual = abrirPagina(paginaComGrupo([
+    { cnpj: '11111111/0001-11', razao: 'CLIENTE ATUAL LTDA', vencido: 'R$ 500,00', atual: true },
+  ]));
+  checar('grupo com só o cliente atual publica lista vazia', soOAtual.__alertaGrupo.empresasComVencido.length === 0);
+
+  // Linha curta (o CRM mudando o número de colunas) não pode estourar nem
+  // inventar empresa.
+  const curta = abrirPagina(`
+    <div><div class="mb-4"><h3>Clientes do grupo</h3></div>
+    <div><table><tbody><tr><td>111</td><td>X</td></tr></tbody></table></div></div>`);
+  checar('linha com menos colunas que o esperado é ignorada sem estourar', curta.__alertaGrupo.empresasComVencido.length === 0);
 })();
 
-(function () {
-  const w = abrirPagina();
-  checar('sem header, a área fixa é 0', w.__alertaGrupoDebug.obterFimDaAreaFixaSuperior() === 0);
-})();
-
-// 9. ENDURECIDO (achado de revisão): "R$ 0,00" não é saldo vencido. Antes,
-// qualquer texto que não fosse vazio nem travessão contava como vencido --
-// se o CRM renderizar zero assim em vez de "—", TODA empresa do grupo
-// entraria em empresasComVencido, mudando a mensagem do Alt+A e fazendo o
-// Alt+A abrir abas de fundo à toa.
-(function () {
+// =====================================================================
+// 4. O QUE CONTA COMO "VENCIDO"
+// =====================================================================
+// ENDURECIDO num achado de revisão: antes, QUALQUER texto que não fosse
+// vazio nem travessão contava -- inclusive "R$ 0,00". Se o CRM renderizar
+// zero assim, TODA empresa do grupo entraria na lista, mudando a mensagem
+// do Alt+A e fazendo o Alt+G abrir abas à toa.
+(function oQueContaComoVencido() {
   const w = abrirPagina();
   const limpar = w.__alertaGrupoDebug.limparValorMonetario;
 
   checar('"R$ 0,00" não conta como vencido', limpar('R$ 0,00') === null, String(limpar('R$ 0,00')));
   checar('"0,00" não conta como vencido', limpar('0,00') === null, String(limpar('0,00')));
-  checar('travessão continua não contando', limpar('—') === null);
-  checar('vazio continua não contando', limpar('   ') === null);
-  checar('valor de verdade continua contando', limpar('R$ 1.000,00') === 'R$ 1.000,00', String(limpar('R$ 1.000,00')));
+  checar('travessão não conta', limpar('—') === null);
+  checar('vazio não conta', limpar('   ') === null);
+  checar('valor de verdade conta', limpar('R$ 1.000,00') === 'R$ 1.000,00', String(limpar('R$ 1.000,00')));
   checar('centavos sozinhos contam', limpar('R$ 0,01') === 'R$ 0,01', String(limpar('R$ 0,01')));
   checar('texto inesperado (sem número) segue confiando no texto', limpar('a combinar') === 'a combinar', String(limpar('a combinar')));
+
+  // Ponta a ponta: o zero também não pode passar pela leitura da tabela.
+  const comZero = abrirPagina(paginaComGrupo([
+    { cnpj: '11111111/0001-11', razao: 'ATUAL', vencido: 'R$ 100,00', atual: true },
+    { cnpj: '44444444/0001-44', razao: 'ZERADA LTDA', vencido: 'R$ 0,00' },
+  ]));
+  checar('razão com "R$ 0,00" não entra na lista publicada', comZero.__alertaGrupo.empresasComVencido.length === 0);
 })();
 
-// 10. MELHORIA (bug de timing corrigido): se a altura do header medida nas
-// primeiras leituras (criação do banner + reajuste síncrono logo em
-// seguida) ainda estava desatualizada -- layout genuinamente não tinha
-// assentado a tempo nem daquela segunda leitura --, o reajuste posterior
-// (requestAnimationFrame/setTimeout) corrige o "top" sozinho.
-const promessa9 = (function () {
-  const w = abrirPagina();
-  const header = w.document.createElement('header');
-  header.style.position = 'fixed';
-  // As duas primeiras leituras (Object.assign inicial + reajustar()
-  // síncrono dentro de manterBannerAlinhadoAoHeader) retornam um valor
-  // desatualizado (0) -- só a partir da 3ª leitura (requestAnimationFrame
-  // ou o setTimeout de segurança) o layout "assenta" no valor real (80).
-  let leituras = 0;
-  header.getBoundingClientRect = () => {
-    leituras++;
-    const altura = leituras <= 2 ? 0 : 80;
-    return { width: 1000, height: altura, top: 0, left: 0, right: 1000, bottom: altura };
-  };
-  w.document.body.appendChild(header);
-
-  w.__alertaGrupoDebug.criarBanner([empresa()]);
-  const banner = w.document.getElementById('alerta-grupo-vencido');
-  checar('BUG REAL: enquanto o layout do header não assentou, o top pode ficar desatualizado (0px)', banner.style.top === '0px', banner.style.top);
-
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      checar('MELHORIA: reajuste automático corrige o top pro valor real assentado (80px)', banner.style.top === '80px', banner.style.top);
-      resolve();
-    }, 400);
+// =====================================================================
+// 5. O CONTRATO COM QUEM CONSOME
+// =====================================================================
+// Módulo 4 e Módulo 7 leem estes campos pelo nome. Renomear um deles aqui
+// não quebraria nada visível -- só mudaria a mensagem do cliente e a fila.
+(function contrato() {
+  const w = abrirPagina(paginaComGrupo([
+    { cnpj: '11111111/0001-11', razao: 'ATUAL', vencido: 'R$ 1,00', atual: true },
+    { cnpj: '55555555/0001-55', razao: 'CONSUMIDA LTDA', vencido: 'R$ 9.000,00' },
+  ]));
+  const item = w.__alertaGrupo.empresasComVencido[0];
+  ['cnpj', 'razaoSocial', 'vencido', 'url'].forEach((campo) => {
+    checar(`o item publicado tem o campo "${campo}" (lido por nome pelos Módulos 4 e 7)`, campo in item);
   });
+  checar('a flag de carregado continua de pé (contador do Módulo 6)', w.__alertaGrupoCarregado === true);
 })();
 
-promessa9.then(resumo);
+resumo();

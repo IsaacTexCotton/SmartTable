@@ -1,21 +1,35 @@
 /* =========================================================================
- * MÓDULO 5: ALERTA DE GRUPO ECONÔMICO — CRM TexCotton
+ * MÓDULO 5: DETECÇÃO DE GRUPO ECONÔMICO COM VENCIDO — CRM TexCotton
  * -------------------------------------------------------------------------
- * O que faz: ao entrar na página de um cliente, verifica a tabela "Clientes
- * do grupo" (aba "Grupo") e mostra um aviso destacado no topo da página se
- * QUALQUER OUTRA empresa do mesmo grupo econômico tiver título vencido.
- * Não depende de clicar na aba "Grupo" — lê a tabela direto do HTML da
- * página, mesmo que ela esteja escondida (display:none) até a aba abrir.
+ * O que faz: ao entrar na página de um cliente, lê a tabela "Clientes do
+ * grupo" (aba "Grupo") e publica quais OUTRAS empresas do mesmo grupo
+ * econômico têm título vencido. Não depende de clicar na aba "Grupo" — lê a
+ * tabela direto do HTML da página, mesmo escondida (display:none).
  *
- * Também expõe o resultado em window.__alertaGrupo = { empresasComVencido:
- * [{cnpj, razaoSocial, vencido, url}, ...] } (sempre presente, mesmo vazio)
- * -- usado pelo Módulo 4 pra uma linha extra na mensagem do Alt+A e pro
- * atalho que abre as outras razões em nova aba (Alt+G), sem duplicar a
- * leitura da tabela.
+ *   window.__alertaGrupo = { empresasComVencido: [{cnpj, razaoSocial,
+ *                            vencido, url}, ...] }   (sempre presente)
  *
- * Onde colar: anexado ao FINAL do smart-table.js, junto com os outros
- * módulos. Não depende de nenhum deles pra funcionar (roda sozinho), mas o
- * Módulo 4 depende DELE pra essas duas funcionalidades -- colar antes.
+ * ESTE MÓDULO NÃO DESENHA NADA. Ele já mostrou um banner no topo da página;
+ * o banner saiu na v1.14.0, quando o próprio CRM passou a avisar ("1 CNPJ do
+ * grupo vencido", ao lado do grupo, na página do cliente). Manter dois
+ * avisos da mesma coisa é ruído, e o nosso carregava toda a lógica de
+ * posicionamento (z-index, acompanhar a barra de navegação rápida,
+ * ResizeObserver) que sozinha causou três bugs -- a parte mais difícil de
+ * testar do projeto.
+ *
+ * O QUE O BANNER MOSTRAVA E O AVISO DO CRM NÃO MOSTRA: quem e quanto. Isso
+ * continua a uma tecla de distância, no Alt+G, que abre todas as razões com
+ * vencido de uma vez.
+ *
+ * QUEM DEPENDE DESTE MÓDULO (é por isso que ele continua existindo):
+ *   - Módulo 4, Alt+G            -> abre as outras razões com vencido.
+ *   - Módulo 4, temOutraRazaoComVencido() -> muda a frase do relatório na
+ *     MENSAGEM QUE O CLIENTE RECEBE ("de cada razão social").
+ *   - Módulo 7, fila por prioridade -> só a razão mais urgente do grupo
+ *     entra na fila; sem isso o mesmo grupo seria cobrado em duplicidade.
+ *   - Módulo 8, conferir().
+ *
+ * Onde colar: depois do Módulo 0 e ANTES do Módulo 4.
  *
  * IMPORTANTE — baseado em UM exemplo real de HTML da tabela "Clientes do
  * grupo". Se a estrutura variar (ex.: cliente sem grupo, mais colunas em
@@ -46,12 +60,6 @@
     INDICE_COLUNA_CNPJ: 0,
     INDICE_COLUNA_RAZAO_SOCIAL: 1,
     INDICE_COLUNA_VENCIDO: 3,
-    // Por quanto tempo o banner fica seguindo a área fixa depois de uma
-    // mudança. A barra de navegação rápida do CRM abre e fecha com
-    // transição CSS: medir uma vez só, no instante em que a classe muda,
-    // pega a altura do MEIO da animação -- ou nem isso, pega a de antes.
-    // Seguir por um instante faz o banner acompanhar e parar no valor final.
-    DURACAO_SEGUIR_ANIMACAO_MS: 600,
   };
 
   /* ---------------------------------------------------------------------
@@ -147,226 +155,7 @@
   }
 
   /* ---------------------------------------------------------------------
-   * 3. BANNER DE AVISO
-   * --------------------------------------------------------------------- */
-  function obterElementoHeaderFixo() {
-    const header = document.querySelector('header');
-    if (!header) return null;
-    const estilo = window.getComputedStyle(header);
-    return (estilo.position === 'fixed' || estilo.position === 'sticky') ? header : null;
-  }
-
-  function obterAlturaHeaderFixo() {
-    // Mede a altura real do <header> da página (se existir e for fixo),
-    // pra posicionar o aviso logo abaixo dele, sem tampar nada e sem
-    // precisar adivinhar um valor fixo em pixels.
-    const header = obterElementoHeaderFixo();
-    return header ? header.getBoundingClientRect().height : 0;
-  }
-
-  /**
-   * Onde termina, de verdade, a área fixa do topo da página.
-   *
-   * BUG REAL (o banner existia, estava visível, e mesmo assim ninguém via):
-   * a medição olhava só a altura do <header> -- 80px no CRM. Mas dentro do
-   * header existe uma barra de navegação rápida POSICIONADA, que transborda
-   * pra baixo dele e vai até 157px. Como ela é DESCENDENTE do header, ela
-   * pinta no contexto de empilhamento dele (z-50), e portanto cobre qualquer
-   * coisa de fora com z-index menor -- inclusive este banner, que é z-30 de
-   * propósito, pra não cortar os modais do CRM (que também são z-50).
-   *
-   * Ou seja: não existe z-index válido. Acima da barra seria acima dos
-   * modais, e o bug antigo voltaria. A correção é POSICIONAL -- ficar abaixo
-   * da área fixa inteira, não só do <header>.
-   *
-   * Mede genericamente (qualquer descendente posicionado e visível que
-   * transborde), sem fixar o seletor da barra: se o CRM mudar o nome dela,
-   * ou ganhar outra, a conta continua certa.
-   *
-   * @returns {number} Coordenada Y (viewport) onde a área fixa termina.
-   */
-  function obterFimDaAreaFixaSuperior() {
-    const header = obterElementoHeaderFixo();
-    if (!header) return 0;
-
-    let limite = header.getBoundingClientRect().bottom;
-
-    Array.from(header.querySelectorAll('*')).forEach((el) => {
-      const estilo = window.getComputedStyle(el);
-      if (estilo.position === 'static') return; // não transborda o pai
-      if (estilo.display === 'none' || estilo.visibility === 'hidden') return;
-      const r = el.getBoundingClientRect();
-      if (r.height > 0 && r.bottom > limite) limite = r.bottom;
-    });
-
-    return limite;
-  }
-
-  // BUG REAL (relatado pelo usuário): o banner às vezes ficava por cima do
-  // header do CRM. A medição em si bate certo quando testada isoladamente
-  // (confirmado: position fixed, 80px de altura) -- o problema é de
-  // TIMING: se o layout do header ainda não tiver assentado no instante
-  // exato em que o banner é criado, o valor capturado fica desatualizado.
-  // Reajusta o offset pouco depois de inserir (dá tempo do layout
-  // assentar) e observa o header com ResizeObserver pra continuar
-  // correto se a altura dele mudar depois (ex.: header responsivo).
-  function manterBannerAlinhadoAoHeader(banner) {
-    const observadoresExtras = [];
-
-    function reajustar() {
-      banner.style.top = obterFimDaAreaFixaSuperior() + 'px';
-    }
-
-    let seguirAte = 0;
-    let seguindo = false;
-
-    /**
-     * Reajusta a cada quadro por um instante, em vez de uma vez só.
-     *
-     * BUG REAL (relatado pelo usuário): ao FECHAR a barra de navegação
-     * rápida, o banner não acompanhava e ficava com um vão. O observer
-     * disparava no instante em que a classe muda -- ou seja, no COMEÇO da
-     * transição CSS, quando a barra ainda está aberta. Media o valor velho e
-     * não media mais. Seguindo por alguns quadros, o banner acompanha a
-     * animação e para no valor final, sem precisar saber a duração dela nem
-     * depender de transitionend (que não dispara se não houver transição).
-     */
-    function seguirPorUmInstante() {
-      seguirAte = Date.now() + CONFIG_GRUPO.DURACAO_SEGUIR_ANIMACAO_MS;
-      if (seguindo) return; // já tem um laço rodando; ele só estendeu o prazo
-      seguindo = true;
-      (function passo() {
-        // isConnected, e não document.body.contains(): não depende de QUAL
-        // document está corrente, o que importa quando o módulo roda em mais
-        // de uma janela (abas de fundo do Alt+A/Alt+U, e o harness de teste).
-        if (!banner.isConnected) { seguindo = false; return; }
-        reajustar();
-        if (Date.now() < seguirAte) {
-          requestAnimationFrame(passo);
-        } else {
-          seguindo = false;
-        }
-      })();
-    }
-
-    // Só o laço de seguimento: ele já cobre os primeiros 600ms quadro a
-    // quadro, então o `setTimeout(reajustar, 300)` que existia aqui virou
-    // redundante. Pior que redundante -- ele mascarava a falha ao fechar a
-    // barra, corrigindo a posição por outro caminho e deixando o teste
-    // passar mesmo com o observer medindo cedo demais.
-    seguirPorUmInstante();
-
-    const header = obterElementoHeaderFixo();
-    if (!header) return;
-
-    // CORRIGIDO: o MutationObserver abaixo estava DENTRO do teste de
-    // ResizeObserver. São capacidades independentes -- num navegador (ou
-    // ambiente de teste) sem ResizeObserver, o banner perdia junto o
-    // acompanhamento de abrir/fechar da barra, que é o caso que mais
-    // acontece na prática.
-    const observadorTamanho =
-      typeof ResizeObserver === 'function' ? new ResizeObserver(seguirPorUmInstante) : null;
-    if (observadorTamanho) observadorTamanho.observe(header);
-    {
-
-      // A barra de navegação rápida ABRE E FECHA por clique do usuário, e é
-      // `position: absolute` -- então o header não muda de tamanho quando
-      // isso acontece, e o ResizeObserver acima não dispara. Observar
-      // atributos e filhos do header pega a troca de classe/display que
-      // abre e fecha a barra, e o banner desce ou sobe junto.
-      //
-      // Dispara seguirPorUmInstante, não reajustar: a mudança de classe
-      // acontece no COMEÇO da transição, quando a barra ainda está do
-      // tamanho antigo.
-      const observerConteudoHeader = new MutationObserver(seguirPorUmInstante);
-      observerConteudoHeader.observe(header, { attributes: true, childList: true, subtree: true });
-      observadoresExtras.push(observerConteudoHeader);
-      // Desliga sozinho quando o banner sai da tela (fechado ou trocou de
-      // página) -- sem isso, o observer ficaria vivo pra sempre.
-      const paradaObserver = new MutationObserver(() => {
-        if (!banner.isConnected) {
-          if (observadorTamanho) observadorTamanho.disconnect();
-          observadoresExtras.forEach((o) => o.disconnect());
-          paradaObserver.disconnect();
-        }
-      });
-      paradaObserver.observe(document.body, { childList: true, subtree: true });
-    }
-  }
-
-  function criarBanner(empresas) {
-    if (document.getElementById('alerta-grupo-vencido')) return; // já existe, não duplica
-
-    const banner = document.createElement('div');
-    banner.id = 'alerta-grupo-vencido';
-    Object.assign(banner.style, {
-      position: 'fixed',
-      top: obterFimDaAreaFixaSuperior() + 'px',
-      left: '0',
-      right: '0',
-      background: '#FEF3C7',
-      borderBottom: '2px solid #F59E0B',
-      color: '#78350F',
-      padding: '12px 20px',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      fontSize: '14px',
-      lineHeight: '1.4',
-      // BUG REAL (relatado pelo usuário): o banner ficava por cima de
-      // modais do CRM (ex.: "Registrar Contato"), cortando o modal ao
-      // meio -- confirmado via diagnóstico ao vivo que o backdrop do
-      // modal (#modal-contato) usa z-index: 50 (convenção Tailwind
-      // "z-50", provavelmente compartilhada por outros modais do app).
-      // z-index bem abaixo disso garante que qualquer modal desse padrão
-      // sempre renderiza por cima do nosso banner -- ele passa a ficar
-      // escondido atrás do esmaecimento do modal, igual ao resto da
-      // página, em vez de furar por cima.
-      zIndex: 30,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: '12px',
-      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-    });
-
-    const texto = document.createElement('div');
-    const verbo = empresas.length > 1 ? 'têm' : 'tem';
-
-    // CORREÇÃO (item A1): antes usava innerHTML com razaoSocial/vencido
-    // interpolados por concatenação de string -- funciona hoje porque o
-    // dado vem do próprio CRM, mas é um padrão perigoso (se um nome de
-    // empresa algum dia contiver caracteres HTML, seriam executados).
-    // Construindo com nós de texto reais em vez de innerHTML.
-    const partePrefixo = document.createElement('span');
-    const forte = document.createElement('strong');
-    forte.textContent = 'Atenção:';
-    partePrefixo.append('⚠️ ', forte, ` ${empresas.length} empresa(s) do mesmo grupo econômico também ${verbo} título vencido: `);
-
-    const listaEmpresas = empresas.map((e) => `${e.razaoSocial} (${e.vencido})`).join(', ');
-    texto.append(partePrefixo, document.createTextNode(listaEmpresas));
-
-    const btnFechar = document.createElement('button');
-    btnFechar.textContent = '×';
-    btnFechar.setAttribute('aria-label', 'Fechar aviso');
-    Object.assign(btnFechar.style, {
-      background: 'transparent',
-      border: 'none',
-      fontSize: '20px',
-      lineHeight: '1',
-      cursor: 'pointer',
-      color: '#78350F',
-      padding: '0 6px',
-      flexShrink: '0',
-    });
-    btnFechar.onclick = () => banner.remove();
-
-    banner.appendChild(texto);
-    banner.appendChild(btnFechar);
-    document.body.appendChild(banner);
-    manterBannerAlinhadoAoHeader(banner);
-  }
-
-  /* ---------------------------------------------------------------------
-   * 4. INICIALIZAÇÃO
+   * 3. EXPOSIÇÃO E INICIALIZAÇÃO
    * --------------------------------------------------------------------- */
   // Exposto pra outros módulos (Módulo 4: linha extra na mensagem do Alt+A
   // e o atalho de abrir as outras razões em nova aba) sem precisar reler a
@@ -379,11 +168,7 @@
   }
 
   function checar() {
-    const empresas = verificarOutrasEmpresasComVencido();
-    expor(empresas);
-    if (empresas.length > 0) {
-      criarBanner(empresas);
-    }
+    expor(verificarOutrasEmpresasComVencido());
   }
 
   function obterNomeAbaAtiva() {
@@ -502,14 +287,10 @@
   }
 
   // Hook de depuração/teste (mesmo padrão do window.filaDebug no Módulo 3
-  // e window.__atalhosDebug no Módulo 4) -- expõe o banner direto, sem
-  // precisar simular a leitura da tabela de grupo inteira.
+  // e window.__atalhosDebug no Módulo 4).
   window.__alertaGrupoDebug = {
-    criarBanner,
-    obterAlturaHeaderFixo,
     verificarOutrasEmpresasComVencido,
     limparValorMonetario,
-    obterFimDaAreaFixaSuperior,
     CONFIG_GRUPO,
   };
 })();
