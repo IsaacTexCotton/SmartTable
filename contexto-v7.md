@@ -8,7 +8,7 @@ direto de lá (branches `main` e `estavel`, histórico de commits, testes).
 Este documento existe pra economizar o que o `git log` não conta sozinho: as
 decisões, os fatos confirmados ao vivo e as armadilhas já pisadas.
 
-**Atualizado em**: 2026-09-18, na versão do `main` **1.22.0** (canal estável
+**Atualizado em**: 2026-09-18, na versão do `main` **1.22.1** (canal estável
 ainda em 1.18.1 até a próxima `npm run release`). Se o
 `@version` do repo for maior que isso quando você ler, o texto abaixo ainda
 descreve a arquitetura corretamente, mas pode haver módulo/atalho novo não
@@ -82,7 +82,7 @@ Ordem real dos `@require` (importa: módulos posteriores dependem de
 
 | # | Nome do arquivo | Função | Atalho |
 |---|---|---|---|
-| 0 | `modulo0-utilitarios-compartilhados.js` | Base de tudo: config (`localStorage`), cálculo de semana sáb-sex, hash/rotação de frases, registro de painéis (fecha um ao abrir outro), `normalizarData` (meio-dia), constantes SCPC. Não é numerado por acaso — carrega primeiro. | — |
+| 0 | `modulo0-utilitarios-compartilhados.js` | Base de tudo: config (`localStorage`), cálculo de semana sáb-sex, hash/rotação de frases, registro de painéis e registro de módulos carregados (mesmo padrão dos dois), `normalizarData` (meio-dia), constantes SCPC. Não é numerado por acaso — carrega primeiro. | — |
 | 1 | `modulo1-aviso-cobranca.js` | Classifica títulos vencidos, relatório em imagem. **PROTEGIDO** — não veio de mim originalmente, editar só com confirmação explícita do usuário. | Alt+R (relatório) |
 | 2 | `modulo2-registrar-enviar.js` | Registra contato no CRM, abre WhatsApp (app ou web, conforme config), fecha a aba sozinho, recarrega. **PROTEGIDO**, mesma regra do Módulo 1. | Alt+S |
 | 3 | `modulo3-fila-atendimento.js` | Fila de atendimento original, por dias de atraso. Dono de `obterAtendidosHoje()` (quem já foi contatado hoje) — o Módulo 7 usa essa função em vez de ler `localStorage` direto. | Alt+I |
@@ -314,11 +314,8 @@ hábito mesmo saindo da fila automática.
 convenção de meio-dia (`normalizarData`) do resto do projeto — de
 propósito: aqui é uma DURAÇÃO rolante, não uma data de calendário.
 
-**Achado consertado nesta mesma leva**: a lista `FLAGS_DOS_MODULOS` do
-Módulo 6 (conta "X/13 módulos carregados" no console) tinha ficado pra trás
-— o Módulo 11 nunca tinha entrado nela. Corrigido junto, e agora há um
-teste (`wrappers.test.js`) que trava todo módulo novo contra essa lista,
-pra não se repetir.
+**Achado ao longo do caminho, resolvido na v1.22.1** — ver "Registro de
+módulos carregados" mais abaixo.
 
 ## Progresso da fila — botão discreto, não atalho (Módulo 11)
 
@@ -370,6 +367,37 @@ Papéis com variantes: `ctaGenerico`, `ctaUltimoDia`, `ctaCartorio`,
 com o usuário (ver `tests/rotacao-frases.test.js` pras propriedades
 travadas: estável no dia, muda entre dias, nunca um CTA escalado soa como
 genérico, nenhum prazo cravado num dia em que é falso).
+
+## Registro de módulos carregados (Módulo 0, v1.22.1)
+
+Mesmo padrão do registro de painéis (`registrarPainel`/`fecharOutrosPaineis`),
+aplicado a "quais módulos existem": cada módulo chama
+`window.__smartTableUtil.registrarModuloCarregado('Nome Legível')` na mesma
+linha em que já seta sua própria flag `window.__xCarregado = true`. O
+Módulo 6 (dono do toast "SmartTable vX.Y.Z carregado (N/13 módulos)") só
+**lê** `modulosCarregados()`/`modulosFaltando()` — não mantém lista própria.
+
+**Por que existe**: até a v1.22.0, "quais módulos existem" era afirmado em
+TRÊS lugares independentes — as linhas `@require` do wrapper, a flag que
+cada módulo seta, e um array copiado à mão dentro do Módulo 6
+(`FLAGS_DOS_MODULOS`). O terceiro ficou pra trás **duas vezes na mesma
+sessão de manutenção** (o Módulo 11 nunca entrou nele, sem nenhum aviso até
+alguém rodar a suíte de testes) — a mesma classe de bug que já tinha
+motivado trocar um "7 módulos" fixo por uma contagem, bem antes disso.
+
+**O que isto NÃO resolve**: ainda existe UM nome hand-mantido —
+`MODULOS_ESPERADOS`, agora no Módulo 0 — porque não há como uma página
+descobrir em runtime quantos `@require` o Tampermonkey concatenou (é
+metadado do userscript, não algo exposto pro JS). Um módulo novo ainda
+precisa de um humano lembrando de chamar `registrarModuloCarregado` com o
+nome certo. O que muda: o lugar certo de editar é o **próprio arquivo do
+módulo novo** (não um arquivo alheio), e um nome que não bate com
+`MODULOS_ESPERADOS` avisa **na hora**, no console, na primeira vez que a
+página carrega em desenvolvimento — não só quando alguém lembra de rodar
+`npm run verificar`. `tests/wrappers.test.js` trava a checagem estática (todo
+módulo em disco chama a função, com um nome presente na lista, nos dois
+sentidos); `tests/registro-modulos.test.js` cobre o comportamento em
+runtime.
 
 ## Tabela de atalhos atual (Módulo 4)
 
@@ -459,6 +487,6 @@ na mensagem de commit, não em documento separado):
 
 Repositório `IsaacTexCotton/SmartTable` (público, GitHub). `main` é
 desenvolvimento; `estavel` é o que o time instala. `npm run verificar` roda
-lock + lint + suíte completa (29 arquivos em `tests/`). `README.md` tem o
+lock + lint + suíte completa (30 arquivos em `tests/`). `README.md` tem o
 detalhe operacional de publicação; este documento é o resumo de decisões e
 fatos que não estão em nenhum commit isolado.
