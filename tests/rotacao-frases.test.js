@@ -178,4 +178,42 @@ const FRASES = w.__atalhosDebug.FRASES;
   checar('a semente usa o cnpj da página e o dia', /new URLSearchParams\(location\.search\)\.get\('cnpj'\)/.test(m4) && /util\.dataIso\(new Date\(\)\)/.test(m4));
 })();
 
+// =====================================================================
+// 5. A ROTAÇÃO AVISA QUANDO PARA DE ROTACIONAR
+// =====================================================================
+// Sem cnpj na URL a semente vira só o dia, e TODOS os clientes recebem a
+// mesma variante. A mensagem continua correta, então nada quebra na tela --
+// e é por isso mesmo que precisa aparecer no console: a rotação morreria em
+// silêncio no dia em que o CRM renomeasse o parâmetro da URL.
+(function avisaQuandoPerdeOCnpj() {
+  const semCnpj = novaJanela({
+    url: 'https://texhub.texcotton.com.br/crm/clientes',
+    specs: SPECS,
+  });
+
+  const avisos = [];
+  const warnOriginal = console.warn;
+  console.warn = (...args) => { avisos.push(args.join(' ')); };
+  try {
+    semCnpj.__atalhosDebug.sementeDaFrase();
+    semCnpj.__atalhosDebug.sementeDaFrase();
+    semCnpj.__atalhosDebug.sementeDaFrase();
+  } finally {
+    console.warn = warnOriginal;
+  }
+
+  const sobreRotacao = avisos.filter((a) => /variar as frases/i.test(a));
+  checar('avisa quando não acha o cnpj pra variar', sobreRotacao.length > 0, avisos.join(' | ') || '(nenhum aviso)');
+  checar(
+    'e avisa UMA vez só, não uma por mensagem',
+    sobreRotacao.length === 1,
+    `${sobreRotacao.length} avisos em 3 chamadas`
+  );
+
+  // Mesmo sem cnpj, a frase escolhida continua sendo uma das válidas.
+  const escolhida = semCnpj.__atalhosDebug.frase(semCnpj.__atalhosDebug.FRASES.ctaGenerico);
+  checar('e a frase continua válida (degrada, não quebra)',
+    semCnpj.__atalhosDebug.FRASES.ctaGenerico.includes(escolhida), escolhida);
+})();
+
 resumo();

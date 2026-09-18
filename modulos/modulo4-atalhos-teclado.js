@@ -780,6 +780,7 @@
    *
    * @returns {string}
    */
+  let jaAvisouSementeSemCnpj = false;
   function sementeDaFrase() {
     let cnpj = '';
     try {
@@ -787,6 +788,20 @@
     } catch (erro) {
       cnpj = '';
     }
+
+    // AVISA em vez de degradar calado: sem cnpj a semente vira só o dia, e
+    // TODOS os clientes passam a receber a mesma variante naquele dia. A
+    // mensagem continua correta, então nada quebra na tela -- e é justamente
+    // por isso que precisa aparecer no console, senão a rotação morre sem
+    // ninguém notar no dia em que o CRM renomear o parâmetro da URL.
+    if (!cnpj && !jaAvisouSementeSemCnpj) {
+      jaAvisouSementeSemCnpj = true;
+      console.warn(
+        '[Atalhos] Não achei o cnpj na URL pra variar as frases. Todas as mensagens de hoje vão usar ' +
+        'a mesma variante. As frases seguem corretas -- só param de alternar entre clientes.'
+      );
+    }
+
     const util = window.__smartTableUtil;
     const dia = util && typeof util.dataIso === 'function' ? util.dataIso(new Date()) : '';
     return `${cnpj}|${dia}`;
@@ -1850,6 +1865,13 @@
    * porque passa a mentir sobre o que está rodando.
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
+    {
+      versao: '1.18.1', data: '18/09/2026',
+      mudancas: [
+        'Corrigido: depois de terminar a fila, o Alt+U remontava a MESMA lista do dia -- incluindo todo mundo que você já tinha cobrado.',
+        'Corrigido: remontar a fila gravava uma segunda atribuição do dia no diário, o que fazia o alarme de repetição disparar à toa.',
+      ],
+    },
     {
       versao: '1.18.0', data: '18/09/2026',
       mudancas: [

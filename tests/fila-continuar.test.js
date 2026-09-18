@@ -158,10 +158,23 @@ function gravarFila(w, { comPrioridade, total = 3, indiceAtual = 0, quando = Dat
   // Duplicar seria manter duas regras que podem divergir em silêncio.
   const m3 = fs.readFileSync(path.join(__dirname, '..', 'modulos', 'modulo3-fila-atendimento.js'), 'utf8');
   checar('o Módulo 3 é quem exclui quem já foi contatado hoje', /atendidosHoje\.has\(cnpj\)/.test(m3));
-  // Procura a CHAMADA, não a palavra: o Módulo 7 cita atendidosHoje num
-  // comentário explicando de onde o filtro vem, e a primeira versão desta
-  // asserção reprovava justamente o comentário que documenta a decisão.
-  checar('e o Módulo 7 não reimplementa esse filtro', !/obterAtendidosHoje\s*\(/.test(m7));
+  // O que esta asserção protege é NÃO DUPLICAR A REGRA -- duas cópias do
+  // mesmo filtro divergem em silêncio. Ela NÃO proíbe o Módulo 7 de aplicar
+  // o filtro; proíbe de reimplementá-lo.
+  //
+  // A distinção passou a importar na v1.18.1: o caminho do cache precisa
+  // reaplicar o filtro (o cache é um retrato da manhã, quando quase ninguém
+  // tinha sido atendido), e faz isso CHAMANDO obterAtendidosHoje do Módulo 3.
+  // A versão anterior desta asserção proibia a simples menção da função, e
+  // reprovou o conserto de um defeito real. Mirava no mecanismo, não na regra.
+  checar(
+    'o Módulo 7 não lê a chave de atendidos direto (isso é do Módulo 3)',
+    !/CHAVE_ATENDIDOS_HOJE|filaAtendidosHoje/.test(m7)
+  );
+  checar(
+    'quando ele filtra, é chamando a função do Módulo 3',
+    !/obterAtendidosHoje/.test(m7) || /filaDebug\.obterAtendidosHoje\(\)/.test(m7)
+  );
   checar('o Módulo 7 monta a base a partir do Módulo 3', /filaDebug\.construirFilaAPartirDaPagina\(\)/.test(m7));
 })();
 

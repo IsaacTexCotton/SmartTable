@@ -22,6 +22,9 @@ const { checar, resumo } = criarChecador('fila-cache');
 const URL_LISTA = 'https://texhub.texcotton.com.br/crm/clientes';
 const SPECS = [
   { arquivo: 'modulo0-utilitarios-compartilhados.js' },
+  // O diário entra porque duas asserções abaixo são sobre o que ele grava --
+  // sem ele carregado, elas passariam por ausência em vez de por acerto.
+  { arquivo: 'modulo8-diario.js' },
   { arquivo: 'modulo3-fila-atendimento.js' },
   { arquivo: 'modulo7-fila-prioridade.js' },
 ];
@@ -56,7 +59,7 @@ function resultado(i, prioridade, dias) {
 // classificarEmLote aceita um classificador injetado SÓ pra isto: abrir aba
 // de verdade não acontece no jsdom, e a concorrência é justamente o que esta
 // versão mudou. Sem a costura, o ponto da mudança ficaria sem cobertura.
-(async function pool() {
+async function pool() {
   const w = abrir();
   const api = w.filaPrioridadeDebug;
 
@@ -130,12 +133,12 @@ function resultado(i, prioridade, dias) {
   };
   const r3 = await api.classificarEmLote(clientes, () => {}, umRuimDepoisBom);
   checar('um bloqueio isolado não aborta nada', r3.abortouPorPopup === false && r3.resultados.length === 12);
-})();
+}
 
 // =====================================================================
 // 2. O CACHE: GRAVAR, LER, EXPIRAR
 // =====================================================================
-(function cache() {
+function cache() {
   const w = abrir();
   const api = w.filaPrioridadeDebug;
 
@@ -183,7 +186,7 @@ function resultado(i, prioridade, dias) {
     dia: w.__smartTableUtil.dataIso(new Date()), geradoEm: Date.now(), resultados: [],
   }));
   checar('cache vazio é tratado como ausente', api.lerCacheClassificacao() === null);
-})();
+}
 
 // =====================================================================
 // 3. EQUIVALÊNCIA — A ASSERÇÃO MAIS IMPORTANTE DO ARQUIVO
@@ -191,7 +194,7 @@ function resultado(i, prioridade, dias) {
 // Monta a fila pelos DOIS caminhos e compara cliente a cliente. Não o total:
 // os itens, na ordem. Total igual com ordem trocada já aconteceu neste
 // projeto, e a ordem É a saída da régua.
-(function equivalencia() {
+function equivalencia() {
   const w = abrir();
   const api = w.filaPrioridadeDebug;
 
@@ -236,12 +239,12 @@ function resultado(i, prioridade, dias) {
     filaFresca.clientes[0].prioridadeTier <= filaFresca.clientes[1].prioridadeTier,
     filaFresca.clientes.map((c) => c.prioridadeTier).join(', ')
   );
-})();
+}
 
 // =====================================================================
 // 4. O CONTRATO NO CÓDIGO
 // =====================================================================
-(function contrato() {
+function contrato() {
   const fs = require('fs');
   const path = require('path');
   const m7 = fs.readFileSync(path.join(__dirname, '..', 'modulos', 'modulo7-fila-prioridade.js'), 'utf8');
@@ -252,9 +255,148 @@ function resultado(i, prioridade, dias) {
     !/CHAVE_CACHE_CLASSIFICACAO[^\n]*filaAtendimento/.test(m7)
   );
   checar('iniciar() consulta o cache antes de classificar', /lerCacheClassificacao\(\)/.test(m7));
-  checar('o cache é gravado ANTES de montar a fila (não perder as ~92 visitas)', m7.indexOf('gravarCacheClassificacao(resultados)') < m7.indexOf('finalizarFila(resultados, contadores, excluidos)'));
+  checar(
+    'o cache é gravado ANTES de montar a fila (não perder as ~92 visitas)',
+    m7.indexOf('gravarCacheClassificacao(resultados)') < m7.indexOf('finalizarFila(resultados, contadores, excluidos,')
+  );
+  checar(
+    'só o caminho FRESCO pede pra registrar a atribuição no diário',
+    (m7.match(/registrarAtribuicao: true/g) || []).length === 1
+  );
+  checar(
+    'e o caminho do cache reaplica o filtro de já contatados hoje',
+    /obterAtendidosHoje\(\)/.test(m7) && /aindaAbertos/.test(m7)
+  );
   checar('Shift+Alt+U ignora o cache', /if \(!opcoes\?\.reconstruir\) \{\s*\n\s*const cache = lerCacheClassificacao\(\)/.test(m7));
   checar('há aquecimento sequencial antes de paralelizar', /while \(sucessos === 0 && !abortouPorPopup/.test(m7));
-})();
+}
 
-resumo();
+// =====================================================================
+// 5. O CACHE NÃO REENTREGA QUEM JÁ FOI COBRADO HOJE
+// =====================================================================
+// DEFEITO REAL, achado em revisão depois de publicado. A fila se apaga
+// sozinha ao terminar (limparFila, Módulo 3), então o dia normal era:
+// classifica 92 -> atende os 92 -> a fila some -> Alt+U -> o cache
+// reentregava os MESMOS 92, inclusive quem acabou de ser cobrado.
+//
+// O caminho FRESCO nunca teve isso: construirFilaAPartirDaPagina já exclui
+// atendidosHoje. O do cache precisa reaplicar, porque o cache é um retrato de
+// um momento em que quase ninguém tinha sido atendido.
+async function cacheRespeitaAtendidosHoje() {
+  const w = abrir();
+  const api = w.filaPrioridadeDebug;
+
+  const todos = [resultado(1, 3, 10), resultado(2, 9, 4), resultado(3, 10, 6)];
+  api.gravarCacheClassificacao(todos);
+
+  // Dois dos três já foram cobrados hoje.
+  w.filaDebug.marcarComoAtendidoHoje('1');
+  w.filaDebug.marcarComoAtendidoHoje('2');
+
+  await api.iniciar();
+
+  const fila = w.filaDebug.obterFila();
+  checar('o caminho do cache ainda monta fila', fila !== null);
+  checar(
+    'mas SÓ com quem ainda não foi contatado hoje',
+    fila.clientes.length === 1 && fila.clientes[0].cnpj === '3',
+    fila.clientes.map((c) => c.cnpj).join(', ')
+  );
+}
+
+async function cacheComTodosAtendidos() {
+  const w = abrir();
+  const api = w.filaPrioridadeDebug;
+
+  const todos = [resultado(1, 3, 10), resultado(2, 9, 4)];
+  api.gravarCacheClassificacao(todos);
+  w.filaDebug.marcarComoAtendidoHoje('1');
+  w.filaDebug.marcarComoAtendidoHoje('2');
+
+  await api.iniciar();
+
+  checar(
+    'com todos já contatados, NÃO monta fila nenhuma (em vez de refazer a do início)',
+    w.filaDebug.obterFila() === null
+  );
+}
+
+// =====================================================================
+// 6. UMA ATRIBUIÇÃO POR DIA NO DIÁRIO
+// =====================================================================
+// DEFEITO REAL, mesma revisão: registrarLote mora dentro de finalizarFila, e
+// finalizarFila passou a ter DOIS chamadores. Remontar a fila do cache
+// gravava uma segunda atribuição do mesmo dia para os mesmos clientes -- o
+// mesmo defeito da v1.9.2, por um caminho novo.
+//
+// A análise sobreviveria (analisar() deduplica e mantém a primeira), mas
+// atribuicoesRepetidas existe pra DENUNCIAR isso. Fazê-lo disparar todo dia é
+// aposentar o alarme.
+function umaAtribuicaoPorDia() {
+  const w = abrir();
+  const api = w.filaPrioridadeDebug;
+  const d = w.__diario;
+
+  const contarFila = () => {
+    const cru = w.localStorage.getItem(d.CONFIG_DIARIO.PREFIXO_CHAVE + d.chaveDia());
+    return cru ? JSON.parse(cru).filter((e) => e.t === 'fila').length : 0;
+  };
+
+  const resultados = [resultado(1, 3, 10), resultado(2, 9, 4)];
+
+  checar('diário começa sem atribuição de fila', contarFila() === 0);
+
+  // Caminho FRESCO: registra.
+  api.finalizarFila(resultados, {}, null, { registrarAtribuicao: true });
+  checar('o caminho fresco registra a atribuição do dia', contarFila() === 2, String(contarFila()));
+
+  // Caminho do CACHE (mesmo dia, mesmos clientes): NÃO pode registrar de novo.
+  api.finalizarFila(resultados, {}, null);
+  checar(
+    'remontar do cache NÃO grava uma segunda atribuição',
+    contarFila() === 2,
+    `${contarFila()} eventos 'fila' (esperado 2, um por cliente)`
+  );
+
+  // E o alarme do diário continua em zero -- que é o ponto.
+  const analise = d.analisar();
+  checar(
+    'o contador atribuicoesRepetidas continua zerado',
+    analise.atribuicoesRepetidas === 0,
+    String(analise.atribuicoesRepetidas)
+  );
+
+  // O padrão é NÃO registrar: chamador novo tem que pedir.
+  checar('sem pedir, não registra', (() => {
+    const antes = contarFila();
+    api.finalizarFila([resultado(9, 3, 5)], {}, null);
+    return contarFila() === antes;
+  })());
+}
+
+// =====================================================================
+// EXECUÇÃO — sequencial, e isso não é estilo
+// =====================================================================
+// Os blocos eram IIFEs soltas, e os assíncronos terminavam DEPOIS dos
+// síncronos. Duas consequências, as duas achadas na prática:
+//
+//   1. localStorage é identificador livre dentro do window.eval, então
+//      resolve pro global do Node -- que aponta pra ÚLTIMA janela criada. Um
+//      bloco síncrono criando janela no meio do await de outro fazia o
+//      primeiro medir o localStorage do segundo. Foi assim que uma asserção
+//      sobre a fila do cache leu a fila de outro teste.
+//   2. resumo() rodava antes das asserções assíncronas chegarem: o arquivo
+//      imprimia 25 de mais de 30. Contagem que não conta tudo é pior que
+//      contagem nenhuma.
+//
+// Uma janela por vez, na ordem, e o resumo por último.
+(async function main() {
+    await pool();
+  await cache();
+  await equivalencia();
+  await contrato();
+  await cacheRespeitaAtendidosHoje();
+  await cacheComTodosAtendidos();
+  await umaAtribuicaoPorDia();
+  resumo();
+})();

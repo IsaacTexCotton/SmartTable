@@ -1074,9 +1074,35 @@
     if (!opcoes?.reconstruir) {
       const cache = lerCacheClassificacao();
       if (cache) {
+        // DEFEITO REAL, achado em revisão antes de chegar no seu dia: o
+        // caminho do cache montava a fila com os resultados COMO ESTAVAM na
+        // classificação da manhã. Como a fila se apaga sozinha ao terminar
+        // (limparFila no Módulo 3), a sequência normal do dia era: classifica
+        // 92, atende os 92, a fila some, você aperta Alt+U -- e o cache
+        // reentregava os MESMOS 92, incluindo todo mundo que você acabou de
+        // cobrar.
+        //
+        // O caminho fresco nunca teve esse problema porque
+        // construirFilaAPartirDaPagina (Módulo 3) já exclui atendidosHoje. O
+        // do cache precisa reaplicar, porque o cache é um retrato de um
+        // momento em que quase ninguém tinha sido atendido ainda.
+        const atendidos = window.filaDebug.obterAtendidosHoje();
+        const aindaAbertos = cache.resultados.filter((r) => !atendidos.has(r.cliente?.cnpj));
+
+        if (aindaAbertos.length === 0) {
+          toast('Todos os clientes classificados hoje já foram contatados. Shift+Alt+U refaz do zero.', 6000);
+          return;
+        }
+
+        // Um toast só: o resumo do finalizarFila vem logo atrás e cobria este
+        // antes de dar tempo de ler. O que interessa (de quando é a
+        // classificação) entra no console, que é onde se investiga.
         const minutos = Math.round((Date.now() - cache.geradoEm) / 60000);
-        toast(`Montando a fila da classificação de hoje (${minutos} min atrás). Shift+Alt+U refaz.`);
-        finalizarFila(cache.resultados, {}, null);
+        console.log(
+          `[Fila Prioridade] Fila montada do cache de hoje (${minutos} min atrás): ` +
+          `${aindaAbertos.length} de ${cache.resultados.length} ainda não contatados.`
+        );
+        finalizarFila(aindaAbertos, {}, null);
         return;
       }
     }
@@ -1145,7 +1171,7 @@
     // motivo, o trabalho caro (as ~92 visitas) não se perde.
     gravarCacheClassificacao(resultados);
 
-    finalizarFila(resultados, contadores, excluidos);
+    finalizarFila(resultados, contadores, excluidos, { registrarAtribuicao: true });
   }
 
   /**
@@ -1161,8 +1187,11 @@
    * @param {object[]} resultados Classificados com sucesso.
    * @param {object} contadores Para o resumo na tela (zeros vindo do cache).
    * @param {object} excluidos Exclusões da lista, para o mesmo resumo.
+   * @param {{registrarAtribuicao?: boolean}} [opcoesDaFila] registrarAtribuicao
+   *   grava a atribuição do dia no diário. Só o caminho FRESCO passa true --
+   *   ver a guarda lá embaixo e o porquê.
    */
-  function finalizarFila(resultados, contadores, excluidos) {
+  function finalizarFila(resultados, contadores, excluidos, opcoesDaFila) {
     const {
       excluidosPorPromessa = 0,
       excluidosPorNaoCobrar = 0,
@@ -1217,7 +1246,20 @@
     // Registra a ATRIBUIÇÃO do dia: faixa, posição final e grupo. Um lote só,
     // um acesso ao localStorage -- gravar 150 vezes seguidas durante o Alt+U
     // seria desperdício. Se o diário não estiver carregado, segue sem ele.
-    if (diario) {
+    //
+    // SÓ NA PRIMEIRA VEZ DO DIA. finalizarFila passou a ter DOIS chamadores
+    // (a classificação fresca e a remontagem a partir do cache), e sem esta
+    // guarda a remontagem gravava uma segunda atribuição do mesmo dia para os
+    // mesmos clientes -- o mesmo defeito corrigido na v1.9.2, por um caminho
+    // novo. A análise sobreviveria (analisar() deduplica por (cnpj, dia) e
+    // mantém a primeira), mas o contador atribuicoesRepetidas existe
+    // justamente pra denunciar isso: fazê-lo disparar todo dia é aposentar o
+    // alarme.
+    //
+    // O padrão é NÃO registrar: chamador novo que precise registrar tem que
+    // pedir. Dado faltando é recuperável; dado duplicado contamina em
+    // silêncio.
+    if (diario && opcoesDaFila?.registrarAtribuicao) {
       diario.registrarLote(
         'fila',
         resultadosSemDuplicataDeGrupo.map((r, indice) => ({
