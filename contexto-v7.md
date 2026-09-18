@@ -8,7 +8,8 @@ direto de lá (branches `main` e `estavel`, histórico de commits, testes).
 Este documento existe pra economizar o que o `git log` não conta sozinho: as
 decisões, os fatos confirmados ao vivo e as armadilhas já pisadas.
 
-**Atualizado em**: 2026-09-18, na versão publicada **1.18.1**. Se o
+**Atualizado em**: 2026-09-18, na versão do `main` **1.19.0** (canal estável
+ainda em 1.18.1 até a próxima `npm run release`). Se o
 `@version` do repo for maior que isso quando você ler, o texto abaixo ainda
 descreve a arquitetura corretamente, mas pode haver módulo/atalho novo não
 listado — checar `smart-table.user.js` e `modulos/` antes de assumir que a
@@ -25,8 +26,8 @@ substituído por completo:
   distribuir pro time sem reenviar arquivo.
 - **Dois canais** (`main` = desenvolvimento, `estavel` = o que o time
   instala) em vez de um arquivo só — ver seção própria abaixo.
-- **11 módulos**, não 6 — a numeração histórica (1-6) foi mantida por
-  compatibilidade e os novos entraram como 7-10 fora de ordem cronológica de
+- **12 módulos**, não 6 — a numeração histórica (1-6) foi mantida por
+  compatibilidade e os novos entraram como 7-11 fora de ordem cronológica de
   criação.
 - Uma segunda pessoa (**Bianca**) agora também vai usar o script — ainda não
   instalado na máquina dela até a data deste documento (ver "Itens em
@@ -72,12 +73,12 @@ canal estável, empurra `main` primeiro (é de lá que o Tampermonkey lê
 `@version` para o aviso de atualização), depois `estavel` — com retentativa
 exponencial (2/4/8/16s) em falha de rede.
 
-## Estrutura atual (11 módulos, `modulos/*.js`, nesta ordem de carregamento)
+## Estrutura atual (12 módulos, `modulos/*.js`, nesta ordem de carregamento)
 
 Ordem real dos `@require` (importa: módulos posteriores dependem de
 `window.__X` publicado pelos anteriores):
 
-**0 → 9 → 10 → 8 → 1 → 2 → 3 → 7 → 5 → 4 → 6**
+**0 → 9 → 10 → 8 → 1 → 2 → 3 → 7 → 11 → 5 → 4 → 6**
 
 | # | Nome do arquivo | Função | Atalho |
 |---|---|---|---|
@@ -92,6 +93,7 @@ Ordem real dos `@require` (importa: módulos posteriores dependem de
 | 8 | `modulo8-diario.js` | Instrumentação: grava eventos de fila/contato/baixa por dia, pra medir se a régua de prioridade funciona. Ver "Itens em aberto" — decisão de shipar pro time ainda em jogo. | — |
 | 9 | `modulo9-painel-configuracoes.js` | Painel genérico de interruptores (Alt+O). Não conhece nenhuma config específica — só desenha o que está declarado em `DEFINICOES` no Módulo 0. | Alt+O |
 | 10 | `modulo10-recebido-na-semana.js` | Total recebido na semana vigente (sáb-sex) por depósito e por promessa cumprida, Isaac e Bianca, vindo de dado real de API — não inferência. | Alt+D |
+| 11 | `modulo11-progresso-fila.js` | Botão discreto (não atalho de teclado, pedido explícito) que abre um painel com uma barra por faixa de prioridade da fila de hoje: cobrados/total (ex.: "23/56"). Não recalcula nada — agrupa a mesma fila que o Alt+U já grava. Ver seção própria. | (botão na borda direita da tela) |
 
 ## Convenções obrigatórias (não redescobrir)
 
@@ -250,6 +252,33 @@ aquecimento sequencial até o primeiro sucesso pra não afrouxar o disjuntor
 de pop-up. Ganho medido: de 3-5 minutos pra ~30-45s na primeira vez do dia,
 instantâneo depois.
 
+## Progresso da fila — botão discreto, não atalho (Módulo 11)
+
+Pedido explícito do usuário: um **botão**, "muito bem localizado e
+escondido" — não um `Alt+letra`. Gatilho quase invisível (opacidade baixa,
+evidente só ao passar o mouse/focar) fixo na **borda direita da tela**,
+vertical-centralizado — o único canto ainda livre (esquerda-inferior já tem
+"Continuar fila"+painéis; direita-inferior já tem os toasts de troca de
+prioridade do Módulo 7). Ao clicar, abre um painel com **uma barra por faixa
+de prioridade** da fila de hoje, escrito `cobrados/total` (ex.: `23/56`),
+mais um total geral no topo.
+
+**Não recalcula nada**: agrupa `window.filaDebug.obterFila().clientes` (cada
+cliente já tem `prioridadeTier`, gravado pelo Módulo 7) por faixa, e cruza
+com `window.filaDebug.obterAtendidosHoje()` pra saber quantos daquela faixa
+já foram cobrados. Nomes e cores das faixas vêm do Módulo 7
+(`NOMES_PRIORIDADE`/`CORES_PRIORIDADE`, o segundo passou a ser exportado
+por causa deste módulo) — deliberadamente **não duplicados aqui**, pra nunca
+divergir se uma faixa mudar de nome ou cor.
+
+Mensagens de fallback claras, nunca tela em branco: sem fila hoje ("Alt+U
+monta por prioridade"), fila existe mas é do Alt+I sem `prioridadeTier`
+("essa fila não é por prioridade, use Alt+U"). Entra no registro de painéis
+do Módulo 0 como qualquer outro (`registrarPainel('progressoFila', ...)`).
+**Não é ao vivo** — como o resto dos painéis, recalcula só ao abrir; como
+cada cliente da fila é uma navegação de página cheia, não haveria como
+manter aberto durante o trabalho de qualquer forma.
+
 ## Diário — instrumentação (Módulo 8)
 
 Grava três tipos de evento por dia (`fila`, `contato`, `baixa`) numa chave de
@@ -321,8 +350,12 @@ na mensagem de commit, não em documento separado):
 - **Instalar `smart-table-estavel.user.js` na máquina da Bianca** e conferir
   ao vivo se `@grant none` realmente expõe o `window` da página nessa outra
   máquina (o README trata isso como confirmado só na máquina do Isaac).
-  Confirmar também que o console mostra `11/11 módulos` carregados.
-  Se vier menos que 11, é cache do Tampermonkey, não bug.
+  Confirmar também que o console mostra `12/12 módulos` carregados (número
+  sobe junto com `modulos/` — checar o valor atual antes de assumir 12).
+  Se vier menos, é cache do Tampermonkey, não bug.
+- **Módulo 11 ainda não foi publicado no canal estável** (só está em `main`,
+  v1.19.0) — a Bianca não recebe o botão de progresso até rodar
+  `npm run release`.
 - **Toggle de liga/desliga do diário** e **marcar configuração não-padrão
   no Alt+O / badge de versão** — recomendados, ainda não construídos.
 - **Réplica do grupo econômico deveria contar pra `nuncaContatadoPorMim`?**
@@ -358,6 +391,6 @@ na mensagem de commit, não em documento separado):
 
 Repositório `IsaacTexCotton/SmartTable` (público, GitHub). `main` é
 desenvolvimento; `estavel` é o que o time instala. `npm run verificar` roda
-lock + lint + suíte completa (27 arquivos em `tests/`). `README.md` tem o
+lock + lint + suíte completa (28 arquivos em `tests/`). `README.md` tem o
 detalhe operacional de publicação; este documento é o resumo de decisões e
 fatos que não estão em nenhum commit isolado.
