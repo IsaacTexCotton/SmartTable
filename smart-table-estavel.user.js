@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SmartTable — Automação de Cobrança TexCotton (estável)
 // @namespace    https://github.com/IsaacTexCotton/SmartTable
-// @version      1.11.2
+// @version      1.18.1
 // @description  Canal ESTÁVEL do SmartTable: os módulos vêm do branch `estavel`, não da branch main. Só muda quando uma versão nova é publicada de propósito.
 // @author       Isaac
 // @match        https://texhub.texcotton.com.br/crm/*
@@ -10,6 +10,9 @@
 // @updateURL    https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table-estavel.user.js
 // @downloadURL  https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/main/smart-table-estavel.user.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/estavel/modulos/modulo0-utilitarios-compartilhados.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/estavel/modulos/modulo9-painel-configuracoes.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/estavel/modulos/modulo10-recebido-na-semana.js
+// @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/estavel/modulos/modulo8-diario.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/estavel/modulos/modulo1-aviso-cobranca.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/estavel/modulos/modulo2-registrar-enviar.js
 // @require      https://raw.githubusercontent.com/IsaacTexCotton/SmartTable/estavel/modulos/modulo3-fila-atendimento.js
