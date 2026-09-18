@@ -753,11 +753,109 @@
     return [...regua, ...controle].sort((a, b) => a.rank - b.rank);
   }
 
-  async function iniciar() {
+  /**
+   * A fila salva foi montada por ESTE módulo?
+   *
+   * Módulo 3 (Alt+I) e Módulo 7 (Alt+U) gravam na MESMA chave do
+   * localStorage -- uma sobrescreve a outra. O que distingue é o
+   * prioridadeTier, que só a fila por prioridade carrega (mesmo critério já
+   * usado em avisarSeTrocouDePrioridade).
+   *
+   * Sem esta checagem, o Alt+U "retomaria" uma fila do Alt+I e chamaria de
+   * fila por prioridade -- os clientes até existiriam, mas a ordem não seria
+   * a da régua, e nada na tela diria isso.
+   *
+   * @param {object|null} fila
+   * @returns {boolean}
+   */
+  function ehFilaDePrioridade(fila) {
+    return Boolean(fila?.clientes?.some((c) => c && c.prioridadeTier != null));
+  }
+
+  /**
+   * Tenta continuar a fila por prioridade de HOJE em vez de refazer tudo.
+   *
+   * POR QUE EXISTE (pedido do usuário): iniciar() sempre reconstruía, e
+   * reconstruir custa abrir ~140 abas de fundo, com até 8s de espera cada.
+   * Apertar Alt+U às 14h só pra voltar pra fila refazia a varredura inteira
+   * E sobrescrevia a fila da manhã, perdendo a posição onde você estava.
+   *
+   * A fila JÁ ficava salva o dia todo (Módulo 3 só descarta no dia
+   * seguinte). Nunca houve decisão de "sempre reconstruir" -- o caminho de
+   * continuar simplesmente não existia.
+   *
+   * NÃO usa o botão "Continuar fila anterior" do Módulo 3: CONFIRMADO com o
+   * usuário que aquele botão é do Alt+I e continua sendo só dele.
+   *
+   * @returns {boolean} true se retomou (e quem chamou não deve reconstruir).
+   */
+  /**
+   * A DECISÃO de retomar, sem efeito colateral nenhum.
+   *
+   * Separada de retomarFilaDeHoje() porque navegar não é testável fora do
+   * navegador (o jsdom não implementa navegação), e sem essa separação a
+   * regra -- que fila serve, onde continuar, quantos faltam -- ficaria sem
+   * cobertura. Mesmo padrão já usado em construirUrlProtocoloWhatsApp
+   * (Módulo 2) e montarExportacao (Módulo 8).
+   *
+   * @returns {{url: string, cnpj: string, restantes: number, total: number,
+   *   jaEstouNele: boolean}|null} null quando não há o que retomar.
+   */
+  function alvoDeRetomada() {
+    if (!window.filaDebug || typeof window.filaDebug.obterFila !== 'function') return null;
+
+    // obterFila() já devolve null pra fila de outro dia -- a janela de
+    // validade é o dia, e ela é do Módulo 3.
+    const fila = window.filaDebug.obterFila();
+    if (!fila || !ehFilaDePrioridade(fila)) return null;
+
+    const indice = Math.max(0, fila.indiceAtual);
+    const restantes = fila.clientes.length - indice;
+    if (restantes <= 0) return null; // fila terminada: reconstruir é o certo
+
+    const alvo = fila.clientes[indice];
+    if (!alvo || !alvo.url) return null;
+
+    // Se você JÁ está no cliente onde parou, navegar seria só um reload que
+    // apaga o que estiver na tela -- inclusive uma observação digitada pela
+    // metade.
+    const cnpjAtual = window.filaDebug.extrairCnpjDaUrl(location.href);
+
+    return {
+      url: alvo.url,
+      cnpj: alvo.cnpj,
+      restantes,
+      total: fila.clientes.length,
+      jaEstouNele: Boolean(cnpjAtual) && cnpjAtual === alvo.cnpj,
+    };
+  }
+
+  function retomarFilaDeHoje() {
+    const alvo = alvoDeRetomada();
+    if (!alvo) return false;
+
+    toast(`Fila de hoje: ${alvo.restantes} de ${alvo.total} restantes. Shift+Alt+U refaz.`);
+    if (!alvo.jaEstouNele) window.location.href = alvo.url;
+    return true;
+  }
+
+  /**
+   * @param {{reconstruir?: boolean}} [opcoes] reconstruir: true ignora a
+   *   fila de hoje e refaz do zero (Shift+Alt+U).
+   */
+  async function iniciar(opcoes) {
     if (classificandoEmAndamento) {
       toast('Já tem uma classificação em andamento -- aguarde terminar.');
       return;
     }
+
+    // Continuar é o caso comum; refazer é o raro. Quem refaz pede
+    // explicitamente.
+    //
+    // Reconstruir também é o que APLICA de novo o filtro de "já contatado
+    // hoje": ele vem de graça do construirFilaAPartirDaPagina() do Módulo 3,
+    // que pula quem está em atendidosHoje. Não existe filtro duplicado aqui.
+    if (!opcoes?.reconstruir && retomarFilaDeHoje()) return;
 
     const candidatos = candidatosEnriquecidos();
     if (candidatos === null) return; // aviso já foi ao console
@@ -1001,6 +1099,9 @@
   }
 
   window.filaPrioridadeDebug = {
+    ehFilaDePrioridade,
+    alvoDeRetomada,
+    retomarFilaDeHoje,
     CONFIG,
     NOMES_PRIORIDADE,
     ordenarComGrupoControle,

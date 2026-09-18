@@ -132,7 +132,8 @@
   // desalinhados entre si.
   const LISTA_ATALHOS = [
     { tecla: 'Alt+I', descricao: 'Iniciar Fila de Atendimento' },
-    { tecla: 'Alt+U', descricao: 'Iniciar Fila por Prioridade (visita cada cliente em aba de fundo pra classificar -- pode levar minutos)' },
+    { tecla: 'Alt+U', descricao: 'Fila por Prioridade: continua a de hoje; só monta do zero se não houver' },
+    { tecla: 'Shift+Alt+U', descricao: 'Refazer a fila por prioridade do zero (tira quem já foi contatado hoje)' },
     { tecla: 'Alt+R', descricao: 'Gerar Relatório' },
     { tecla: 'Alt+C', descricao: 'Entrar na tela de contato' },
     { tecla: 'Alt+F', descricao: 'Selecionar a 1ª frase padrão' },
@@ -354,9 +355,10 @@
     }
   }
 
-  function acionarFilaPorPrioridade() {
+  /** @param {{reconstruir?: boolean}} [opcoes] */
+  function acionarFilaPorPrioridade(opcoes) {
     if (window.filaPrioridadeDebug && typeof window.filaPrioridadeDebug.iniciar === 'function') {
-      window.filaPrioridadeDebug.iniciar();
+      window.filaPrioridadeDebug.iniciar(opcoes);
     } else {
       console.warn('[Atalhos] Módulo de Fila por Prioridade (Módulo 7) não encontrado. Confirme se ele foi colado ANTES deste arquivo.');
     }
@@ -1745,6 +1747,14 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.16.0', data: '18/09/2026',
+      mudancas: [
+        'Alt+U agora CONTINUA a fila de hoje em vez de refazer tudo -- ele volta direto pro cliente onde você parou.',
+        'Shift+Alt+U refaz a fila do zero, quando você quiser mesmo. Refazer já tira quem foi contatado hoje.',
+        'Antes, apertar Alt+U às 14h revisitava ~140 clientes e ainda apagava a fila da manhã com a sua posição nela.',
+      ],
+    },
+    {
       versao: '1.15.1', data: '18/09/2026',
       mudancas: [
         'Corrigido: os painéis de Ajuda, Novidades, Configurações e Entrou na semana abriam todos no mesmo canto, um por cima do outro.',
@@ -2164,6 +2174,23 @@
   document.addEventListener(
     'keydown',
     function (e) {
+      // EXCEÇÃO DIRIGIDA, e a única com Shift: Shift+Alt+U REFAZ a fila por
+      // prioridade, enquanto Alt+U sozinho continua a de hoje.
+      //
+      // Precisa vir antes da guarda abaixo, que barra Shift de propósito. O
+      // Shift aqui não é enfeite: refazer descarta a fila em andamento e
+      // custa abrir ~140 abas de fundo. Exigir uma tecla a mais pra isso é o
+      // que impede de acontecer por reflexo -- e evita um atalho novo,
+      // dentro do orçamento de tela e de teclas do projeto.
+      if (
+        e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.repeat &&
+        e.code === CONFIG_ATALHOS.TECLA_FILA_PRIORIDADE && !estaDigitando()
+      ) {
+        e.preventDefault();
+        acionarFilaPorPrioridade({ reconstruir: true });
+        return;
+      }
+
       // Só reage a Alt sozinho (sem Ctrl/Shift/Meta), pra minimizar colisão
       // com outros atalhos do navegador ou do próprio CRM.
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
