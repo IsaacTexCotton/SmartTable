@@ -11,7 +11,12 @@
  * por completo), em ordem -- cada cliente entra na PRIMEIRA faixa que se
  * aplicar a ele:
  *   1. Cartório -- último dia (situação ULTIMO_DIA, fluxo Cartório)
- *   2. Cluster "Novo"
+ *   2. Cluster "Novo" -- vale em QUALQUER situação de título, inclusive já
+ *      em cartório, e por isso é a ÚNICA faixa isenta do teto de
+ *      DIAS_ATRASO_MAX no filtro da lista (ver filtrarPorRegrasDaLista):
+ *      PEDIDO DO USUÁRIO -- um cliente novo com título em cartório precisa
+ *      continuar aparecendo na fila porque a cobrança é quem bloqueia o
+ *      faturamento desse cliente.
  *   3. Segundo dia de atraso (situação EM_ATRASO, dia 2 exato -- contato
  *      bem cedo, antes do problema crescer)
  *   4. Dia da promessa de pagamento (o cliente combinou pagar HOJE e o
@@ -449,8 +454,27 @@
     return diasCorridos > CONFIG.DIAS_MOVIMENTACAO_ANTIGA;
   }
 
+  // Extraído pra não duplicar a mesma normalização (trim + minúsculas) que
+  // determinarPrioridade já fazia inline -- é exatamente o tipo de regra
+  // copiada em dois lugares que este projeto paga caro quando um dos dois
+  // fica pra trás (ver Módulo 2/Módulo 4, título representativo).
+  function ehClusterNovo(cluster) {
+    return (cluster || '').trim().toLowerCase() === CONFIG.VALOR_CLUSTER_NOVO;
+  }
+
   // Exclusões que já dá pra decidir só com o que a lista mostra -- não
   // precisa visitar ninguém pra isso.
+  //
+  // EXCEÇÃO PEDIDA PELO USUÁRIO (Cluster Novo não é cortado pelo teto de
+  // dias): um cliente Cluster Novo com título já em cartório passa dos 19
+  // dias de sobra e seria excluído aqui -- mas ele PRECISA aparecer na fila,
+  // porque a cobrança é quem bloqueia o faturamento pra esse cliente. Cluster
+  // Novo já vira prioridade 2 em QUALQUER situação de título
+  // (determinarPrioridade não olha o código da situação pra essa faixa), e
+  // como este filtro roda ANTES de visitar o cliente e descobrir se o título
+  // está mesmo em cartório, a exceção precisa valer pro cluster inteiro --
+  // não dá pra saber "é cartório?" sem visitar, e visitar é exatamente o que
+  // este filtro existe pra evitar fazer em quem não vai entrar na fila mesmo.
   function filtrarPorRegrasDaLista(candidatos) {
     const sobreviventes = [];
     const excluidos = { dias: 0, diaUm: 0, movimentacaoHoje: 0, semDias: 0 };
@@ -460,7 +484,7 @@
         excluidos.semDias++;
         return;
       }
-      if (c.diasAtraso > CONFIG.DIAS_ATRASO_MAX) {
+      if (c.diasAtraso > CONFIG.DIAS_ATRASO_MAX && !ehClusterNovo(c.cluster)) {
         excluidos.dias++;
         return;
       }
@@ -532,7 +556,7 @@
     const tipoPromessa = contextoPromessa ? contextoPromessa.tipo : null;
 
     if (escolhido.situacaoKey === 'ULTIMO_DIA' && fluxo === 'CARTORIO') return 1;
-    if ((cluster || '').trim().toLowerCase() === CONFIG.VALOR_CLUSTER_NOVO) return 2;
+    if (ehClusterNovo(cluster)) return 2;
     if (escolhido.situacaoKey === 'EM_ATRASO' && escolhido.diasAtrasoReal === CONFIG.DIA_PRIORIDADE_SEGUNDO_DIA) return 3;
     if (tipoPromessa === 'DIA_DA_PROMESSA') return 4;
     if (tipoPromessa === 'QUEBRADA' || tipoPromessa === 'PARCIAL') return 5;
@@ -1382,6 +1406,7 @@
     candidatosEnriquecidos,
     filtrarPorRegrasDaLista,
     determinarPrioridade,
+    ehClusterNovo,
     movimentacaoMaisDeUmMes,
     filtrarPorGrupoEconomico,
     escolherTituloRepresentativo,

@@ -1866,6 +1866,12 @@
    * --------------------------------------------------------------------- */
   const LOG_ATUALIZACOES = [
     {
+      versao: '1.20.0', data: '18/09/2026',
+      mudancas: [
+        'Corrigido: Cluster Novo com título já em cartório era excluído da fila por prioridade por causa do teto de dias de atraso -- agora aparece sempre, porque é a cobrança quem bloqueia o faturamento desse cliente.',
+      ],
+    },
+    {
       versao: '1.19.0', data: '18/09/2026',
       mudancas: [
         'Novo: um botão discreto na borda direita da tela mostra o progresso da fila de hoje, uma barra por prioridade (ex.: 23/56 cobrados).',

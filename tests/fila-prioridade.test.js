@@ -150,6 +150,93 @@ function registro(situacaoKey, diasAtrasoReal, extra) {
 })();
 
 // =====================================================================
+// 5b. PEDIDO DO USUÁRIO: Cluster Novo com título em cartório não pode ser
+// cortado pelo teto de dias -- ele precisa aparecer na fila porque a
+// cobrança é quem bloqueia o faturamento desse cliente.
+// =====================================================================
+(function () {
+  // 40 dias -- bem além do teto de 19, o caso real de um título já em
+  // cartório há tempo (o cenário exato que o usuário relatou).
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '66666666/0001-66', dias: 40 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: '66666666/0001-66', cluster: 'Novo', movimentacaoIso: '2026-08-01T08:00:00.000000' })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  const { sobreviventes, excluidos } = w.filaPrioridadeDebug.filtrarPorRegrasDaLista(candidatos);
+  checar(
+    'Cluster Novo com 40 dias de atraso NÃO é excluído pelo teto (era excluído antes desta mudança)',
+    sobreviventes.length === 1 && excluidos.dias === 0,
+    JSON.stringify({ sobreviventes, excluidos })
+  );
+})();
+
+(function () {
+  // Regressão: a exceção é só pro TETO de dias. As outras duas exclusões da
+  // fase de lista continuam valendo pra Cluster Novo -- não virou bypass
+  // geral.
+  const htmlDiaUm = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '66666666/0002-66', dias: 1 })}</tbody></table>`;
+  const wDiaUm = abrirLista(
+    'https://texhub.texcotton.com.br/crm/clientes',
+    htmlDiaUm,
+    [clienteJson({ cnpj: '66666666/0002-66', cluster: 'Novo', movimentacaoIso: '2026-09-01T08:00:00.000000' })]
+  );
+  const { sobreviventes: sDiaUm, excluidos: eDiaUm } = wDiaUm.filaPrioridadeDebug.filtrarPorRegrasDaLista(
+    wDiaUm.filaPrioridadeDebug.candidatosEnriquecidos()
+  );
+  checar(
+    'Cluster Novo com 1 dia de atraso continua excluído (exceção não é geral)',
+    sDiaUm.length === 0 && eDiaUm.diaUm === 1,
+    JSON.stringify({ sDiaUm, eDiaUm })
+  );
+
+  const htmlHoje = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '66666666/0003-66', dias: 40 })}</tbody></table>`;
+  const wHoje = abrirLista(
+    'https://texhub.texcotton.com.br/crm/clientes',
+    htmlHoje,
+    [clienteJson({ cnpj: '66666666/0003-66', cluster: 'Novo', movimentacaoIso: hojeIso() })]
+  );
+  const { sobreviventes: sHoje, excluidos: eHoje } = wHoje.filaPrioridadeDebug.filtrarPorRegrasDaLista(
+    wHoje.filaPrioridadeDebug.candidatosEnriquecidos()
+  );
+  checar(
+    'Cluster Novo com movimentação hoje continua excluído mesmo isento do teto de dias',
+    sHoje.length === 0 && eHoje.movimentacaoHoje === 1,
+    JSON.stringify({ sHoje, eHoje })
+  );
+})();
+
+(function () {
+  // Regressão inversa: cliente comum (não Cluster Novo) com muitos dias de
+  // atraso continua excluído -- a exceção não vazou pra quem não pediu.
+  const html = `<table><tbody>${linhaHtml({ grupoId: 0, cnpj: '66666666/0004-66', dias: 40 })}</tbody></table>`;
+  const clientes = [clienteJson({ cnpj: '66666666/0004-66', cluster: 'Normal', movimentacaoIso: '2026-08-01T08:00:00.000000' })];
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', html, clientes);
+  const candidatos = w.filaPrioridadeDebug.candidatosEnriquecidos();
+  const { sobreviventes, excluidos } = w.filaPrioridadeDebug.filtrarPorRegrasDaLista(candidatos);
+  checar(
+    'cliente comum com 40 dias de atraso continua excluído (a exceção é só do Cluster Novo)',
+    sobreviventes.length === 0 && excluidos.dias === 1,
+    JSON.stringify({ sobreviventes, excluidos })
+  );
+})();
+
+(function () {
+  // Ponta a ponta: o mesmo cenário relatado (Cluster Novo, título já em
+  // cartório, bem além do teto de dias) chega em determinarPrioridade e
+  // sai como prioridade 2 -- não só sobrevive ao filtro, termina na faixa
+  // certa.
+  const w = abrirLista('https://texhub.texcotton.com.br/crm/clientes', '<table><tbody></tbody></table>');
+  const prio = w.filaPrioridadeDebug.determinarPrioridade(
+    registro('EM_CARTORIO', 40),
+    'CARTORIO',
+    'Novo',
+    null,
+    null,
+    null
+  );
+  checar('Cluster Novo + título em cartório + 40 dias -> prioridade 2, de ponta a ponta', prio === 2, String(prio));
+})();
+
+// =====================================================================
 // 6. determinarPrioridade -- as 10 faixas, na ordem certa (waterfall).
 // PEDIDO DO USUÁRIO (2ª revisão): reordenou a régua inteira -- "segundo
 // dia" virou faixa própria (P3, bem no topo), SCPC-último-dia desceu de
